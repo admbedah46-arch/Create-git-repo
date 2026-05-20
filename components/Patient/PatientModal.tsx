@@ -7,12 +7,13 @@ import { Button } from '../Button';
 interface PatientModalProps {
   onClose: () => void;
   onSave: (patient: Omit<Patient, 'id'>) => void;
+  onDelete?: (id: string) => void;
   masterData: MasterData;
   currentUser: User | null;
   initialData?: Patient;
 }
 
-export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, masterData, currentUser, initialData }) => {
+export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onDelete, masterData, currentUser, initialData }) => {
   const [formData, setFormData] = useState<Omit<Patient, 'id'>>({
     noRegister: initialData?.noRegister || '',
     noRM: initialData?.noRM || '',
@@ -42,10 +43,19 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, mas
     emergencyContactPhone: initialData?.emergencyContactPhone || '',
     status: initialData?.status || 'ADMITTED',
     dischargeDate: initialData?.dischargeDate || '',
-    deathTime: initialData?.deathTime
+    dischargeTime: initialData?.dischargeTime || '',
+    deathTime: initialData?.deathTime,
+    apsReason: initialData?.apsReason || '',
+    referralDestination: initialData?.referralDestination || '',
+    transferDestinationRoom: initialData?.transferDestinationRoom || '',
+    transferUnit: initialData?.transferUnit || '',
+    transferClass: initialData?.transferClass || '',
+    transferRoom: initialData?.transferRoom || '',
+    transferBed: initialData?.transferBed || '',
   });
 
   const [error, setError] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     if (!initialData && currentUser?.unit && currentUser?.role !== 'SUPER_ADMIN' && currentUser?.role !== 'BIDANG') {
@@ -80,6 +90,20 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, mas
   const availableBeds = React.useMemo(() => {
     return formData.ruangan ? (masterData.roomToBeds[formData.ruangan] || []) : [];
   }, [formData.ruangan, masterData.roomToBeds]);
+
+  const availableTransferClasses = React.useMemo(() => {
+    return formData.transferUnit ? (masterData.unitToClasses[formData.transferUnit] || []) : [];
+  }, [formData.transferUnit, masterData.unitToClasses]);
+
+  const availableTransferRooms = React.useMemo(() => {
+    if (!formData.transferUnit || !formData.transferClass) return [];
+    const key = `${formData.transferUnit} - ${formData.transferClass}`;
+    return masterData.classToRooms[key] || [];
+  }, [formData.transferUnit, formData.transferClass, masterData.classToRooms]);
+
+  const availableTransferBeds = React.useMemo(() => {
+    return formData.transferRoom ? (masterData.roomToBeds[formData.transferRoom] || []) : [];
+  }, [formData.transferRoom, masterData.roomToBeds]);
 
   const [nurseSearch, setNurseSearch] = useState('');
   const [isNurseDropdownOpen, setIsNurseDropdownOpen] = useState(false);
@@ -133,7 +157,35 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, mas
       }
     }
 
-    onSave(formData);
+    const finalData = { ...formData };
+    
+    // Auto-update core fields if transferring room
+    if (isDischargeStatus(formData.statusDataPasien) && (formData.statusDataPasien.toUpperCase().includes('PINDAH') || formData.statusDataPasien.toUpperCase().includes('RUANGAN LAIN'))) {
+      if (formData.transferUnit) finalData.unitTujuan = formData.transferUnit;
+      if (formData.transferClass) finalData.kelasRawat = formData.transferClass;
+      if (formData.transferRoom) finalData.ruangan = formData.transferRoom;
+      if (formData.transferBed) finalData.nomorBed = formData.transferBed;
+      
+      finalData.transferDestinationRoom = [
+        formData.transferUnit,
+        formData.transferClass,
+        formData.transferRoom,
+        formData.transferBed
+      ].filter(Boolean).join(' - ');
+    }
+
+    onSave(finalData);
+  };
+
+  const isDischargeStatus = (status: string) => {
+    if (!status) return false;
+    const s = status.toUpperCase();
+    return ['BPL', 'APS', 'DIRUJUK', 'DIPINDAH KE RUANGAN LAIN', 'MENINGGAL', 'PINDAH RUANGAN'].includes(s) || 
+           s.includes('APS') || 
+           s.includes('BPL') || 
+           s.includes('MENINGGAL') || 
+           s.includes('RUANGAN LAIN') ||
+           s.includes('PINDAH');
   };
 
   return (
@@ -297,20 +349,86 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, mas
               </div>
               <div className="md:col-span-2 space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status Data Pasien</label>
-                <select className={`w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none transition-all ${formData.statusDataPasien === 'Sudah Pulang' ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`} value={formData.statusDataPasien || ''} onChange={e => setFormData({...formData, statusDataPasien: e.target.value, status: e.target.value === 'Sudah Pulang' ? 'DISCHARGED' : 'ADMITTED'})}>
+                <select className={`w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none transition-all ${isDischargeStatus(formData.statusDataPasien) ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`} value={formData.statusDataPasien || ''} onChange={e => setFormData({...formData, statusDataPasien: e.target.value, status: isDischargeStatus(e.target.value) ? 'DISCHARGED' : 'ADMITTED'})}>
                   {masterData.refs.statusDataPasien.map(s => <option key={s} value={s}>{s}</option>)}
-                  <option value="Meninggal">Meninggal</option>
-                  <option value="Pindah Ruangan">Pindah Ruangan</option>
                 </select>
               </div>
 
-              {(formData.statusDataPasien === 'Sudah Pulang' || formData.statusDataPasien === 'Meninggal' || formData.statusDataPasien === 'Pindah Ruangan') && (
+              {isDischargeStatus(formData.statusDataPasien) && (
                 <>
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tanggal Keluar/Pindah</label>
                     <input type="date" className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/20" value={formData.dischargeDate || ''} onChange={e => setFormData({...formData, dischargeDate: e.target.value})}/>
                   </div>
-                  {formData.statusDataPasien === 'Meninggal' && (
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Jam Keluar/Keluar</label>
+                    <input type="time" className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/20" value={formData.dischargeTime || ''} onChange={e => setFormData({...formData, dischargeTime: e.target.value})}/>
+                  </div>
+                  {isDischargeStatus(formData.statusDataPasien) && (formData.statusDataPasien.toUpperCase().includes('APS')) && (
+                    <div className="md:col-span-2 space-y-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Alasan APS</label>
+                      <input className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none" placeholder="Sebutkan alasan pasien pulang paksa/APS..." value={formData.apsReason || ''} onChange={e => setFormData({...formData, apsReason: e.target.value})}/>
+                    </div>
+                  )}
+                  {isDischargeStatus(formData.statusDataPasien) && (formData.statusDataPasien.toUpperCase().includes('DIRUJUK') || formData.statusDataPasien.toUpperCase().includes('RUJUK')) && (
+                    <div className="md:col-span-2 space-y-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tujuan Rujukan</label>
+                      <input className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none" placeholder="Nama RS/Faskes rujukan..." value={formData.referralDestination || ''} onChange={e => setFormData({...formData, referralDestination: e.target.value})}/>
+                    </div>
+                  )}
+                  {isDischargeStatus(formData.statusDataPasien) && (formData.statusDataPasien.toUpperCase().includes('PINDAH') || formData.statusDataPasien.toUpperCase().includes('RUANGAN LAIN')) && (
+                    <div className="md:col-span-4 grid grid-cols-1 md:grid-cols-4 gap-4 bg-blue-50/30 p-4 rounded-xl border border-blue-100/50">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit Tujuan</label>
+                        <select className="w-full border rounded-lg px-3 py-2.5 text-sm font-bold outline-none bg-white border-blue-200" value={formData.transferUnit || ''} onChange={e => {
+                          const val = e.target.value;
+                          const classes = masterData.unitToClasses[val] || [];
+                          const autoClass = classes.length === 1 ? classes[0] : '';
+                          let autoRoom = '';
+                          if (autoClass) {
+                            const rooms = masterData.classToRooms[`${val} - ${autoClass}`] || [];
+                            if (rooms.length === 1) autoRoom = rooms[0];
+                          }
+                          setFormData({...formData, transferUnit: val, transferClass: autoClass, transferRoom: autoRoom, transferBed: ''});
+                        }}>
+                          <option value="">-- Pilih Unit --</option>
+                          {masterData.units.map(u => <option key={u} value={u}>{u}</option>)}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Kelas</label>
+                        <select className="w-full border rounded-lg px-3 py-2.5 text-sm font-bold outline-none bg-white border-blue-200" value={formData.transferClass || ''} onChange={e => {
+                          const val = e.target.value;
+                          const rooms = masterData.classToRooms[`${formData.transferUnit} - ${val}`] || [];
+                          const autoRoom = rooms.length === 1 ? rooms[0] : '';
+                          setFormData({...formData, transferClass: val, transferRoom: autoRoom, transferBed: ''});
+                        }}>
+                          <option value="">-- Pilih Kelas --</option>
+                          {availableTransferClasses.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ruangan</label>
+                        <select className="w-full border rounded-lg px-3 py-2.5 text-sm font-bold outline-none bg-white border-blue-200" value={formData.transferRoom || ''} onChange={e => {
+                          const val = e.target.value;
+                          const beds = masterData.roomToBeds[val] || [];
+                          const autoBed = beds.length === 1 ? beds[0] : '';
+                          setFormData({...formData, transferRoom: val, transferBed: autoBed});
+                        }}>
+                          <option value="">-- Pilih Ruangan --</option>
+                          {availableTransferRooms.map(r => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Bed</label>
+                        <select className="w-full border rounded-lg px-3 py-2.5 text-sm font-bold outline-none bg-white border-blue-200" value={formData.transferBed || ''} onChange={e => setFormData({...formData, transferBed: e.target.value})}>
+                          <option value="">-- Bed --</option>
+                          {availableTransferBeds.map(b => <option key={b} value={b}>{b}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                  {isDischargeStatus(formData.statusDataPasien) && (formData.statusDataPasien.toUpperCase().includes('MENINGGAL')) && (
                     <div className="space-y-1">
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Waktu Kematian</label>
                       <select className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none bg-red-50 text-red-700 border-red-100" value={formData.deathTime || ''} onChange={e => setFormData({...formData, deathTime: e.target.value as any})}>
@@ -489,6 +607,17 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, mas
             {error && <span className="flex items-center gap-1"><AlertCircle size={14}/> {error}</span>}
           </div>
           <div className="flex gap-2 sm:gap-3 w-full sm:w-auto order-1 sm:order-2">
+            {initialData && (currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'BIDANG' || (currentUser?.role === 'KARU' && initialData.unitTujuan === currentUser.unit)) && (
+              <Button 
+                variant="secondary" 
+                onClick={() => {
+                  setShowDeleteConfirm(true);
+                }}
+                className="bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-600 hover:text-white rounded-xl font-bold text-[10px] sm:text-xs uppercase tracking-widest"
+              >
+                Hapus
+              </Button>
+            )}
             <Button variant="secondary" onClick={onClose} className="flex-1 sm:px-6 rounded-xl font-bold text-[10px] sm:text-xs uppercase tracking-widest">Batal</Button>
             <Button onClick={handleSubmit} className="flex-[2] sm:px-10 py-2.5 font-black uppercase text-[10px] sm:text-[11px] tracking-widest bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg rounded-xl flex items-center justify-center gap-2">
               <Save size={18}/> {initialData ? 'Simpan' : 'Daftar Pasien'}
@@ -496,6 +625,45 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, mas
           </div>
         </div>
       </div>
+
+      {showDeleteConfirm && initialData && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[2100] flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-[2rem] p-8 shadow-2xl w-full max-w-sm border border-slate-100 relative">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mb-6">
+                <AlertCircle size={32} />
+              </div>
+              <h3 className="font-black text-slate-800 text-2xl tracking-tight mb-2">Konfirmasi Hapus</h3>
+              <p className="text-slate-400 text-sm font-medium leading-relaxed mb-8">
+                Anda yakin ingin menghapus data <b className="text-slate-700">"{initialData.name}"</b>? Tindakan ini tidak dapat dibatalkan.
+              </p>
+              <div className="flex gap-4 w-full">
+                <Button 
+                  variant="secondary" 
+                  className="flex-1 py-4 rounded-2xl font-black text-xs uppercase tracking-widest border border-slate-200 hover:bg-slate-50"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  type="button"
+                >
+                  Batal
+                </Button>
+                <button 
+                  type="button"
+                  className="flex-1 py-4 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-rose-200"
+                  onClick={() => {
+                    if (onDelete) {
+                      onDelete(initialData.id);
+                      onClose();
+                    }
+                    setShowDeleteConfirm(false);
+                  }}
+                >
+                  Ya, Hapus
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

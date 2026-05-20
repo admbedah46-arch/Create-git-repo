@@ -7,7 +7,7 @@ import {
   Trash2, Plus, Edit2, X, Map, Activity, Database, AlertTriangle, 
   CheckCircle2, Eye, EyeOff, User as UserIcon, Settings, 
   Stethoscope, Users, Filter, LayoutGrid, ChevronRight, UserPlus,
-  ClipboardCheck, Target, BarChart, Settings2, RefreshCw, Search
+  ClipboardCheck, Target, BarChart, Settings2, RefreshCw, Search, Upload
 } from 'lucide-react';
 
 interface DataManagementProps {
@@ -16,7 +16,7 @@ interface DataManagementProps {
   currentUser: User | null;
 }
 
-type Tab = 'STAFF' | 'STRUCTURE' | 'MEDICS' | 'REFS' | 'QUALITY' | 'SYSTEM';
+type Tab = 'STAFF' | 'STRUCTURE' | 'MEDICS' | 'REFS' | 'QUALITY' | 'SYSTEM' | 'THEME';
 type MedicSubTab = 'DOKTER' | 'PERAWAT';
 
 export const DataManagement: React.FC<DataManagementProps> = ({ masterData, onSave, currentUser }) => {
@@ -30,7 +30,13 @@ export const DataManagement: React.FC<DataManagementProps> = ({ masterData, onSa
   React.useEffect(() => {
     fetch('/api/config')
       .then(res => res.json())
-      .then(data => setServerConfig(data))
+      .then(data => {
+        setServerConfig(data);
+        if (data.appsScriptUrl) {
+          saveApiUrl(data.appsScriptUrl);
+          setManualApiUrl(data.appsScriptUrl);
+        }
+      })
       .catch(err => console.error('Failed to fetch config:', err));
   }, []);
 
@@ -46,6 +52,7 @@ export const DataManagement: React.FC<DataManagementProps> = ({ masterData, onSa
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [isEditUserOpen, setIsEditUserOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [isConfirmClearCacheOpen, setIsConfirmClearCacheOpen] = useState(false);
   const [newUser, setNewUser] = useState<Partial<User>>({ role: 'STAFF', position: 'Perawat Assosiate', unit: currentUser?.unit || '' });
   const [editingUser, setEditingUser] = useState<{ oldUsername: string; data: Partial<User> } | null>(null);
 
@@ -61,14 +68,97 @@ export const DataManagement: React.FC<DataManagementProps> = ({ masterData, onSa
 
   const [showNotification, setShowNotification] = useState<string | null>(null);
   const [userSearch, setUserSearch] = useState('');
+  const [tempSettings, setTempSettings] = useState<MasterData['settings']>({});
+
+  React.useEffect(() => {
+    if (activeTab === 'THEME') {
+      setTempSettings(prev => {
+        if (!prev || Object.keys(prev).length === 0) {
+          return masterData.settings || {};
+        }
+        return prev;
+      });
+    } else {
+      setTempSettings({});
+    }
+  }, [activeTab]);
 
   const notify = (msg: string) => {
     setShowNotification(msg);
     setTimeout(() => setShowNotification(null), 3000);
   };
 
+  const normalizeWallpaperUrl = (url: string): string => {
+    if (!url) return '';
+    const trimmed = url.trim();
+    if (trimmed.includes('drive.google.com')) {
+      const fileIdMatch = trimmed.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || 
+                          trimmed.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+      if (fileIdMatch) {
+        const fileId = fileIdMatch[1];
+        return `https://lh3.googleusercontent.com/d/${fileId}`;
+      }
+    }
+    return trimmed;
+  };
+
   const handleSaveMaster = (newData: MasterData) => {
     onSave(newData);
+  };
+
+  const handleWallpaperUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'login' | 'app') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Check file size (optional, but good for UX)
+    if (file.size > 5 * 1024 * 1024) {
+      notify("Ukuran file terlalu besar. Mencoba mengompresi...");
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        // Create canvas for compression
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        // Max width/height for wallpaper to keep size low (e.g., Full HD is usually enough)
+        const MAX_WIDTH = 1280;
+        const MAX_HEIGHT = 720;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Compress as JPEG with 0.6 quality
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
+        
+        setTempSettings(prev => ({
+          ...prev,
+          [type === 'login' ? 'loginWallpaperUrl' : 'appWallpaperUrl']: compressedBase64
+        }));
+        notify("Wallpaper berhasil dikompresi. Silakan klik 'Simpan Perubahan' di bawah.");
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleAddData = (name: string, extra?: string, category?: DoctorCategory, unit?: string) => {
@@ -364,7 +454,7 @@ export const DataManagement: React.FC<DataManagementProps> = ({ masterData, onSa
   };
 
   return (
-    <div className="bg-white rounded-[2rem] shadow-sm border min-h-[750px] flex flex-col overflow-hidden relative">
+    <div className="bg-white/80 backdrop-blur-md rounded-[2rem] shadow-sm border min-h-[750px] flex flex-col overflow-hidden relative">
       
       {showNotification && (
         <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[300] bg-slate-900 text-white px-8 py-4 rounded-full flex items-center gap-3 shadow-2xl border border-blue-500/50 animate-fade-in">
@@ -373,19 +463,21 @@ export const DataManagement: React.FC<DataManagementProps> = ({ masterData, onSa
         </div>
       )}
 
-      <div className="flex border-b overflow-x-auto bg-slate-50/50 shrink-0">
+      <div className="flex border-b overflow-x-auto bg-slate-50/20 shrink-0">
         {[
           { id: 'STAFF', icon: <UserIcon size={16}/>, label: 'Pengguna & Staf', roles: ['SUPER_ADMIN', 'BIDANG', 'KARU', 'SEKRU'] },
           { id: 'STRUCTURE', icon: <Map size={16}/>, label: 'Hierarki Unit', roles: ['SUPER_ADMIN', 'BIDANG'] },
           { id: 'MEDICS', icon: <Activity size={16}/>, label: 'DPJP & Medis', roles: ['SUPER_ADMIN', 'BIDANG', 'KARU', 'SEKRU'] },
           { id: 'QUALITY', icon: <ClipboardCheck size={16}/>, label: 'Kertas Kerja Mutu', roles: ['SUPER_ADMIN', 'BIDANG', 'KARU', 'PIC'] },
+          { id: 'THEME', icon: <Map size={16}/>, label: 'Personalisasi Tema', roles: ['SUPER_ADMIN', 'BIDANG'] },
           { id: 'SYSTEM', icon: <Settings2 size={16}/>, label: 'Koneksi Cloud', roles: ['SUPER_ADMIN'] },
           { id: 'REFS', icon: <Database size={16}/>, label: 'Referensi & Form', roles: ['SUPER_ADMIN'] }
         ].filter(tab => tab.roles.includes(currentUser?.role || '')).map(tab => (
           <button 
             key={tab.id}
             onClick={() => setActiveTab(tab.id as Tab)} 
-            className={`px-10 py-6 text-[10px] font-black uppercase tracking-[0.2em] flex shrink-0 items-center gap-3 transition-all ${activeTab === tab.id ? 'text-blue-600 border-b-4 border-blue-600 bg-white' : 'text-slate-400 hover:bg-white'}`}
+            className={`px-10 py-6 text-[10px] font-black uppercase tracking-[0.2em] flex shrink-0 items-center gap-3 transition-all ${activeTab === tab.id ? 'text-blue-600 border-b-4 border-blue-600 bg-white/50' : 'text-slate-400 hover:bg-white/30'}`}
+            style={{ color: activeTab === tab.id ? undefined : (masterData.settings?.fontColor ? `${masterData.settings.fontColor}cc` : undefined) }}
           >
             {tab.icon} {tab.label}
           </button>
@@ -665,6 +757,29 @@ export const DataManagement: React.FC<DataManagementProps> = ({ masterData, onSa
                       Simpan URL Lokal
                     </Button>
                     <Button 
+                      onClick={async () => {
+                        try {
+                          const res = await fetch('/api/config', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ appsScriptUrl: manualApiUrl })
+                          });
+                          const result = await res.json();
+                          if (result.success) {
+                            setServerConfig(prev => ({ ...prev, hasAppsScriptUrl: true, appsScriptUrl: manualApiUrl }));
+                            notify("URL Tersimpan Global untuk Semua Perangkat!");
+                          } else {
+                            notify("Gagal simpan global.");
+                          }
+                        } catch (e) {
+                          notify("Error simpan global.");
+                        }
+                      }}
+                      className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black uppercase rounded-2xl shadow-lg shadow-blue-200"
+                    >
+                      Simpan Global
+                    </Button>
+                    <Button 
                       variant="ghost"
                       onClick={() => window.open(manualApiUrl, '_blank')}
                       disabled={!manualApiUrl}
@@ -710,10 +825,7 @@ export const DataManagement: React.FC<DataManagementProps> = ({ masterData, onSa
                     variant="ghost"
                     size="sm"
                     onClick={() => {
-                      if (window.confirm('Hapus cache data lokal? (Data di Spreadsheet tetap aman)')) {
-                        localStorage.removeItem('si_baru_db_stable_production_v5');
-                        window.location.reload();
-                      }
+                      setIsConfirmClearCacheOpen(true);
                     }}
                     className="text-red-400 hover:text-red-500 hover:bg-red-50"
                    >
@@ -767,6 +879,184 @@ export const DataManagement: React.FC<DataManagementProps> = ({ masterData, onSa
                    </div>
                  </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'THEME' && (
+          <div className="p-10 space-y-8 animate-fade-in flex flex-col h-full overflow-y-auto custom-scrollbar">
+            <div className="flex justify-between items-center shrink-0">
+               <div>
+                 <h3 className="text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3">
+                   <Settings className="text-indigo-600" size={32}/> Personalisasi Tampilan
+                 </h3>
+                 <p className="text-xs text-slate-400 font-medium mt-1">Ubah identitas aplikasi, warna, dan tema sesuai unit pelayanan Anda.</p>
+               </div>
+               <Button 
+                 onClick={() => {
+                   handleSaveMaster({
+                     ...masterData,
+                     settings: {
+                       ...tempSettings,
+                       settingsTimestamp: new Date().toISOString()
+                     }
+                   });
+                   notify("TEMA BERHASIL DITERAPKAN SECARA GLOBAL");
+                    setTempSettings({
+                      ...tempSettings,
+                      settingsTimestamp: new Date().toISOString()
+                    });
+                 }} 
+                 className="rounded-2xl px-10 py-4 shadow-xl shadow-blue-100 uppercase text-[10px] font-black tracking-widest bg-emerald-600 text-white"
+               >
+                 <RefreshCw size={18} className="mr-2"/> Simpan Perubahan Tema
+               </Button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+               <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm space-y-6">
+                  <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest border-l-4 border-blue-600 pl-4">Identitas Aplikasi</h4>
+                  
+                  <div className="space-y-4">
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Nama Aplikasi</label>
+                       <input 
+                         type="text"
+                         className="w-full bg-slate-50 border-none rounded-2xl p-4 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+                         value={tempSettings?.appName || 'SiMANTAP'}
+                         onChange={e => setTempSettings({ ...tempSettings, appName: e.target.value })}
+                       />
+                    </div>
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Slogan / Deskripsi Singkat</label>
+                       <input 
+                         type="text"
+                         className="w-full bg-slate-50 border-none rounded-2xl p-4 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+                         value={tempSettings?.appSlogan || 'Sistem Manajemen Laporan Terpadu'}
+                         onChange={e => setTempSettings({ ...tempSettings, appSlogan: e.target.value })}
+                       />
+                    </div>
+                  </div>
+               </div>
+
+               <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm space-y-6">
+                  <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest border-l-4 border-indigo-600 pl-4">Warna & Latar Belakang</h4>
+                  
+                  <div className="space-y-4">
+                    <div className="flex gap-4 items-center">
+                       <div className="flex-1 space-y-1.5">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Warna Utama (Hex)</label>
+                          <div className="flex gap-3">
+                            <input 
+                              type="color"
+                              className="w-12 h-12 rounded-xl overflow-hidden border-none cursor-pointer"
+                              value={tempSettings?.themeColor || '#144272'}
+                              onChange={e => setTempSettings({ ...tempSettings, themeColor: e.target.value })}
+                            />
+                            <input 
+                              type="text"
+                              className="flex-1 bg-slate-50 border-none rounded-xl p-3 text-xs font-mono font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+                              value={tempSettings?.themeColor || '#144272'}
+                              onChange={e => setTempSettings({ ...tempSettings, themeColor: e.target.value })}
+                            />
+                          </div>
+                       </div>
+                    </div>
+
+                    <div className="space-y-4">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Wallpaper Latar Belakang</label>
+                       
+                       <div className="bg-slate-50 p-6 rounded-3xl space-y-6">
+                         <div className="space-y-1.5">
+                            <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest pl-1 italic">1. Halaman Login (Homescreen)</label>
+                            <div className="flex gap-3">
+                               <input 
+                                 type="text"
+                                 className="flex-1 bg-white border border-slate-100 rounded-2xl p-4 text-[11px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+                                 placeholder="URL Wallpaper Login..."
+                                 value={tempSettings?.loginWallpaperUrl || ''}
+                                 onChange={e => setTempSettings({ ...tempSettings, loginWallpaperUrl: normalizeWallpaperUrl(e.target.value) })}
+                               />
+                               <label className="bg-blue-50 text-blue-600 p-4 rounded-2xl cursor-pointer hover:bg-blue-100 transition-all flex items-center justify-center shrink-0">
+                                  <Upload size={20}/>
+                                  <input type="file" className="hidden" accept="image/*" onChange={(e) => handleWallpaperUpload(e, 'login')} />
+                               </label>
+                            </div>
+                            {tempSettings?.loginWallpaperUrl && (
+                               <div className="mt-2 relative w-full h-16 rounded-xl border border-slate-100 overflow-hidden group">
+                                 <img src={tempSettings.loginWallpaperUrl} className="w-full h-full object-cover opacity-50 group-hover:opacity-100 transition-opacity" />
+                                 <button onClick={() => setTempSettings({ ...tempSettings, loginWallpaperUrl: '' })} className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                                   <Trash2 size={10}/>
+                                 </button>
+                               </div>
+                            )}
+                         </div>
+
+                         <div className="space-y-1.5">
+                            <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest pl-1 italic">2. Halaman Aplikasi (Dashboard)</label>
+                            <div className="flex gap-3">
+                               <input 
+                                 type="text"
+                                 className="flex-1 bg-white border border-slate-100 rounded-2xl p-4 text-[11px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+                                 placeholder="URL Wallpaper Aplikasi..."
+                                 value={tempSettings?.appWallpaperUrl || ''}
+                                 onChange={e => setTempSettings({ ...tempSettings, appWallpaperUrl: normalizeWallpaperUrl(e.target.value) })}
+                               />
+                               <label className="bg-indigo-50 text-indigo-600 p-4 rounded-2xl cursor-pointer hover:bg-indigo-100 transition-all flex items-center justify-center shrink-0">
+                                  <Upload size={20}/>
+                                  <input type="file" className="hidden" accept="image/*" onChange={(e) => handleWallpaperUpload(e, 'app')} />
+                               </label>
+                            </div>
+                            {tempSettings?.appWallpaperUrl && (
+                               <div className="mt-2 relative w-full h-16 rounded-xl border border-slate-100 overflow-hidden group">
+                                 <img src={tempSettings.appWallpaperUrl} className="w-full h-full object-cover opacity-50 group-hover:opacity-100 transition-opacity" />
+                                 <button onClick={() => setTempSettings({ ...tempSettings, appWallpaperUrl: '' })} className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                                   <Trash2 size={10}/>
+                                 </button>
+                               </div>
+                            )}
+                         </div>
+                       </div>
+                       
+                       <p className="text-[8px] text-slate-400 font-medium italic mt-1">*Anda bisa membedakan suasana halaman login dan area kerja aplikasi.</p>
+                    </div>
+
+                    <div className="space-y-1.5">
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Warna Font Dashboard (Adaptif)</label>
+                       <div className="flex gap-3">
+                          <input 
+                            type="color"
+                            className="w-12 h-12 rounded-xl overflow-hidden border-none cursor-pointer"
+                            value={tempSettings?.fontColor || '#144272'}
+                            onChange={e => setTempSettings({ ...tempSettings, fontColor: e.target.value })}
+                          />
+                          <input 
+                            type="text"
+                            className="flex-1 bg-slate-50 border-none rounded-xl p-3 text-xs font-mono font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+                            value={tempSettings?.fontColor || '#144272'}
+                            onChange={e => setTempSettings({ ...tempSettings, fontColor: e.target.value })}
+                          />
+                       </div>
+                       <p className="text-[8px] text-slate-400 font-medium italic mt-1">*Gunakan warna kontras (misal: putih jika wallpaper gelap, hitam jika wallpaper terang).</p>
+                    </div>
+                  </div>
+               </div>
+
+               <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm space-y-6 md:col-span-2">
+                  <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest border-l-4 border-emerald-600 pl-4">Perilaku Sidebar</h4>
+                  <div className="flex items-center justify-between p-6 bg-slate-50 rounded-3xl">
+                     <div>
+                        <h5 className="text-xs font-black text-slate-700 uppercase tracking-widest">Autohide Sidebar Otomatis</h5>
+                        <p className="text-[10px] text-slate-400 font-medium">Sembunyikan menu samping secara otomatis untuk area kerja yang lebih luas.</p>
+                     </div>
+                     <button 
+                       onClick={() => setTempSettings({ ...tempSettings, isSidebarAutohide: !tempSettings?.isSidebarAutohide })}
+                       className={`w-14 h-8 rounded-full transition-all relative ${tempSettings?.isSidebarAutohide ? 'bg-emerald-500 shadow-lg shadow-emerald-100' : 'bg-slate-300'}`}
+                     >
+                        <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all ${tempSettings?.isSidebarAutohide ? 'left-7' : 'left-1'}`}></div>
+                     </button>
+                  </div>
+               </div>
             </div>
           </div>
         )}
@@ -1082,6 +1372,30 @@ export const DataManagement: React.FC<DataManagementProps> = ({ masterData, onSa
             <div className="flex flex-col gap-3">
               <Button variant="danger" className="w-full py-4 rounded-2xl font-black text-xs uppercase tracking-widest" onClick={handleConfirmedDelete}>Ya, Hapus Sekarang</Button>
               <Button variant="ghost" className="w-full py-4 font-bold text-slate-400" onClick={() => setDeleteTarget(null)}>Batalkan</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear Cache Confirmation Modal */}
+      {isConfirmClearCacheOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[500] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2rem] p-10 w-full max-w-sm shadow-2xl animate-fade-in text-center">
+            <div className="w-20 h-20 bg-rose-50 text-rose-500 rounded-3xl flex items-center justify-center mx-auto mb-8"><AlertTriangle size={40}/></div>
+            <h3 className="font-black text-2xl mb-2 text-slate-800">Clear Local Cache?</h3>
+            <p className="text-sm text-slate-400 mb-10 leading-relaxed font-medium">Hapus cache data lokal? (Data di Spreadsheet tetap aman)</p>
+            <div className="flex flex-col gap-3">
+              <Button 
+                variant="danger" 
+                className="w-full py-4 rounded-2xl font-black text-xs uppercase tracking-widest bg-rose-600 hover:bg-rose-700 text-white" 
+                onClick={() => {
+                  localStorage.removeItem('si_baru_db_stable_production_v5');
+                  window.location.reload();
+                }}
+              >
+                Ya, Hapus Cache
+              </Button>
+              <Button variant="ghost" className="w-full py-4 font-bold text-slate-400" onClick={() => setIsConfirmClearCacheOpen(false)}>Batalkan</Button>
             </div>
           </div>
         </div>

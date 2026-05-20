@@ -3,12 +3,27 @@ import React, { useState } from 'react';
 import { ShieldCheck, User, Lock, Activity, ArrowRight } from 'lucide-react';
 import { Button } from '../Button';
 import { BrandLogo } from '../BrandLogo';
+import { AppSettings } from '../../types';
 
 interface LoginProps {
   onLogin: (user: any) => void;
+  settings?: AppSettings;
 }
 
-export const Login: React.FC<LoginProps> = ({ onLogin }) => {
+const getDirectWallpaperUrl = (url: string | undefined): string => {
+  if (!url) return '';
+  if (url.includes('drive.google.com')) {
+    const fileIdMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || 
+                        url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (fileIdMatch) {
+      const fileId = fileIdMatch[1];
+      return `https://lh3.googleusercontent.com/d/${fileId}`;
+    }
+  }
+  return url;
+};
+
+export const Login: React.FC<LoginProps> = ({ onLogin, settings }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -41,8 +56,25 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
     }
   };
 
+  const loginWallpaperUrl = getDirectWallpaperUrl(settings?.loginWallpaperUrl);
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#144272] via-[#1e4b8f] to-[#3b82f6] flex items-center justify-center p-6 relative overflow-hidden">
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 relative overflow-hidden" 
+         style={{ background: settings?.themeColor ? `linear-gradient(135deg, ${settings.themeColor}, #0f172a)` : undefined }}>
+      
+      {/* Background Wallpaper if any */}
+      {loginWallpaperUrl && (
+        <div 
+          className="fixed inset-0 pointer-events-none opacity-[0.2] contrast-125 z-0"
+          style={{ 
+            backgroundImage: `url(${loginWallpaperUrl})`, 
+            backgroundSize: 'cover', 
+            backgroundPosition: 'center',
+            filter: 'saturate(150%)'
+          }}
+        />
+      )}
+
       {/* Decorative background elements */}
       <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-[#8dc63f]/10 rounded-full blur-[120px] -mr-64 -mt-64"></div>
       <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-[#3b82f6]/10 rounded-full blur-[120px] -ml-64 -mb-64"></div>
@@ -50,13 +82,17 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
       <div className="w-full max-w-md animate-fade-in relative z-10">
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center mb-6 drop-shadow-2xl">
-            <BrandLogo size="lg" variant="dark" />
+            <BrandLogo size="lg" variant="dark" appName={settings?.appName} appSlogan={settings?.appSlogan} fontColor={settings?.fontColor} />
           </div>
-          <h1 className="text-5xl font-black text-white tracking-tighter mb-2 italic drop-shadow-lg">
-            Si<span className="text-[#8dc63f]">MANTAP</span>
+          <h1 className="text-5xl font-black text-white tracking-tighter mb-2 italic drop-shadow-lg flex items-center justify-center gap-2">
+            {settings?.appName ? (
+              <span style={{ color: settings.fontColor || 'white' }}>{settings.appName}</span>
+            ) : (
+              <>Si<span className="text-[#8dc63f]">MANTAP</span></>
+            )}
           </h1>
-          <p className="text-white/70 font-black uppercase tracking-[0.3em] text-[10px]">
-            Manajemen Laporan Terpadu & Akurat
+          <p className="font-black uppercase tracking-[0.3em] text-[10px]" style={{ color: settings?.fontColor ? `${settings.fontColor}dd` : 'rgba(255,255,255,0.7)' }}>
+            {settings?.appSlogan || 'Manajemen Laporan Terpadu & Akurat'}
           </p>
         </div>
 

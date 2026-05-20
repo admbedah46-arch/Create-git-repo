@@ -14,9 +14,10 @@ import { OperationReportModule } from './components/Administrator/OperationRepor
 import { ServiceMatrix } from './components/Nursing/ServiceMatrix';
 import { QualityWorksheet } from './components/Quality/QualityWorksheet';
 import { QualityReports } from './components/Quality/QualityReports';
+import { DoctorVisitAdmin } from './components/Finance/DoctorVisitAdmin';
 import { Button } from './components/Button';
-import { getDB, saveDB, uploadDataBackground, mergeData, getApiUrl, syncData, uploadData } from './db';
-import { AppData, User, FinanceRecord, IncidentReport, Patient, DailyReportEntry, QualityMeasurement, DependencyLevel, Instrument, OperationReport } from './types';
+import { getDB, saveDB, uploadDataBackground, mergeData, getApiUrl, saveApiUrl, syncData, uploadData, registerDeletedId } from './db';
+import { AppData, User, FinanceRecord, IncidentReport, Patient, DailyReportEntry, QualityMeasurement, DependencyLevel, Instrument, OperationReport, DoctorVisitRecord } from './types';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Cell, AreaChart, Area
@@ -39,7 +40,9 @@ const App: React.FC = () => {
   const [bedUnitFilter, setBedUnitFilter] = useState('Ruang Bedah');
   const [isMobile, setIsMobile] = useState(false);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'danger'} | null>(null);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [lastLocalAction, setLastLocalAction] = useState(0);
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: string; name: string; type: 'patient' | 'incident' | 'cache' } | null>(null);
 
   const notify = (message: string, type: 'success' | 'danger' = 'success') => {
     setNotification({ message, type });
@@ -48,7 +51,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (user?.unit) setBedUnitFilter(user.unit);
-  }, [user]);
+  }, [user?.unit]);
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 1024);
@@ -57,59 +60,94 @@ const App: React.FC = () => {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  // INITIAL DATA FETCH
   useEffect(() => {
-    // Persistent login check from localStorage
     const savedUser = localStorage.getItem('surgihub_user');
     if (savedUser) {
-      setUser(JSON.parse(savedUser));
+      try {
+        setUser(JSON.parse(savedUser));
+      } catch (e) {
+        localStorage.removeItem('surgihub_user');
+      }
     }
     
-    // Fetch initial data from server
-    const fetchData = async () => {
+    const initData = async () => {
       try {
-        const apiUrl = getApiUrl();
+        let apiUrl = getApiUrl();
+        // Automatically sync Apps Script URL with the server's global config
+        try {
+          const configRes = await fetch('/api/config');
+          const configJson = await configRes.json();
+          if (configJson && configJson.appsScriptUrl && configJson.appsScriptUrl !== apiUrl) {
+            apiUrl = configJson.appsScriptUrl;
+            saveApiUrl(apiUrl);
+          }
+        } catch (e) {
+          console.warn('Failed to fetch config on startup:', e);
+        }
+        
+        setSyncStatus('SYNCING');
         const response = await fetch(`/api/data?url=${encodeURIComponent(apiUrl)}&t=${Date.now()}`);
         const result = await response.json();
-        // Apps Script returns { status: "ready", data: ... }
+        
         if ((result.status === 'ready' || result.status === 'success') && result.data) {
           const merged = mergeData(getDB(), result.data);
           setAppData(merged);
           saveDB(merged);
+          setSyncStatus('SUCCESS');
+          setTimeout(() => setSyncStatus('IDLE'), 2000);
         }
       } catch (e) {
-        console.warn('Backend sync unavailable, using local data');
+        console.warn('Initial sync unsuccessful');
+        setSyncStatus('ERROR');
       } finally {
         setIsReady(true);
       }
     };
     
-    fetchData();
+    initData();
+  }, []);
 
-    // BACKGROUND POLLING: Auto-sync every 30 seconds
-    const interval = setInterval(async () => {
-      // Avoid polling if we just made a local update (prevents "reappearing data" bug)
-      if (Date.now() - lastLocalAction < 10000) return;
+  // BACKGROUND POLLING
+  useEffect(() => {
+    const syncNow = async () => {
+      // Avoid polling if we just made a local update
+      if (Date.now() - lastLocalAction < 2000) return;
 
       try {
+        const apiUrl = getApiUrl();
+        
         setSyncStatus('SYNCING');
         const res = await syncData(true);
         if (res.success) {
-          const localData = getDB();
-          setAppData(localData);
+          const freshData = getDB();
+          setAppData(freshData);
           setSyncStatus('SUCCESS');
+          setLastSyncTime(new Date());
           setTimeout(() => setSyncStatus('IDLE'), 2000);
         } else {
-          setSyncStatus('IDLE');
+          setSyncStatus('ERROR');
+          // Don't auto-reset ERROR status so user can see it
         }
       } catch (e) {
-        console.warn('Auto-sync check failed');
         setSyncStatus('ERROR');
-        setTimeout(() => setSyncStatus('IDLE'), 2000);
       }
-    }, 30000);
+    };
 
-    return () => clearInterval(interval);
-  }, [appData]);
+    const interval = setInterval(() => {
+      if (!document.hidden) syncNow();
+    }, 30000); // Poll every 30 seconds to prevent Google Sheets rate-limiting/timeouts
+
+    const handleVisibility = () => {
+      if (!document.hidden) syncNow();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [lastLocalAction]);
 
   const handleUpdateAppData = async (newData: AppData) => {
     setLastLocalAction(Date.now());
@@ -120,6 +158,9 @@ const App: React.FC = () => {
     try {
       const res = await uploadData(newData);
       if (res.success) {
+        if (res.data) {
+          setAppData(res.data);
+        }
         setSyncStatus('SUCCESS');
         setTimeout(() => setSyncStatus('IDLE'), 3000);
       } else {
@@ -145,12 +186,13 @@ const App: React.FC = () => {
     const newData = { ...appData };
     if (editingPatient) {
       newData.patients = (newData.patients || []).map(p => 
-        p.id === editingPatient.id ? { ...p, ...patientData } : p
+        p.id === editingPatient.id ? { ...p, ...patientData, lastModified: new Date().toISOString() } : p
       );
     } else {
       const newPatient: Patient = {
         ...patientData,
-        id: `P-${Date.now()}`
+        id: `P-${Date.now()}`,
+        lastModified: new Date().toISOString()
       };
       newData.patients = [...(newData.patients || []), newPatient];
     }
@@ -163,12 +205,46 @@ const App: React.FC = () => {
   const handleUpdatePatient = (id: string, updates: Partial<Patient>) => {
     setAppData(prev => {
       const newData = { ...prev };
-      newData.patients = (newData.patients || []).map(p => p.id === id ? { ...p, ...updates } : p);
+      newData.patients = (newData.patients || []).map(p => p.id === id ? { ...p, ...updates, lastModified: new Date().toISOString() } : p);
       saveDB(newData);
       uploadDataBackground();
       return newData;
     });
     if (updates.perawatPrimer) notify('PENUGASAN PPJA DIPERBARUI');
+  };
+
+  const handleAddDoctorVisit = (visit: DoctorVisitRecord) => {
+    setAppData(prev => {
+      const newData = { ...prev };
+      const visitWithLm = { ...visit, lastModified: new Date().toISOString() };
+      newData.doctorVisits = [...(newData.doctorVisits || []), visitWithLm];
+      saveDB(newData);
+      uploadDataBackground();
+      return newData;
+    });
+    notify('VISITE DOKTER BERHASIL DICATAT');
+  };
+
+  const handleUpdateDoctorVisit = (id: string, updates: Partial<DoctorVisitRecord>) => {
+    setAppData(prev => {
+      const newData = { ...prev };
+      newData.doctorVisits = (newData.doctorVisits || []).map(v => v.id === id ? { ...v, ...updates, lastModified: new Date().toISOString() } : v);
+      saveDB(newData);
+      uploadDataBackground();
+      return newData;
+    });
+  };
+
+  const handleDeleteDoctorVisit = (id: string) => {
+    registerDeletedId(id);
+    setAppData(prev => {
+      const newData = { ...prev };
+      newData.doctorVisits = (newData.doctorVisits || []).filter(v => v.id !== id);
+      saveDB(newData);
+      uploadDataBackground();
+      return newData;
+    });
+    notify('DATA VISITE DOKTER DIHAPUS', 'danger');
   };
 
   const handleUpdateDailyReport = (patientId: string, type: keyof DailyReportEntry, content: any, date?: string) => {
@@ -179,12 +255,13 @@ const App: React.FC = () => {
       const existingIdx = reports.findIndex(r => r.patientId === patientId && r.date === targetDate);
       
       if (existingIdx > -1) {
-        reports[existingIdx] = { ...reports[existingIdx], [type]: content };
+        reports[existingIdx] = { ...reports[existingIdx], [type]: content, lastModified: new Date().toISOString() };
       } else {
         const newEntry: DailyReportEntry = {
           patientId,
           date: targetDate,
-          [type]: content
+          [type]: content,
+          lastModified: new Date().toISOString()
         } as DailyReportEntry;
         reports.push(newEntry);
       }
@@ -207,12 +284,13 @@ const App: React.FC = () => {
       const fieldName = `${shift}Dependency` as keyof DailyReportEntry;
       
       if (existingIdx > -1) {
-        reports[existingIdx] = { ...reports[existingIdx], [fieldName]: level } as any;
+        reports[existingIdx] = { ...reports[existingIdx], [fieldName]: level, lastModified: new Date().toISOString() } as any;
       } else {
         const newEntry: DailyReportEntry = {
           patientId,
           date: targetDate,
-          [fieldName]: level
+          [fieldName]: level,
+          lastModified: new Date().toISOString()
         } as any;
         reports.push(newEntry);
       }
@@ -226,14 +304,16 @@ const App: React.FC = () => {
 
   const handleAddFinance = (rec: FinanceRecord) => {
     const newData = { ...appData };
-    newData.financeRecords = [...(newData.financeRecords || []), rec];
+    const recWithLm = { ...rec, lastModified: new Date().toISOString() };
+    newData.financeRecords = [...(newData.financeRecords || []), recWithLm];
     handleUpdateAppData(newData);
     notify('TRANSAKSI KEUANGAN BERHASIL DIPOSTING');
   };
 
   const handleAddIncident = (rep: IncidentReport) => {
     const newData = { ...appData };
-    newData.incidentReports = [...(newData.incidentReports || []), rep];
+    const repWithLm = { ...rep, lastModified: new Date().toISOString() };
+    newData.incidentReports = [...(newData.incidentReports || []), repWithLm];
     handleUpdateAppData(newData);
     notify('LAPORAN INSIDEN BERHASIL TERKIRIM');
   };
@@ -241,7 +321,7 @@ const App: React.FC = () => {
   const handleUpdateIncident = (id: string, update: string | Partial<IncidentReport>) => {
     const newData = { ...appData };
     const updates = typeof update === 'string' ? { status: update as IncidentReport['status'] } : update;
-    newData.incidentReports = (newData.incidentReports || []).map(r => r.id === id ? { ...r, ...updates } : r);
+    newData.incidentReports = (newData.incidentReports || []).map(r => r.id === id ? { ...r, ...updates, lastModified: new Date().toISOString() } : r);
     handleUpdateAppData(newData);
     notify('STATUS & INVESTIGASI INSIDEN DIPERBARUI');
   };
@@ -259,11 +339,11 @@ const App: React.FC = () => {
       if (res.success) {
         setAppData(getDB());
         setSyncStatus('SUCCESS');
+        setLastSyncTime(new Date());
         setTimeout(() => setSyncStatus('IDLE'), 3000);
       } else {
         setSyncStatus('ERROR');
         if (res.error) setNotification({ message: `Sync Gagal: ${res.error}`, type: 'danger' });
-        setTimeout(() => setSyncStatus('IDLE'), 3000);
       }
     } catch (e) {
       console.error('Manual sync failed:', e);
@@ -277,10 +357,11 @@ const App: React.FC = () => {
     const measurements = [...(newData.qualityMeasurements || [])];
     const existingIdx = measurements.findIndex(m => m.indicatorId === measurement.indicatorId && m.date === measurement.date);
     
+    const measurementWithLm = { ...measurement, lastModified: new Date().toISOString() };
     if (existingIdx > -1) {
-      measurements[existingIdx] = measurement;
+      measurements[existingIdx] = measurementWithLm;
     } else {
-      measurements.push(measurement);
+      measurements.push(measurementWithLm);
     }
     
     newData.qualityMeasurements = measurements;
@@ -290,7 +371,7 @@ const App: React.FC = () => {
 
   const handleAddInstrument = (inst: Omit<Instrument, 'id'>) => {
     const newData = { ...appData };
-    const newInstrument: Instrument = { ...inst, id: `INST-${Date.now()}` };
+    const newInstrument: Instrument = { ...inst, id: `INST-${Date.now()}`, lastModified: new Date().toISOString() };
     newData.instruments = [...(newData.instruments || []), newInstrument];
     handleUpdateAppData(newData);
     notify('INSTRUMEN BARU BERHASIL DITAMBAHKAN');
@@ -298,7 +379,7 @@ const App: React.FC = () => {
 
   const handleUpdateInstrument = (id: string, updates: Partial<Instrument>) => {
     const newData = { ...appData };
-    newData.instruments = (newData.instruments || []).map(i => i.id === id ? { ...i, ...updates } : i);
+    newData.instruments = (newData.instruments || []).map(i => i.id === id ? { ...i, ...updates, lastModified: new Date().toISOString() } : i);
     handleUpdateAppData(newData);
     notify('DATA INSTRUMEN DIPERBARUI');
   };
@@ -308,7 +389,8 @@ const App: React.FC = () => {
     const newReport: OperationReport = { 
       ...report, 
       id: `OPR-${Date.now()}`,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      lastModified: new Date().toISOString()
     };
     newData.operationReports = [...(newData.operationReports || []), newReport];
     handleUpdateAppData(newData);
@@ -316,6 +398,7 @@ const App: React.FC = () => {
   };
 
   const handleDeletePatient = (id: string) => {
+    registerDeletedId(id);
     const newData = { ...appData };
     newData.patients = (newData.patients || []).filter(p => p.id !== id);
     handleUpdateAppData(newData);
@@ -323,6 +406,7 @@ const App: React.FC = () => {
   };
 
   const handleDeleteIncident = (id: string) => {
+    registerDeletedId(id);
     const newData = { ...appData };
     newData.incidentReports = (newData.incidentReports || []).filter(r => r.id !== id);
     handleUpdateAppData(newData);
@@ -334,6 +418,12 @@ const App: React.FC = () => {
     const financeRecords = appData.financeRecords || [];
     const incidentReports = appData.incidentReports || [];
     const openIncidents = incidentReports.filter(i => i.status !== 'RESOLVED');
+
+    // Safe adaptive design parameters to ensure full accessibility on different backgrounds
+    const hasWallpaper = !!appData.masterData?.settings?.appWallpaperUrl;
+    const originalFontColor = appData.masterData?.settings?.fontColor || '#1e293b';
+    const safeTitleColor = hasWallpaper ? originalFontColor : '#1e293b';
+    const safeSubTitleColor = hasWallpaper ? (originalFontColor === '#ffffff' ? '#ffffffcc' : `${originalFontColor}cc`) : '#64748b';
 
     // Stats calculations
     const patients = appData.patients || [];
@@ -397,8 +487,8 @@ const App: React.FC = () => {
           <div className="space-y-8 animate-fade-in pb-12">
             <div className="flex justify-between items-center">
               <div>
-                <h3 className="text-2xl font-black text-slate-800 tracking-tight">Dashboard Overview</h3>
-                <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Monitoring Real-time Pelayanan Bedah</p>
+                <h3 className="text-2xl font-black tracking-tight" style={{ color: safeTitleColor }}>Dashboard Overview</h3>
+                <p className="text-xs font-bold uppercase tracking-widest mt-1" style={{ color: safeSubTitleColor }}>Monitoring Real-time Pelayanan Bedah</p>
               </div>
               <Button onClick={() => setIsPatientModalOpen(true)} className="px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest bg-blue-600 text-white shadow-xl shadow-blue-100">
                 <Plus size={18} className="mr-2"/> Registrasi Pasien Baru
@@ -411,23 +501,23 @@ const App: React.FC = () => {
                 { label: 'Revenue Pelayanan', val: `Rp${(financeRecords.filter(f => f.type === 'INCOME').reduce((a, b) => a + b.amount, 0) / 1000000).toFixed(1)}M`, icon: <Wallet/>, color: 'emerald', desc: 'Bulan berjalan' },
                 { label: 'Indikator Mutu', val: '98.2%', icon: <HeartPulse/>, color: 'indigo', desc: 'Compliance Rate' },
                 { label: 'Insiden Aktif', val: openIncidents.length, icon: <AlertCircle/>, color: 'red', desc: 'Segera tindak lanjuti' }
-              ].map((stat) => (
-                <div key={stat.label} className="bg-white p-5 sm:p-6 rounded-3xl sm:rounded-[2rem] border shadow-sm group hover:shadow-xl transition-all border-b-4" style={{ borderColor: `var(--tw-color-${stat.color}-500)` }}>
+              ].map((stat, idx) => (
+                <div key={`${stat.label}-${idx}`} className="p-5 sm:p-6 rounded-3xl sm:rounded-[2rem] border shadow-sm group hover:shadow-xl transition-all border-b-4 bg-white/70 backdrop-blur-md" style={{ borderColor: `var(--tw-color-${stat.color}-500)` }}>
                   <div className="flex justify-between items-start mb-3 sm:mb-4">
                     <div className={`p-2 sm:p-3 bg-${stat.color}-50 text-${stat.color}-600 rounded-2xl group-hover:scale-110 transition-transform`}>
                       {React.cloneElement(stat.icon as React.ReactElement, { size: isMobile ? 20 : 24 })}
                     </div>
                   </div>
-                  <div className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tighter">{stat.val}</div>
-                  <div className="text-[10px] sm:text-[11px] text-slate-500 font-bold mt-1 uppercase tracking-wider">{stat.label}</div>
+                  <div className="text-2xl sm:text-3xl font-black tracking-tighter text-slate-800">{stat.val}</div>
+                  <div className="text-[10px] sm:text-[11px] font-bold mt-1 uppercase tracking-wider text-slate-500">{stat.label}</div>
                 </div>
               ))}
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              <div className="lg:col-span-8 bg-white p-8 rounded-[2.5rem] border shadow-sm flex flex-col relative overflow-hidden group">
+              <div className="lg:col-span-8 p-8 rounded-[2.5rem] border shadow-sm flex flex-col relative overflow-hidden group bg-white/70 backdrop-blur-md">
                 <div className="flex justify-between items-center mb-12">
-                  <h4 className="font-black text-slate-800 text-2xl tracking-tight flex items-center gap-3">
+                  <h4 className="font-black text-2xl tracking-tight flex items-center gap-3 text-slate-800">
                      <BarChart3 className="text-blue-600"/> Analisis Performance Bedah
                   </h4>
                 </div>
@@ -451,13 +541,13 @@ const App: React.FC = () => {
               </div>
               
               <div className="lg:col-span-4">
-                <div className="bg-slate-900 p-8 rounded-[2.5rem] border shadow-2xl flex flex-col h-full relative overflow-hidden group">
+                <div className="bg-slate-900/90 backdrop-blur-xl p-8 rounded-[2.5rem] border shadow-2xl flex flex-col h-full relative overflow-hidden group">
                   <h4 className="font-black text-white text-xl tracking-tight flex items-center gap-3 mb-6">
                     <ShieldAlert className="text-red-500" size={24}/> Critical Alerts
                   </h4>
                   <div className="space-y-4">
-                    {incidentReports.length > 0 ? incidentReports.slice(-3).reverse().map(i => (
-                      <div key={i.id} className="p-4 bg-white/5 border border-white/10 rounded-2xl flex flex-col gap-2">
+                    {incidentReports.length > 0 ? incidentReports.slice(-3).reverse().map((i, idx) => (
+                      <div key={`${i.id}-${idx}`} className="p-4 bg-white/5 border border-white/10 rounded-2xl flex flex-col gap-2">
                         <div className="flex justify-between items-center text-[9px] font-black uppercase">
                           <span className="text-red-400">{i.severity} RISK</span>
                           <span className="text-slate-500">{i.date}</span>
@@ -476,11 +566,11 @@ const App: React.FC = () => {
 
       case 'adm-register':
         return (
-          <div className="bg-white rounded-[2.5rem] p-12 shadow-sm border text-center animate-fade-in">
-             <div className="w-20 h-20 bg-blue-50 rounded-3xl flex items-center justify-center mx-auto mb-6 text-blue-600">
+          <div className="bg-white/70 backdrop-blur-md rounded-[2.5rem] p-12 shadow-sm border text-center animate-fade-in">
+             <div className="w-20 h-20 bg-blue-50/50 rounded-3xl flex items-center justify-center mx-auto mb-6 text-blue-600">
                 <Users size={40}/>
              </div>
-             <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Registrasi Pasien</h3>
+              <h3 className="text-2xl font-black tracking-tighter text-slate-800">Registrasi Pasien</h3>
              <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto">
                 <Button onClick={() => setIsPatientModalOpen(true)} className="py-4 rounded-2xl font-black text-xs uppercase tracking-widest bg-blue-600 hover:bg-blue-700 text-white shadow-xl shadow-blue-100">
                   <Plus size={18} className="mr-2"/> Input Pasien Baru
@@ -490,8 +580,8 @@ const App: React.FC = () => {
                 </Button>
              </div>
               <div className="mt-12 text-left">
-                <h4 className="font-black text-slate-800 text-sm uppercase tracking-widest mb-4">Pendaftaran Terbaru</h4>
-                <div className="bg-slate-50 rounded-3xl p-6 border border-dashed border-slate-200 overflow-x-auto">
+                <h4 className="font-black text-sm uppercase tracking-widest mb-4 text-slate-800">Pendaftaran Terbaru</h4>
+                <div className="rounded-3xl p-6 border border-dashed border-slate-200 overflow-x-auto bg-white/40 backdrop-blur-sm">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="text-slate-400 uppercase font-black tracking-tighter text-[10px] border-b">
@@ -504,8 +594,8 @@ const App: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {(appData.patients || []).length > 0 ? (appData.patients || []).slice(-5).reverse().map(p => (
-                        <tr key={p.id} className="border-b last:border-0 hover:bg-white transition-colors group">
+                      {(appData.patients || []).length > 0 ? (appData.patients || []).slice(-5).reverse().map((p, idx) => (
+                        <tr key={`${p.id}-${idx}`} className="border-b last:border-0 hover:bg-white transition-colors group">
                           <td className="p-4 font-bold text-slate-600">{p.entryDate}</td>
                           <td className="p-4 font-black text-blue-600">{p.noRM}</td>
                           <td className="p-4 font-black text-slate-800 uppercase">{p.name}</td>
@@ -513,16 +603,26 @@ const App: React.FC = () => {
                           <td className="p-4 text-center">
                             <span className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full font-black text-[9px] uppercase">{p.statusDataPasien}</span>
                           </td>
-                          <td className="p-4 text-right">
+                          <td className="p-4 text-right flex items-center justify-end gap-2">
                              <button 
                                onClick={() => {
                                  setEditingPatient(p);
                                  setIsPatientModalOpen(true);
                                }}
-                               className="px-4 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black uppercase opacity-0 group-hover:opacity-100 transition-all hover:bg-blue-600 hover:text-white"
+                               className="px-4 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black uppercase transition-all hover:bg-blue-600 hover:text-white"
                              >
                                Edit
                              </button>
+                             {(user?.role === 'SUPER_ADMIN' || user?.role === 'BIDANG') && (
+                               <button 
+                                 onClick={() => {
+                                   setDeleteConfirmTarget({ id: p.id, name: p.name, type: 'patient' });
+                                 }}
+                                 className="px-3 py-1.5 bg-rose-50 text-rose-600 rounded-lg text-[10px] font-black uppercase transition-all hover:bg-rose-600 hover:text-white"
+                               >
+                                 Hapus
+                               </button>
+                             )}
                           </td>
                         </tr>
                       )) : (
@@ -560,11 +660,11 @@ const App: React.FC = () => {
         
         return (
           <div className="space-y-8 animate-fade-in pb-20">
-            <div className="bg-white rounded-[2.5rem] p-8 border shadow-sm">
+            <div className="bg-white/70 backdrop-blur-md rounded-[2.5rem] p-8 border shadow-sm">
               <div className="flex flex-col md:flex-row justify-between items-center gap-6 mb-10">
                 <div>
-                  <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Monitoring Bed & Pasien</h3>
-                  <p className="text-xs text-slate-400 font-bold mt-1 uppercase tracking-widest">Visualisasi ketersediaan ruangan real-time</p>
+                  <h3 className="text-2xl font-black uppercase tracking-tight text-slate-800">Monitoring Bed & Pasien</h3>
+                  <p className="text-xs font-bold mt-1 uppercase tracking-widest text-slate-500">Visualisasi ketersediaan ruangan real-time</p>
                 </div>
                 <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-2xl border">
                   <span className="text-[10px] font-black text-slate-400 ml-3 uppercase">Pilih Unit:</span>
@@ -652,13 +752,13 @@ const App: React.FC = () => {
 
       case 'service-schedule':
         return (
-          <div className="bg-white rounded-[2.5rem] p-8 border shadow-sm animate-fade-in">
-            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-8 flex items-center gap-3">
+          <div className="bg-white/70 backdrop-blur-md rounded-[2.5rem] p-8 border shadow-sm animate-fade-in">
+            <h3 className="text-xl font-black tracking-tight mb-8 flex items-center gap-3" style={{ color: appData.masterData.settings?.fontColor || '#1e293b' }}>
               <Calendar className="text-blue-600"/> Jadwal Operasi (Real-time)
             </h3>
             <div className="space-y-4">
-               {surgeriesTodayList.length > 0 ? surgeriesTodayList.map((o) => (
-                 <div key={o.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between group hover:bg-white hover:shadow-lg transition-all">
+               {surgeriesTodayList.length > 0 ? surgeriesTodayList.map((o, idx) => (
+                 <div key={`${o.id}-${idx}`} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between group hover:bg-white hover:shadow-lg transition-all">
                     <div className="flex items-center gap-6">
                       <div className="w-16 h-16 bg-white rounded-2xl border flex flex-col items-center justify-center">
                          <div className="text-lg font-black text-slate-800">{o.time}</div>
@@ -691,33 +791,6 @@ const App: React.FC = () => {
             onSaveReport={handleAddOperationReport}
             currentUser={user}
           />
-        );
-
-      case 'finance-visite':
-        return (
-          <div className="bg-white rounded-[2.5rem] p-8 border shadow-sm animate-fade-in">
-             <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-8">Rekapitulasi Visite Dokter</h3>
-             <div className="overflow-hidden border rounded-2xl">
-                <table className="w-full text-xs text-left">
-                   <thead className="bg-slate-50 font-black text-slate-500 uppercase tracking-widest text-[9px]">
-                      <tr>
-                        <th className="p-4">Dokter DPJP</th>
-                        <th className="p-4">Pasien</th>
-                        <th className="p-4">Tanggal</th>
-                        <th className="p-4">Status</th>
-                      </tr>
-                   </thead>
-                   <tbody className="divide-y">
-                      <tr>
-                        <td className="p-4 font-bold">dr. Ahmad, Sp.An</td>
-                        <td className="p-4 font-bold">Tn. Budiman</td>
-                        <td className="p-4">17/04/2026</td>
-                        <td className="p-4"><span className="text-emerald-500 font-bold">Terverifikasi</span></td>
-                      </tr>
-                   </tbody>
-                </table>
-             </div>
-          </div>
         );
 
       case 'finance-summary':
@@ -771,14 +844,14 @@ const App: React.FC = () => {
                 { label: 'Belum Diinvestigasi', val: newIncidents.length, color: 'blue', icon: <FileText/> },
                 { label: 'Proses Investigasi', val: activeInvestigations.length, color: 'amber', icon: <Search/> },
                 { label: 'Selesai Investigasi', val: resolvedIncidents.length, color: 'emerald', icon: <CheckCircle2/> }
-              ].map((stat) => (
-                <div key={`incident-stat-${stat.label}`} className="bg-white p-6 rounded-[2rem] border shadow-sm flex items-center gap-6">
+              ].map((stat, idx) => (
+                <div key={`incident-stat-${stat.label}-${idx}`} className="bg-white/70 backdrop-blur-md p-6 rounded-[2rem] border shadow-sm flex items-center gap-6">
                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center bg-${stat.color}-50 text-${stat.color}-600`}>
                       {React.cloneElement(stat.icon as React.ReactElement, { size: 28 })}
                    </div>
                    <div>
-                      <div className="text-3xl font-black text-slate-800 tracking-tighter">{stat.val}</div>
-                      <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{stat.label}</div>
+                      <div className="text-3xl font-black tracking-tighter" style={{ color: appData.masterData.settings?.fontColor || '#1e293b' }}>{stat.val}</div>
+                      <div className="text-[10px] font-bold uppercase tracking-wider opacity-60" style={{ color: appData.masterData.settings?.fontColor || '#64748b' }}>{stat.label}</div>
                    </div>
                 </div>
               ))}
@@ -788,12 +861,12 @@ const App: React.FC = () => {
               {/* Section 1: Belum Diinvestigasi */}
               <section className="space-y-6">
                  <div className="flex items-center gap-4">
-                    <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] whitespace-nowrap">I. Menunggu Investigasi ({newIncidents.length})</h4>
-                    <div className="h-px w-full bg-slate-100"></div>
+                    <h4 className="text-xs font-black uppercase tracking-[0.2em] whitespace-nowrap opacity-60" style={{ color: appData.masterData.settings?.fontColor || '#94a3b8' }}>I. Menunggu Investigasi ({newIncidents.length})</h4>
+                    <div className="h-px w-full bg-slate-100/20"></div>
                  </div>
                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {newIncidents.length > 0 ? newIncidents.map(r => (
-                      <div key={r.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative group overflow-hidden">
+                      <div key={r.id} className="bg-white/70 backdrop-blur-md p-6 rounded-3xl border border-slate-200/50 shadow-sm relative group overflow-hidden">
                          <div className="absolute top-0 right-0 p-4">
                             <span className={`px-2 py-1 rounded text-[8px] font-black uppercase text-white`} style={{ backgroundColor: r.severity === 'RED' ? '#ef4444' : r.severity === 'YELLOW' ? '#f59e0b' : r.severity === 'GREEN' ? '#10b981' : '#3b82f6' }}>
                                {r.severity}
@@ -854,22 +927,22 @@ const App: React.FC = () => {
               {/* Section 3: Selesai Investigasi */}
               <section className="space-y-6">
                  <div className="flex items-center gap-4">
-                    <h4 className="text-xs font-black text-emerald-500 uppercase tracking-[0.2em] whitespace-nowrap">III. Selesai Investigasi ({resolvedIncidents.length})</h4>
-                    <div className="h-px w-full bg-slate-100"></div>
+                    <h4 className="text-xs font-black uppercase tracking-[0.2em] whitespace-nowrap opacity-60" style={{ color: appData.masterData.settings?.fontColor || '#10b981' }}>III. Selesai Investigasi ({resolvedIncidents.length})</h4>
+                    <div className="h-px w-full bg-slate-100/20"></div>
                  </div>
-                 <div className="bg-white rounded-[2.5rem] border shadow-sm overflow-hidden">
+                 <div className="bg-white/70 backdrop-blur-md rounded-[2.5rem] border shadow-sm overflow-hidden">
                     <table className="w-full text-left border-collapse">
-                       <thead className="bg-slate-50">
+                       <thead className="bg-slate-50/50">
                           <tr>
-                             <th className="px-8 py-4 text-[9px] font-black text-slate-400 uppercase">Waktu</th>
-                             <th className="px-8 py-4 text-[9px] font-black text-slate-400 uppercase">Nama Insiden</th>
-                             <th className="px-8 py-4 text-[9px] font-black text-slate-400 uppercase text-center">Grading</th>
-                             <th className="px-8 py-4 text-[9px] font-black text-slate-400 uppercase text-right">Aksi</th>
+                             <th className="px-8 py-4 text-[9px] font-black uppercase opacity-40" style={{ color: appData.masterData.settings?.fontColor || '#64748b' }}>Waktu</th>
+                             <th className="px-8 py-4 text-[9px] font-black uppercase opacity-40" style={{ color: appData.masterData.settings?.fontColor || '#64748b' }}>Nama Insiden</th>
+                             <th className="px-8 py-4 text-[9px] font-black uppercase opacity-40 text-center" style={{ color: appData.masterData.settings?.fontColor || '#64748b' }}>Grading</th>
+                             <th className="px-8 py-4 text-[9px] font-black uppercase opacity-40 text-right" style={{ color: appData.masterData.settings?.fontColor || '#64748b' }}>Aksi</th>
                           </tr>
                        </thead>
                        <tbody className="divide-y">
-                          {resolvedIncidents.length > 0 ? resolvedIncidents.slice(-5).map(r => (
-                            <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
+                          {resolvedIncidents.length > 0 ? resolvedIncidents.slice(-5).map((r, idx) => (
+                            <tr key={`${r.id}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
                                <td className="px-8 py-4 text-xs font-bold text-slate-500">{r.date}</td>
                                <td className="px-8 py-4">
                                   <div className="text-xs font-black text-slate-800 uppercase">{r.incidentName}</div>
@@ -916,6 +989,20 @@ const App: React.FC = () => {
             onUpdateReport={handleUpdateDailyReport}
             onUpdateDependency={handleUpdateDependency}
             onUpdatePatient={handleUpdatePatient}
+            onAddDoctorVisit={handleAddDoctorVisit}
+            onUpdateDoctorVisit={handleUpdateDoctorVisit}
+            onRemoveDoctorVisit={handleDeleteDoctorVisit}
+            appData={appData}
+            currentUser={user}
+          />
+        );
+
+      case 'finance-visite':
+        return (
+          <DoctorVisitAdmin 
+            doctorVisits={appData.doctorVisits || []}
+            patients={appData.patients || []}
+            masterData={appData.masterData}
             currentUser={user}
           />
         );
@@ -927,19 +1014,22 @@ const App: React.FC = () => {
             measurements={appData.qualityMeasurements || []}
             onSaveMeasurement={handleSaveQualityMeasurement}
             currentUser={user}
+            masterData={appData.masterData}
+            patients={appData.patients || []}
+            dailyReports={appData.dailyReports || []}
           />
         );
 
       case 'quality-dpjp-absensi':
-        return <QualityReports type="ATTENDANCE" patients={appData.patients} dailyReports={appData.dailyReports} masterData={appData.masterData} currentUser={user} />;
+        return <QualityReports type="DPJP_ABSENSI" patients={appData.patients} dailyReports={appData.dailyReports} doctorVisits={appData.doctorVisits} masterData={appData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
       case 'quality-visite-compliance':
-        return <QualityReports type="PATHWAY" patients={appData.patients} dailyReports={appData.dailyReports} masterData={appData.masterData} currentUser={user} />;
+        return <QualityReports type="VISITE_COMPLIANCE" patients={appData.patients} dailyReports={appData.dailyReports} doctorVisits={appData.doctorVisits} masterData={appData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
       case 'quality-dependency':
-        return <QualityReports type="DEPENDENCY" patients={appData.patients} dailyReports={appData.dailyReports} masterData={appData.masterData} currentUser={user} />;
+        return <QualityReports type="DEPENDENCY" patients={appData.patients} dailyReports={appData.dailyReports} masterData={appData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
       case 'quality-pathway':
-        return <QualityReports type="PATHWAY" patients={appData.patients} dailyReports={appData.dailyReports} masterData={appData.masterData} currentUser={user} />;
+        return <QualityReports type="PATHWAY" patients={appData.patients} dailyReports={appData.dailyReports} masterData={appData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
       case 'quality-diagnosis-top':
-        return <QualityReports type="DIAGNOSIS" patients={appData.patients} dailyReports={appData.dailyReports} masterData={appData.masterData} currentUser={user} />;
+        return <QualityReports type="DIAGNOSIS" patients={appData.patients} dailyReports={appData.dailyReports} masterData={appData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
 
       case 'system-data':
         return <DataManagement masterData={appData.masterData} onSave={handleUpdateMasterData} currentUser={user} />;
@@ -968,6 +1058,7 @@ const App: React.FC = () => {
           onUpdateStatus={handleUpdateIncident} 
           onDeleteReport={handleDeleteIncident}
           currentUser={user}
+          settings={appData.masterData.settings}
         />;
 
       default:
@@ -999,7 +1090,7 @@ const App: React.FC = () => {
   }
 
   if (!user) {
-    return <Login onLogin={handleLogin} />;
+    return <Login onLogin={handleLogin} settings={appData.masterData.settings} />;
   }
 
   return (
@@ -1010,6 +1101,8 @@ const App: React.FC = () => {
       activeMenu={activeMenu}
       syncStatus={syncStatus}
       onSync={handleSync}
+      lastSyncTime={lastSyncTime}
+      settings={appData.masterData.settings}
     >
       {renderContent()}
       
@@ -1021,10 +1114,51 @@ const App: React.FC = () => {
             setEditingPatient(null);
           }}
           onSave={handleAddPatient}
+          onDelete={handleDeletePatient}
           currentUser={user}
           initialData={editingPatient || undefined}
         />
       )}
+
+      {/* Custom Delete Confirmation Modal to prevent native confirm iframe block */}
+      {deleteConfirmTarget && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[2000] flex items-center justify-center p-4 animate-fade-in animate-duration-200">
+          <div className="bg-white rounded-[2rem] p-8 shadow-2xl w-full max-w-md border border-slate-100 relative">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mb-6">
+                <AlertCircle size={32} />
+              </div>
+              <h3 className="font-black text-slate-800 text-2xl tracking-tight mb-2">Konfirmasi Hapus</h3>
+              <p className="text-slate-400 text-sm font-medium leading-relaxed mb-8">
+                Anda yakin ingin menghapus data <b className="text-slate-700">"{deleteConfirmTarget.name}"</b>? Tindakan ini tidak dapat dibatalkan.
+              </p>
+              <div className="flex gap-4 w-full">
+                <Button 
+                  variant="secondary" 
+                  className="flex-1 py-4 rounded-2xl font-black text-xs uppercase tracking-widest border border-slate-200 hover:bg-slate-50"
+                  onClick={() => setDeleteConfirmTarget(null)}
+                >
+                  Batal
+                </Button>
+                <button 
+                  className="flex-1 py-4 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-rose-200"
+                  onClick={() => {
+                    if (deleteConfirmTarget.type === 'patient') {
+                      handleDeletePatient(deleteConfirmTarget.id);
+                    } else if (deleteConfirmTarget.type === 'incident') {
+                      handleDeleteIncident(deleteConfirmTarget.id);
+                    }
+                    setDeleteConfirmTarget(null);
+                  }}
+                >
+                  Ya, Hapus
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Global Notification */}
       {notification && (
         <div className={`fixed bottom-10 left-1/2 -translate-x-1/2 z-[300] ${notification.type === 'danger' ? 'bg-rose-900 border-rose-500/50' : 'bg-slate-900 border-blue-500/50'} text-white px-8 py-4 rounded-full flex items-center gap-3 shadow-2xl border animate-fade-in`}>

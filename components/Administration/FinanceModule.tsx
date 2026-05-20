@@ -80,12 +80,12 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({ records, masterDat
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 rounded-xl border shadow-sm">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white/70 backdrop-blur-md p-5 rounded-xl border shadow-sm">
         <div>
-          <h3 className="font-bold text-gray-800 text-lg flex items-center gap-2">
+          <h3 className="font-bold text-lg flex items-center gap-2" style={{ color: masterData.settings?.fontColor || '#1e293b' }}>
             <BarChart3 className="text-blue-600"/> Laporan Keuangan Periode
           </h3>
-          <p className="text-xs text-gray-400">Monitoring real-time pendapatan dan biaya operasional.</p>
+          <p className="text-xs font-bold" style={{ color: masterData.settings?.fontColor ? `${masterData.settings.fontColor}99` : '#64748b' }}>Monitoring real-time pendapatan dan biaya operasional.</p>
         </div>
         <div className="flex bg-slate-100 p-1.5 rounded-xl gap-1 w-full md:w-auto">
           {(['DAILY', 'WEEKLY', 'MONTHLY'] as const).map(p => (
@@ -101,7 +101,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({ records, masterDat
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-2xl border shadow-sm border-l-8 border-l-emerald-500 hover:shadow-md transition-shadow">
+        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border shadow-sm border-l-8 border-l-emerald-500 hover:shadow-md transition-shadow">
           <div className="flex justify-between items-start">
             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Income</p>
             <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><TrendingUp size={18}/></div>
@@ -109,7 +109,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({ records, masterDat
           <h3 className="text-3xl font-black text-emerald-600 mt-2">Rp {totals.income.toLocaleString('id-ID')}</h3>
           <p className="text-[10px] text-gray-400 mt-1 italic">Dihitung dari {filteredRecords.filter(f => f.type === 'INCOME').length} transaksi</p>
         </div>
-        <div className="bg-white p-6 rounded-2xl border shadow-sm border-l-8 border-l-red-500 hover:shadow-md transition-shadow">
+        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border shadow-sm border-l-8 border-l-red-500 hover:shadow-md transition-shadow">
           <div className="flex justify-between items-start">
             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Expenses</p>
             <div className="p-2 bg-red-50 text-red-600 rounded-lg"><TrendingDown size={18}/></div>
@@ -117,7 +117,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({ records, masterDat
           <h3 className="text-3xl font-black text-red-600 mt-2">Rp {totals.expense.toLocaleString('id-ID')}</h3>
           <p className="text-[10px] text-gray-400 mt-1 italic">Dihitung dari {filteredRecords.filter(f => f.type === 'EXPENSE').length} transaksi</p>
         </div>
-        <div className="bg-white p-6 rounded-2xl border shadow-sm border-l-8 border-l-blue-600 hover:shadow-md transition-shadow">
+        <div className="bg-white/70 backdrop-blur-md p-6 rounded-2xl border shadow-sm border-l-8 border-l-blue-600 hover:shadow-md transition-shadow">
           <div className="flex justify-between items-start">
             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Net Balance</p>
             <div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Wallet size={18}/></div>
@@ -129,7 +129,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({ records, masterDat
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+      <div className="bg-white/70 backdrop-blur-md rounded-2xl border shadow-sm overflow-hidden">
         <div className="p-4 border-b bg-gray-50 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex gap-2 w-full md:w-auto">
             <Button onClick={() => setShowForm(true)} size="sm" className="px-6 rounded-full"><Plus size={16} className="mr-2"/> Catat Transaksi</Button>

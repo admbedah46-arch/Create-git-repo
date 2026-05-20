@@ -8,6 +8,7 @@ interface IncidentModuleProps {
   reports: IncidentReport[];
   patients: Patient[];
   currentUser?: UserType | null;
+  settings?: any;
   onAddReport: (report: Partial<IncidentReport>) => void;
   onUpdateStatus: (id: string, status: string) => void;
   onDeleteReport: (id: string) => void;
@@ -37,7 +38,7 @@ const getAgeCategory = (age: number) => {
   return "> 65 tahun";
 };
 
-export const IncidentModule: React.FC<IncidentModuleProps> = ({ reports, patients, onAddReport, onUpdateStatus, onDeleteReport, currentUser }) => {
+export const IncidentModule: React.FC<IncidentModuleProps> = ({ reports, patients, onAddReport, onUpdateStatus, onDeleteReport, currentUser, settings }) => {
   const [showForm, setShowForm] = useState(false);
   const [isKPC, setIsKPC] = useState(false);
   const [patientSearchTerm, setPatientSearchTerm] = useState('');
@@ -45,6 +46,7 @@ export const IncidentModule: React.FC<IncidentModuleProps> = ({ reports, patient
   const [investigatingReport, setInvestigatingReport] = useState<IncidentReport | null>(null);
   const [viewingReport, setViewingReport] = useState<IncidentReport | null>(null);
   const [showOptionsId, setShowOptionsId] = useState<string | null>(null);
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<IncidentReport | null>(null);
 
   useEffect(() => {
     const styleId = 'print-styles-incident';
@@ -187,8 +189,8 @@ export const IncidentModule: React.FC<IncidentModuleProps> = ({ reports, patient
     <div className="space-y-8 pb-32">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="space-y-1">
-          <h2 className="text-4xl font-black text-slate-800 tracking-tighter uppercase">Incident Tracking</h2>
-          <p className="text-slate-500 font-bold text-sm tracking-tight">Manajemen Pelaporan & Analisis Insiden Keselamatan Pasien</p>
+          <h2 className="text-4xl font-black tracking-tighter uppercase" style={{ color: settings?.fontColor || '#1e293b' }}>Incident Tracking</h2>
+          <p className="font-bold text-sm tracking-tight" style={{ color: settings?.fontColor ? `${settings.fontColor}99` : '#64748b' }}>Manajemen Pelaporan & Analisis Insiden Keselamatan Pasien</p>
         </div>
         <div className="flex items-center gap-3">
            <Button variant="secondary" className="px-5 rounded-2xl">
@@ -201,7 +203,7 @@ export const IncidentModule: React.FC<IncidentModuleProps> = ({ reports, patient
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex items-center gap-6">
+        <div className="bg-white/80 backdrop-blur-md p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex items-center gap-6">
           <div className="w-16 h-16 rounded-3xl bg-rose-50 flex items-center justify-center text-rose-600">
             <AlertCircle size={32}/>
           </div>
@@ -417,7 +419,7 @@ export const IncidentModule: React.FC<IncidentModuleProps> = ({ reports, patient
 
       <div className="grid grid-cols-1 gap-6">
         {displayReports.length > 0 ? displayReports.sort((a,b) => b.id.localeCompare(a.id)).map(report => (
-          <div key={report.id} className="bg-white rounded-[2.5rem] border shadow-sm p-8 group hover:shadow-xl transition-all relative overflow-hidden">
+          <div key={report.id} className="bg-white/80 backdrop-blur-md rounded-[2.5rem] border shadow-sm p-8 group hover:shadow-xl transition-all relative overflow-hidden">
              {report.incidentType === 'SENTINEL' && <div className="absolute top-0 left-0 w-2 h-full bg-rose-600"></div>}
              <div className="flex justify-between items-start mb-6">
                 <div className="space-y-1">
@@ -487,9 +489,7 @@ export const IncidentModule: React.FC<IncidentModuleProps> = ({ reports, patient
                             (['KARU', 'SEKRU', 'PPJA', 'PIC'].includes(currentUser?.role || '') && report.responsibleUnit === currentUser?.unit)) && (
                             <Button 
                               onClick={() => {
-                                if (window.confirm('Hapus laporan insiden ini?')) {
-                                  onDeleteReport(report.id);
-                                }
+                                setDeleteConfirmTarget(report);
                               }}
                               variant="secondary" 
                               className="px-3 rounded-xl text-red-500 hover:bg-red-50"
@@ -796,6 +796,43 @@ export const IncidentModule: React.FC<IncidentModuleProps> = ({ reports, patient
                    <Button type="button" onClick={() => { setViewingReport(null); setInvestigatingReport(viewingReport); }} className="bg-slate-800 text-white px-8 rounded-2xl font-black uppercase text-[11px]">Buka Investigasi</Button>
                  )}
                </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Delete Confirmation Modal to prevent native confirm iframe block */}
+      {deleteConfirmTarget && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[2000] flex items-center justify-center p-4 animate-fade-in print-overlay font-sans">
+          <div className="bg-white rounded-[2rem] p-8 shadow-2xl w-full max-w-md border border-slate-100 relative">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mb-6 font-bold">
+                <AlertCircle size={32} />
+              </div>
+              <h3 className="font-black text-slate-800 text-2xl tracking-tight mb-2 font-sans">Konfirmasi Hapus</h3>
+              <p className="text-slate-400 text-sm font-medium leading-relaxed mb-8 font-sans">
+                Anda yakin ingin menghapus laporan insiden <b className="text-slate-700">"{deleteConfirmTarget.id}"</b>? Tindakan ini tidak dapat dibatalkan.
+              </p>
+              <div className="flex gap-4 w-full">
+                <Button 
+                  type="button"
+                  variant="secondary" 
+                  className="flex-1 py-4 rounded-2xl font-black text-xs uppercase tracking-widest border border-slate-200 hover:bg-slate-50"
+                  onClick={() => setDeleteConfirmTarget(null)}
+                >
+                  Batal
+                </Button>
+                <button 
+                  type="button"
+                  className="flex-1 py-4 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-rose-200"
+                  onClick={() => {
+                    onDeleteReport(deleteConfirmTarget.id);
+                    setDeleteConfirmTarget(null);
+                  }}
+                >
+                  Ya, Hapus
+                </button>
+              </div>
             </div>
           </div>
         </div>

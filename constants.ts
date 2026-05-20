@@ -42,6 +42,14 @@ const OPERATOR_KSMS = [
 // KSM yang dianggap sebagai ANESTESI
 const ANESTHESIA_KSMS = ["Anestesi"];
 
+export const AUTHORIZED_VISITE_ROLES = ['PIC', 'ADMIN', 'SEKRU', 'KARU', 'BIDANG', 'SUPER_ADMIN'];
+
+export const VISITE_ROLES = [
+  { id: 'DPJP_UTAMA', label: 'DPJP UTAMA' },
+  { id: 'KONSULEN', label: 'KONSULEN' },
+  { id: 'DPJP_KONSULEN', label: 'DPJP + KONSULEN' }
+];
+
 const rawDoctorData: Record<string, string> = {
     "dr. Aji Pramito, Sp.B": "Bedah",
     "dr. Aulia Ahimsa Martawiguna, M. Biomed., Sp.B.": "Bedah",
@@ -123,6 +131,7 @@ export const INITIAL_DATA: AppData = {
   "dailyReports": [],
   "nursingReports": [],
   "operations": [],
+  "doctorVisits": [],
   "incidentReports": [],
   "qualityMeasurements": [],
   "masterData": {
@@ -241,14 +250,24 @@ export const INITIAL_DATA: AppData = {
         category: 'INM'
       },
       {
-        id: 'inm-4',
-        title: 'Waktu Tunggu Operasi Elektif',
-        numerator: 'Jumlah pasien operasi elektif dengan waktu tunggu < 2 hari',
-        denominator: 'Jumlah seluruh pasien operasi elektif',
+        id: 'pathway-1',
+        title: 'Kepatuhan Clinical Pathway',
+        numerator: 'Jumlah audit clinical pathway yang patuh standar',
+        denominator: 'Jumlah total audit clinical pathway',
         target: 80,
         unit: '%',
         frequency: 'MONTHLY',
-        category: 'INM'
+        category: 'PRO-UNIT'
+      },
+      {
+        id: 'aps-1',
+        title: 'Laporan Pasien Pulang Atas Permintaan Sendiri (APS)',
+        numerator: 'Jumlah pasien APS dengan alasan terdokumentasi',
+        denominator: 'Total pasien yang pulang APS',
+        target: 100,
+        unit: '%',
+        frequency: 'DAILY',
+        category: 'PELAYANAN'
       }
     ],
     refs: {
@@ -259,8 +278,17 @@ export const INITIAL_DATA: AppData = {
       caraBayar: ["BPJS", "Jasa Raharja (JR)", "Umum", "BPJS Ketenagakerjaan", "Tanggungan Negara", "Baksos", "Asuransi Swasta", "Lain-lain"],
       statusTanggungan: ["Menjaminkan", "BPJS", "Jasa Raharja (JR)", "Umum", "BPJS Ketenagakerjaan", "Tanggungan Negara", "Baksos", "Asuransi Swasta", "Lain-lain"],
       statusSep: ["Belum Terbit", "Sudah Terbit", "Pending", "Ditolak", "Hapus SEP", "Tidak Ada SEP"],
-      statusDataPasien: ["Masih Dirawat", "Sudah Pulang", "APS", "Dirujuk", "Dipindah ke Ruangan Lain"],
+      statusDataPasien: ["Masih Dirawat", "BPL", "APS", "Dirujuk", "Dipindah ke Ruangan Lain", "Meninggal"],
       caraKeluar: ["BPL (Boleh Pulang)", "APS (Pulang Paksa)", "Dirujuk", "Meninggal", "Dipindah ke Ruangan Lain"]
+    },
+    settings: {
+      appName: 'SiMANTAP',
+      appSlogan: 'Manajemen Laporan Terpadu & Akurat',
+      themeColor: '#144272',
+      fontColor: '#ffffff',
+      appWallpaperUrl: '',
+      loginWallpaperUrl: '',
+      settingsTimestamp: '2020-01-01T00:00:00.000Z'
     }
   }
-};
+}

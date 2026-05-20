@@ -33,6 +33,7 @@ export interface QualityIndicator {
 
 export interface QualityMeasurement {
   id: string;
+  lastModified?: string;
   indicatorId: string;
   date: string;
   numeratorValue: number;
@@ -40,11 +41,14 @@ export interface QualityMeasurement {
   recordedBy: string;
   notes?: string;
   unit?: string;
+  auditData?: any;
+  meta?: any;
 }
 
 export interface DailyReportEntry {
   patientId: string;
   date: string;
+  lastModified?: string;
   morningReport?: string;
   afternoonReport?: string;
   nightReport?: string;
@@ -64,10 +68,38 @@ export interface DailyReportEntry {
   diagnosis?: string;
   surgeryStatus?: 'SCHEDULED' | 'PERFORMED' | 'DELAYED' | 'CANCELLED';
   surgeryDelayReason?: string;
+  surgeryTime?: string;
+  surgeryAnesthesiaType?: string;
+  surgeryUrgency?: 'ELECTIVE' | 'EMERGENCY';
+  surgeryNewDate?: string;
+  surgeryNewTime?: string;
+}
+
+export interface DoctorVisitRecord {
+  id: string;
+  lastModified?: string;
+  patientId: string;
+  patientName: string;
+  noRM: string;
+  date: string;
+  time: string;
+  doctorId: string;
+  doctorName: string;
+  smf: string;
+  paymentMethod: string;
+  attendanceStatus: string;
+  attendanceStatuses?: string[];
+  assistantName?: string;
+  visitRole: string;
+  recordedBy: string;
+  recordedAt: string;
+  createdAt?: string;
+  unit?: string;
 }
 
 export interface Instrument {
   id: string;
+  lastModified?: string;
   code: string;
   name: string;
   category: string;
@@ -79,6 +111,7 @@ export interface Instrument {
 
 export interface OperationReport {
   id: string;
+  lastModified?: string;
   patientId: string;
   patientName: string;
   noRM: string;
@@ -115,6 +148,7 @@ export interface MasterData {
   customFields: CustomField[];
   qualityIndicators: QualityIndicator[];
   instrumentCategories?: string[];
+  settings?: AppSettings;
   refs: {
     positions: string[];
     ksmList: string[];
@@ -135,6 +169,7 @@ export interface AppData {
   nursingReports: any[];
   operations: any[];
   masterData: MasterData;
+  doctorVisits?: DoctorVisitRecord[];
   financeRecords?: FinanceRecord[];
   incidentReports?: IncidentReport[];
   qualityMeasurements?: QualityMeasurement[];
@@ -144,6 +179,7 @@ export interface AppData {
 
 export interface Patient {
   id: string;
+  lastModified?: string;
   noRegister: string;
   noRM: string;
   name: string;
@@ -176,6 +212,10 @@ export interface Patient {
   apsReason?: string;
   referralDestination?: string;
   transferDestinationRoom?: string;
+  transferUnit?: string;
+  transferClass?: string;
+  transferRoom?: string;
+  transferBed?: string;
   deathTime?: '<48h' | '>=48h';
   transferHistory?: { date: string, fromUnit: string, toUnit: string }[];
   dynamicData?: Record<string, string>;
@@ -183,6 +223,7 @@ export interface Patient {
 
 export interface FinanceRecord {
   id: string;
+  lastModified?: string;
   patientId?: string;
   patientName?: string;
   noRM?: string;
@@ -199,6 +240,7 @@ export interface FinanceRecord {
 
 export interface IncidentReport {
   id: string;
+  lastModified?: string;
   puskesmasName?: string;
   isKPC: boolean;
   
@@ -285,4 +327,16 @@ export interface FiveWhysAnalysis {
   contributorSubComponent: string;
   recommendations: string[];
   actions: string[];
+}
+
+export interface AppSettings {
+  themeColor?: string;
+  isSidebarAutohide?: boolean;
+  appWallpaperUrl?: string;
+  loginWallpaperUrl?: string;
+  appName?: string;
+  appSlogan?: string;
+  dangerPrimaryColor?: string; // For alerts/brand secondary
+  fontColor?: string;
+  settingsTimestamp?: string;
 }

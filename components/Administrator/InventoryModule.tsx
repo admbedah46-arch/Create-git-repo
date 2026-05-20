@@ -66,7 +66,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({
         </Button>
       </div>
 
-      <div className="bg-white p-6 rounded-[2rem] border shadow-sm flex items-center gap-4">
+      <div className="bg-white/70 backdrop-blur-md p-6 rounded-[2rem] border shadow-sm flex items-center gap-4">
         <div className="flex-1 relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
           <input 
@@ -79,7 +79,7 @@ export const InventoryModule: React.FC<InventoryModuleProps> = ({
         </div>
       </div>
 
-      <div className="bg-white rounded-[2rem] border shadow-sm overflow-hidden">
+      <div className="bg-white/70 backdrop-blur-md rounded-[2rem] border shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left min-w-[800px]">
             <thead>

@@ -14,6 +14,7 @@ interface PatientModuleProps {
 export const PatientModule: React.FC<PatientModuleProps> = ({ appData, onEditPatient, onAddPatient, onDeletePatient, currentUser }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<Patient | null>(null);
 
   const filteredPatients = useMemo(() => {
     let list = appData.patients || [];
@@ -38,8 +39,8 @@ export const PatientModule: React.FC<PatientModuleProps> = ({ appData, onEditPat
     <div className="space-y-6 animate-fade-in pb-20">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Manajemen Pasien</h3>
-          <p className="text-xs text-slate-400 font-bold mt-1 uppercase tracking-widest flex items-center gap-2">
+          <h3 className="text-2xl font-black uppercase tracking-tight" style={{ color: appData.masterData.settings?.fontColor || '#1e293b' }}>Manajemen Pasien</h3>
+          <p className="text-xs font-bold mt-1 uppercase tracking-widest flex items-center gap-2" style={{ color: appData.masterData.settings?.fontColor ? `${appData.masterData.settings.fontColor}99` : '#94a3b8' }}>
             <User size={14} className="text-blue-500"/> Kelola data identitas dan riwayat klinis pasien
           </p>
         </div>
@@ -51,7 +52,7 @@ export const PatientModule: React.FC<PatientModuleProps> = ({ appData, onEditPat
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Patient List Section */}
         <div className={`lg:col-span-${selectedPatientId ? '5' : '12'} transition-all duration-300`}>
-          <div className="bg-white rounded-[2.5rem] border shadow-sm overflow-hidden flex flex-col h-[700px]">
+          <div className="bg-white/70 backdrop-blur-md rounded-[2.5rem] border shadow-sm overflow-hidden flex flex-col h-[700px]">
             <div className="p-6 border-b bg-slate-50/50">
               <div className="relative">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
@@ -68,9 +69,9 @@ export const PatientModule: React.FC<PatientModuleProps> = ({ appData, onEditPat
             <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
               {filteredPatients.length > 0 ? (
                 <div className="space-y-1">
-                  {filteredPatients.map((patient) => (
+                  {filteredPatients.map((patient, idx) => (
                     <button
-                      key={patient.id}
+                      key={`${patient.id}-${idx}`}
                       onClick={() => setSelectedPatientId(patient.id)}
                       className={`w-full flex items-center gap-4 p-4 rounded-3xl text-left transition-all group ${
                         selectedPatientId === patient.id 
@@ -112,7 +113,7 @@ export const PatientModule: React.FC<PatientModuleProps> = ({ appData, onEditPat
         {/* History Detail Section */}
         {selectedPatient && (
           <div className="lg:col-span-7 animate-in slide-in-from-right duration-500">
-            <div className="bg-white rounded-[2.5rem] border shadow-sm h-[700px] flex flex-col overflow-hidden">
+            <div className="bg-white/70 backdrop-blur-md rounded-[2.5rem] border shadow-sm h-[700px] flex flex-col overflow-hidden">
               {/* Header Details */}
               <div className="p-8 border-b bg-gradient-to-br from-slate-900 to-slate-800 text-white relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-20 -mt-20 blur-3xl"></div>
@@ -141,10 +142,7 @@ export const PatientModule: React.FC<PatientModuleProps> = ({ appData, onEditPat
                     {(currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'BIDANG' || (['KARU', 'SEKRU', 'PPJA', 'PIC'].includes(currentUser?.role || '') && selectedPatient.unitTujuan === currentUser?.unit)) && (
                       <Button 
                         onClick={() => {
-                          if (window.confirm(`Hapus data pasien ${selectedPatient.name}?`)) {
-                            onDeletePatient(selectedPatient.id);
-                            setSelectedPatientId(null);
-                          }
+                          setDeleteConfirmTarget(selectedPatient);
                         }}
                         className="bg-rose-600/40 hover:bg-rose-600 text-white border border-rose-500/30 rounded-2xl"
                       >
@@ -261,6 +259,41 @@ export const PatientModule: React.FC<PatientModuleProps> = ({ appData, onEditPat
           </div>
         )}
       </div>
+
+      {deleteConfirmTarget && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[2000] flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-[2rem] p-8 shadow-2xl w-full max-w-md border border-slate-100 relative">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mb-6">
+                <AlertCircle size={32} />
+              </div>
+              <h3 className="font-black text-slate-800 text-2xl tracking-tight mb-2">Konfirmasi Hapus</h3>
+              <p className="text-slate-400 text-sm font-medium leading-relaxed mb-8">
+                Anda yakin ingin menghapus data <b className="text-slate-700">"{deleteConfirmTarget.name}"</b>? Tindakan ini tidak dapat dibatalkan.
+              </p>
+              <div className="flex gap-4 w-full">
+                <Button 
+                  variant="secondary" 
+                  className="flex-1 py-4 rounded-2xl font-black text-xs uppercase tracking-widest border border-slate-200 hover:bg-slate-50"
+                  onClick={() => setDeleteConfirmTarget(null)}
+                >
+                  Batal
+                </Button>
+                <button 
+                  className="flex-1 py-4 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-rose-200"
+                  onClick={() => {
+                    onDeletePatient(deleteConfirmTarget.id);
+                    setSelectedPatientId(null);
+                    setDeleteConfirmTarget(null);
+                  }}
+                >
+                  Ya, Hapus
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

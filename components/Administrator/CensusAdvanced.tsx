@@ -31,9 +31,10 @@ export const CensusAdvanced: React.FC<CensusAdvancedProps> = ({ appData, current
     
     // Initial estimation for Day 1
     const patientsAlreadyIn = patients.filter(p => {
+      const normalize = (s: any) => String(s || '').toLowerCase().replace(/ruang\s+/g, '').replace(/r\.\s+/g, '').trim();
       const isBefore = p.entryDate < startOfMonthStr;
       const isStillIn = !p.dischargeDate || p.dischargeDate >= startOfMonthStr;
-      return isBefore && isStillIn && p.unitTujuan === selectedUnit;
+      return isBefore && isStillIn && normalize(p.unitTujuan) === normalize(selectedUnit);
     });
 
     previousDaySisaSummary.L = patientsAlreadyIn.filter(p => p.gender === 'L').length;
@@ -45,8 +46,9 @@ export const CensusAdvanced: React.FC<CensusAdvancedProps> = ({ appData, current
     });
 
     daysArray.forEach(day => {
+      const normalize = (s: any) => String(s || '').toLowerCase().replace(/ruang\s+/g, '').replace(/r\.\s+/g, '').trim();
       const currentDate = new Date(selectedYear, selectedMonth, day).toISOString().split('T')[0];
-      const dayPatients = patients.filter(p => p.unitTujuan === selectedUnit);
+      const dayPatients = patients.filter(p => normalize(p.unitTujuan) === normalize(selectedUnit));
       
       const isNewArrival = (origin: string) => {
         if (!origin) return true;
@@ -65,7 +67,7 @@ export const CensusAdvanced: React.FC<CensusAdvancedProps> = ({ appData, current
       const pindahanMasukP = pindahanMasuk.filter(p => p.gender === 'P').length;
 
       // 3. Keluar Hidup
-      const keluarHidup = dayPatients.filter(p => p.dischargeDate === currentDate && p.statusDataPasien === 'Sudah Pulang');
+      const keluarHidup = dayPatients.filter(p => p.dischargeDate === currentDate && p.statusDataPasien === 'BPL');
       const keluarHidupL = keluarHidup.filter(p => p.gender === 'L').length;
       const keluarHidupP = keluarHidup.filter(p => p.gender === 'P').length;
 
@@ -183,7 +185,7 @@ export const CensusAdvanced: React.FC<CensusAdvancedProps> = ({ appData, current
 
   return (
     <div className="space-y-6 animate-fade-in pb-20 overflow-x-auto">
-      <div className="bg-white rounded-[2.5rem] p-4 border shadow-sm min-w-[1600px] overflow-hidden">
+      <div className="bg-white/70 backdrop-blur-md rounded-[2.5rem] p-4 border shadow-sm min-w-[1600px] overflow-hidden">
         
         {/* Header & Controls */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8 px-4 mt-4">
