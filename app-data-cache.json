@@ -1,0 +1,2382 @@
+{
+  "timestamp": "2026-06-13T11:24:26.067Z",
+  "patients": [
+    {
+      "noRegister": "",
+      "noRM": "43065648",
+      "name": "MAYFITA ZULYASARI",
+      "gender": "P",
+      "birthDate": "",
+      "address": "\"BALIK BATANG,LENDANG BELO Montong Betok, Montong Gading, Lombok Timur, Nusa Tenggara Barat\"",
+      "entryDate": "2026-06-01",
+      "origin": "IGD",
+      "unitTujuan": "Ruang Bedah",
+      "kelasRawat": "Kelas 3",
+      "ruangan": "Bedah 3A",
+      "nomorBed": "3A1",
+      "statusDataPasien": "Masih Dirawat",
+      "diagnosaUtama": "Combustio derajat mid - deep dermal TBSA 18,5% ec fire burn injury (12 jam SMRS)",
+      "tindakanProsedur": "",
+      "dpjpList": [
+        "dr. Aji Pramito, Sp.B"
+      ],
+      "paymentMethod": [
+        "BPJS"
+      ],
+      "noSEP": "",
+      "statusSEP": "Sudah Terbit",
+      "jenisKLL": "Bukan KLL",
+      "noLP": "",
+      "perawatPrimer": "Yayuk aprianis",
+      "catatanKhusus": "",
+      "allergyHistory": "",
+      "emergencyContactName": "",
+      "emergencyContactPhone": "",
+      "status": "ADMITTED",
+      "dischargeDate": "",
+      "dischargeTime": "",
+      "apsReason": "",
+      "referralDestination": "",
+      "transferDestinationRoom": "",
+      "transferUnit": "",
+      "transferClass": "",
+      "transferRoom": "",
+      "transferBed": "",
+      "id": "P-1780336147110",
+      "lastModified": "2026-06-01T17:49:29.316Z"
+    },
+    {
+      "noRegister": "",
+      "noRM": "43065926",
+      "name": "sahir",
+      "gender": "L",
+      "birthDate": "",
+      "address": "\"PEMUNIK EMAS, PANDAN WANGI  Jerowaru, Jerowaru, Lombok Timur, Nusa Tenggara Barat\"",
+      "entryDate": "2026-06-01",
+      "origin": "IGD",
+      "unitTujuan": "Ruang Bedah",
+      "kelasRawat": "Kelas 3",
+      "ruangan": "Bedah 3A",
+      "nomorBed": "3A2",
+      "statusDataPasien": "Masih Dirawat",
+      "diagnosaUtama": "Peritonitis Generalisata ec Perforasi Gaster Post LE Repair Perforasi Gaster POD 2",
+      "tindakanProsedur": "",
+      "dpjpList": [
+        "dr. Aji Pramito, Sp.B"
+      ],
+      "paymentMethod": [],
+      "noSEP": "",
+      "statusSEP": "Belum Terbit",
+      "jenisKLL": "Bukan KLL",
+      "noLP": "",
+      "perawatPrimer": "Yayuk aprianis",
+      "catatanKhusus": "",
+      "allergyHistory": "",
+      "emergencyContactName": "",
+      "emergencyContactPhone": "",
+      "status": "ADMITTED",
+      "dischargeDate": "",
+      "dischargeTime": "",
+      "apsReason": "",
+      "referralDestination": "",
+      "transferDestinationRoom": "",
+      "transferUnit": "",
+      "transferClass": "",
+      "transferRoom": "",
+      "transferBed": "",
+      "id": "P-1780336692069",
+      "lastModified": "2026-06-01T17:58:46.471Z"
+    },
+    {
+      "noRegister": "",
+      "noRM": "NURHASANAH",
+      "name": "NURHASANAH",
+      "gender": "P",
+      "birthDate": "",
+      "address": "MONTOR LEKONG, TOYA AIKMEL  Toya, Aikmel, Lombok Timur, Nusa Tenggara Barat\"",
+      "entryDate": "2026-06-01",
+      "origin": "IGD",
+      "unitTujuan": "Ruang Bedah",
+      "kelasRawat": "Kelas 3",
+      "ruangan": "Bedah 3A",
+      "nomorBed": "3A3",
+      "statusDataPasien": "Masih Dirawat",
+      "diagnosaUtama": "Abdominal Pain ec Appendicitis Acute",
+      "tindakanProsedur": "",
+      "dpjpList": [
+        "dr. Febrian Parlangga M., M.Ked(surg), Sp.B"
+      ],
+      "paymentMethod": [
+        "BPJS"
+      ],
+      "noSEP": "",
+      "statusSEP": "Belum Terbit",
+      "jenisKLL": "Bukan KLL",
+      "noLP": "",
+      "perawatPrimer": "Yayuk aprianis",
+      "catatanKhusus": "",
+      "allergyHistory": "",
+      "emergencyContactName": "",
+      "emergencyContactPhone": "",
+      "status": "ADMITTED",
+      "dischargeDate": "",
+      "dischargeTime": "",
+      "apsReason": "",
+      "referralDestination": "",
+      "transferDestinationRoom": "",
+      "transferUnit": "",
+      "transferClass": "",
+      "transferRoom": "",
+      "transferBed": "",
+      "id": "P-1780337036268",
+      "lastModified": "2026-06-01T18:04:51.346Z"
+    }
+  ],
+  "dailyReports": [
+    {
+      "patientId": "P-1780336147110",
+      "date": "2026-06-01",
+      "nightRecordedBy": "Baiq dian septiana",
+      "lastModified": "2026-06-01T17:56:25.537Z",
+      "nightDependency": "TOTAL",
+      "diagnosis": "Combustio derajat mid - deep dermal TBSA 18,5% ec fire burn injury (12 jam SMRS)",
+      "nightTherapy": "IVFD D5 1/2 NS 1550cc/24jam\nInj Ceftriakson 600mg/12jam\nInj Ranitidin 3 x 50 mg\nDrip Tramadol 50mg dalam NaCl 0,9% 100ml/8jam\n\n\n\npertahankan Elastic verban 3-5 hari\ndiet tinggi protein ekstra putih telur \n\nOBSERVASI LANJUT \"",
+      "nightReport": "\"k/u sedang , kes cm, nyeri luka bakar post op (+) dengan dx post debridement a/i Combustio derajat mid-deep dermal TBSA 18.5% ec fire burn injury (12 jam SMRS). post Cek albumin : 2.9 g/dL\n* Rawat luka tgl 31/5/2026\n",
+      "afternoonRecordedBy": "Nomy Asyrifa",
+      "afternoonDependency": "TOTAL",
+      "afternoonTherapy": "IVFD D5 1/2 NS 1550cc/24jam\nInj Ceftriakson 600mg/12jam\nInj Ranitidin 3 x 50 mg\nDrip Tramadol 50mg dalam NaCl 0,9% 100ml/8jam\n\n\n\npertahankan Elastic verban 3-5 hari\ndiet tinggi protein ekstra putih telur \n\nOBSERVASI LANJUT \"",
+      "afternoonReport": "\"k/u sedang , kes cm, nyeri luka bakar post op (+) dengan dx post debridement a/i Combustio derajat mid-deep dermal TBSA 18.5% ec fire burn injury (12 jam SMRS). post Cek albumin : 2.9 g/dL\n* Rawat luka tgl 31/5/2026\n",
+      "morningRecordedBy": "ZULKIPLI",
+      "morningDependency": "TOTAL",
+      "morningTherapy": "IVFD D5 1/2 NS 1550cc/24jam\nInj Ceftriakson 600mg/12jam\nInj Ranitidin 3 x 50 mg\nDrip Tramadol 50mg dalam NaCl 0,9% 100ml/8jam\npertahankan Elastic verban 3-5 hari\ndiet tinggi protein ekstra putih telur \nOBSERVASI LANJUT \"",
+      "morningReport": "\"k/u sedang , kes cm, nyeri luka bakar post op (+) dengan dx post debridement a/i Combustio derajat mid-deep dermal TBSA 18.5% ec fire burn injury (12 jam SMRS). post Cek albumin : 2.9 g/dL\n* Rawat luka tgl 31/5/2026\n",
+      "adminNote": ""
+    },
+    {
+      "patientId": "P-1780336692069",
+      "date": "2026-06-01",
+      "morningRecordedBy": "ZULKIPLI",
+      "lastModified": "2026-06-01T18:03:56.268Z",
+      "morningDependency": "TOTAL",
+      "diagnosis": "Peritonitis Generalisata ec Perforasi Gaster Post LE Repair Perforasi Gaster POD 2",
+      "morningTherapy": "-IVFD RL: B fluid 20 tpm \n- Inj Ceftriaxone 2x1 gr\n- Inj omz 2x40mg \n- Inj ondan 3x4 mg\n- Inf Metro 3x500mg\n- Inf Pct 3x1 gr \n\nObservasi lanjut \n\nkonsul dr.jaga untuk diit sudah, instruksi : 2 sendok/jam\"\n",
+      "morningReport": "\"K/u sedang, kes cm, nyeri luka operasi, flatus (+) BAB (-) , demam (-) , mual(-) , muntah (-), terpasang NGT dekompresi , konsul DPJP untuk diit (+) , terpasang drain luka 1 bh, terpasang DC\n\n*Cek DL, Elektrolit, Albumin, GDS post op (+) tgl 30/5/2026\n\n",
+      "afternoonReport": "\"K/u sedang, kes cm, nyeri luka operasi, flatus (+) BAB (-) , demam (-) , mual(-) , muntah (-), terpasang NGT dekompresi , konsul DPJP untuk diit (+) , terpasang drain luka 1 bh, terpasang DC\n\n*Cek DL, Elektrolit, Albumin, GDS post op (+) tgl 30/5/2026\n\n",
+      "afternoonTherapy": "-IVFD RL: B fluid 20 tpm \n- Inj Ceftriaxone 2x1 gr\n- Inj omz 2x40mg \n- Inj ondan 3x4 mg\n- Inf Metro 3x500mg\n- Inf Pct 3x1 gr \n\nObservasi lanjut \n\nkonsul dr.jaga untuk diit sudah, instruksi : 2 sendok/jam\"\n",
+      "afternoonRecordedBy": "Nomy Asyrifa",
+      "afternoonDependency": "TOTAL",
+      "nightReport": "\"K/u sedang, kes cm, nyeri luka operasi, flatus (+) BAB (-) , demam (-) , mual(-) , muntah (-), terpasang NGT dekompresi , konsul DPJP untuk diit (+) , terpasang drain luka 1 bh, terpasang DC\n\n*Cek DL, Elektrolit, Albumin, GDS post op (+) tgl 30/5/2026\n\n",
+      "nightTherapy": "-IVFD RL: B fluid 20 tpm \n- Inj Ceftriaxone 2x1 gr\n- Inj omz 2x40mg \n- Inj ondan 3x4 mg\n- Inf Metro 3x500mg\n- Inf Pct 3x1 gr \n\nObservasi lanjut \n\nkonsul dr.jaga untuk diit sudah, instruksi : 2 sendok/jam\"\n",
+      "nightRecordedBy": "Baiq dian septiana",
+      "nightDependency": "TOTAL",
+      "adminNote": ""
+    },
+    {
+      "patientId": "P-1780337036268",
+      "date": "2026-06-01",
+      "nightDependency": "PARSIAL",
+      "lastModified": "2026-06-11T14:40:43.103Z",
+      "nightRecordedBy": "Baiq dian septiana",
+      "diagnosis": "Abdominal Pain ec Appendicitis Acute",
+      "nightTherapy": "• IVFD RL  20tpm\n• Inj. Ceftriaxone 1 gr/12 jam IV\n• PO. Paracetamol 500 mg/8 jam IV\n• Inj. Omeprazole 40mg/12jam IV\n• Inj. Ondansentron 4mg/8 jam IV k/p muntah\n\nrencana pagi ini laparoscopy appendix\nlab DL dan GDS (+)\nkonsul anastesi (-)\nCT BT (+)\ndaftar OK (+)\nTTD persetujuan di IGD (+)\n\"",
+      "nightReport": "\"KU SEDANG, nyeri perut kanan bawah sejak +- 1 bulan SMRS dan memberat sejak 1 minggu belakangan yang lalu. Awalnya nyeri dirasakan di ulu hati kemudian berpindah ke perut kanan bawah. Nyeri dirasakan terus-menerus dan seperti tertusuk. Riwayat demam (+) hilang timbul sejak 1 bulan yll, mual (+) muntah (+) 1x, dan penurunan nafsu makan (+). BAB (-) sejak 2 minggu, flatus (+) dan BAK normal.\n",
+      "afternoonRecordedBy": "Nomy Asyrifa",
+      "afternoonDependency": "PARSIAL",
+      "afternoonTherapy": "• IVFD RL  20tpm\n• Inj. Ceftriaxone 1 gr/12 jam IV\n• PO. Paracetamol 500 mg/8 jam IV\n• Inj. Omeprazole 40mg/12jam IV\n• Inj. Ondansentron 4mg/8 jam IV k/p muntah\n\nrencana pagi ini laparoscopy appendix\nlab DL dan GDS (+)\nkonsul anastesi (-)\nCT BT (+)\ndaftar OK (+)\nTTD persetujuan di IGD (+)\n\"",
+      "afternoonReport": "\"KU SEDANG, nyeri perut kanan bawah sejak +- 1 bulan SMRS dan memberat sejak 1 minggu belakangan yang lalu. Awalnya nyeri dirasakan di ulu hati kemudian berpindah ke perut kanan bawah. Nyeri dirasakan terus-menerus dan seperti tertusuk. Riwayat demam (+) hilang timbul sejak 1 bulan yll, mual (+) muntah (+) 1x, dan penurunan nafsu makan (+). BAB (-) sejak 2 minggu, flatus (+) dan BAK normal.\n",
+      "morningRecordedBy": "ZULKIPLI",
+      "morningDependency": "PARSIAL",
+      "morningTherapy": "\n• IVFD RL  20tpm\n• Inj. Ceftriaxone 1 gr/12 jam IV\n• PO. Paracetamol 500 mg/8 jam IV\n• Inj. Omeprazole 40mg/12jam IV\n• Inj. Ondansentron 4mg/8 jam IV k/p muntah\n\nrencana besok laparoscopy appendix\nlab DL dan GDS (+)\nkonsul anastesi (-)\nCT BT (-)\ndaftar OK (-)\nTTD persetujuan di IGD (+)",
+      "morningReport": "\"PB dari IGD datang jam 10:56 dengan keluhan nyeri perut kanan bawah sejak +- 1 bulan SMRS dan memberat sejak 1 minggu belakangan yang lalu. Awalnya nyeri dirasakan di ulu hati kemudian berpindah ke perut kanan bawah. Nyeri dirasakan terus-menerus dan seperti tertusuk. Riwayat demam (+) hilang timbul sejak 1 bulan yll, mual (+) muntah (+) 1x, dan penurunan nafsu makan (+). BAB (-) sejak 2 minggu, flatus (+) dan BAK normal.\n",
+      "adminNote": ""
+    }
+  ],
+  "nursingReports": [],
+  "operations": [],
+  "doctorVisits": [
+    {
+      "id": "6i1utfoo4",
+      "patientId": "P-1779766486514",
+      "patientName": "sss",
+      "noRM": "2",
+      "doctorId": "dr. Aji Pramito, Sp.B",
+      "doctorName": "dr. Aji Pramito, Sp.B",
+      "smf": "Bedah",
+      "date": "2026-05-26",
+      "attendanceStatus": "HADIR",
+      "attendanceStatuses": [
+        "HADIR"
+      ],
+      "assistantName": "",
+      "visitRole": "DPJP_UTAMA",
+      "unit": "Ruang Bedah",
+      "paymentMethod": "BPJS",
+      "recordedAt": "2026-05-26T05:46:25.403Z",
+      "recordedBy": "Super User",
+      "lastModified": "2026-05-26T05:46:25.408Z"
+    }
+  ],
+  "incidentReports": [
+    {
+      "severity": "BLUE",
+      "incidentType": "KNC",
+      "isKPC": false,
+      "reporterType": "Perawat",
+      "affectedParty": "PASIEN",
+      "patientServiceCategory": "Pasien Rawat Inap",
+      "specialtyCase": "Bedah",
+      "wasSameIncidentBefore": true,
+      "impact": "Tidak ada cedera",
+      "actionPerformer": "",
+      "patientId": "P-1776438150804",
+      "patientName": "sdasfaf",
+      "noRM": "32131312",
+      "room": "Bedah 3B",
+      "gender": "P",
+      "paymentMethod": "Umum",
+      "admissionDate": "2026-04-17",
+      "date": "2026-04-23",
+      "time": "17:21",
+      "incidentName": "Salah pasang gelang",
+      "chronology": "pasien harusnya diberikan gelang pink tetapi malah biru",
+      "location": "ruang bedah",
+      "immediateAction": "ganti gelang",
+      "previousIncidentDetail": "sudabf seribf",
+      "id": "1776936096901",
+      "status": "RESOLVED",
+      "reportDate": "2026-04-23",
+      "receiveDate": "2026-04-23",
+      "investigation": {
+        "tabularTimeline": [
+          {
+            "id": "1776937349479",
+            "time": "2026-04-23T14:42",
+            "event": "pasien masuk",
+            "info": "dilakukan identifikasi pasien dipasangkan gelang warna berbeda karena hanya itu stok tersedia",
+            "goodPractice": "dilakukan identifikasi pasien",
+            "cmp": "",
+            "sdp": "stok gelang kosong"
+          }
+        ],
+        "analysis": [
+          {
+            "id": "1776937412966",
+            "problem": "stok gelang kosong",
+            "immediateCause": "asdadasdsad",
+            "why2": "assdasdasd",
+            "why3": "asdasd",
+            "why4": "asdsadsd",
+            "rootCause": "asdasdasd",
+            "contributorComponent": "",
+            "contributorSubComponent": "",
+            "recommendations": [
+              "",
+              "",
+              ""
+            ],
+            "actions": [
+              "",
+              "",
+              ""
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "severity": "BLUE",
+      "incidentType": "KPC",
+      "isKPC": true,
+      "reporterType": "Perawat",
+      "affectedParty": "PASIEN",
+      "patientServiceCategory": "",
+      "specialtyCase": "",
+      "wasSameIncidentBefore": false,
+      "impact": "Tidak ada cedera",
+      "actionPerformer": "Perawat",
+      "date": "2026-04-23",
+      "time": "18:02",
+      "incidentName": "ZcC",
+      "chronology": "ZXCZC",
+      "immediateAction": "XCZXCXZC",
+      "responsibleUnit": "ZXC",
+      "id": "1776938532155",
+      "status": "NEW",
+      "reportDate": "2026-04-23",
+      "receiveDate": "2026-04-23",
+      "reporterUsername": "dianti",
+      "reporterName": "DIANTI"
+    },
+    {
+      "severity": "BLUE",
+      "incidentType": "KPC",
+      "isKPC": true,
+      "reporterType": "Dokter",
+      "affectedParty": "PASIEN",
+      "patientServiceCategory": "",
+      "specialtyCase": "",
+      "wasSameIncidentBefore": false,
+      "impact": "Tidak ada cedera",
+      "actionPerformer": "Dokter",
+      "date": "2026-04-23",
+      "time": "18:04",
+      "incidentName": "fk",
+      "chronology": "kkhkg",
+      "immediateAction": "xghk",
+      "id": "1776938643211",
+      "status": "CLOSED",
+      "reportDate": "2026-04-23",
+      "receiveDate": "2026-04-23",
+      "reporterUsername": "fiki",
+      "reporterName": "FIKHURRAHMAN"
+    }
+  ],
+  "qualityMeasurements": [
+    {
+      "id": "m-1779170159767",
+      "indicatorId": "inm-1",
+      "date": "2026-05-19",
+      "numeratorValue": 0,
+      "denominatorValue": 0,
+      "recordedBy": "Super User",
+      "unit": "",
+      "auditData": [
+        {
+          "id": 1779170153212,
+          "code": "ZULKIPLI",
+          "prof": "Perawat",
+          "moments": [
+            "1"
+          ],
+          "action": "HR",
+          "gloves": true
+        }
+      ],
+      "meta": {
+        "auditInfo": {
+          "observer": "Uswatun hasanah",
+          "unit": "Ruang Bedah"
+        }
+      }
+    },
+    {
+      "id": "m-1779254405372",
+      "indicatorId": "inm-1",
+      "date": "2026-05-20",
+      "numeratorValue": 0,
+      "denominatorValue": 0,
+      "recordedBy": "Super User",
+      "unit": "",
+      "meta": {}
+    }
+  ],
+  "masterData": {
+    "doctors": [
+      "dr. Aji Pramito, Sp.B",
+      "dr. Aulia Ahimsa Martawiguna, M. Biomed., Sp.B.",
+      "dr. Muhammad Tontowi Jauhari, Sp.B., Subsp. Onk (K)",
+      "dr. Raden Lyana Sulistyanti, Sp.B",
+      "dr. Ahmad Rizan Hendrawan, Sp.OT",
+      "dr. Luky Tandio Putra Sp.OT",
+      "dr. Sukmawendi Triwirita Sanjaya, Sp.OT",
+      "drg. Cita Darmastuti, Sp.BM",
+      "dr. Edi Surya Bara, M.Ked.Klin, Sp.BTKV",
+      "dr. Samudra Widagdo Arifin, Sp.U",
+      "dr. Teuku Arie Hidayat, Sp.BS",
+      "dr. Sri Subekti, Sp.M,Msc",
+      "dr. Iva Rini Aryani, SpM, Msc",
+      "dr. Ni Putu Anggraeni Eka Wahyuni, Sp. THT- KL",
+      "dr. Dadan Rohdiana, Sp.THT-KL",
+      "dr. Hj. Nurkristi Permatasari Amin, Sp.P",
+      "dr. Yuris Hikman Karunia, Sp.P",
+      "dr. Dewa Ayu Gora Nusantari, Sp. JP",
+      "dr. Hesti Wulandari, Sp.JP",
+      "dr. Lalu Galih Pratama Rinjani, Sp.JP",
+      "dr. Zaki Saidi, Sp.JP",
+      "dr. H. Karsito, SpPD",
+      "dr. Ellen, Sp.PD",
+      "dr. Zakiah, Sp.PD",
+      "dr. Junnia Hartanadi, Sp.PD",
+      "dr. Wa Ode Nelly Estika, Sp.PD",
+      "dr. Ero Eri Angga, Sp.P.D",
+      "dr. Anugrah Dzucha Mubarok, Sp.P.D.",
+      "dr. Hj. Wikan Tyasning, Sp.PD",
+      "dr. Nia Krisdiantari, Sp.A",
+      "dr. Maria Christine Florens Sandra, Sp.A",
+      "dr.Oktaria Safitri,Sp.A,M.Ked.Klin",
+      "dr. Christantina Pradescha Assa, Sp.N",
+      "dr. Safat Wahyudi, Sp.S",
+      "dr. Dewa Ayu Citra Mahardina, Sp.N",
+      "dr. Abdul Qadir Jaelani, Sp.An.TI",
+      "dr. Cahya Hendrawan D.B, Sp.An",
+      "dr. I Nyoman Sudiarsana,Sp.An",
+      "dr. Lalu Ramadlan, Sp.An-TI",
+      "dr. Febriana Puspita Adji, SpKJ.",
+      "dr. Hana Milatieka, Sp.K.F.R",
+      "dr. Tri Sundari Tika,Sp.OG",
+      "dr. Dewa Made Sucipta P., Sp.OG (K)",
+      "dr. Mohammad Khoiron Tamami, Sp.OG",
+      "dr. Suaidi,Sp.OG",
+      "dr. Lysa Mariam, Sp.KK",
+      "dr. Citra Rozaaq Lahay, Sp.Rad",
+      "dr. Anjasmoro,Sp. Rad",
+      "dr. Saida Hayati, Sp.MK",
+      "dr. Uswatun Hasanah, Sp.PA",
+      "dr. Febrian Parlangga M., M.Ked(surg), Sp.B",
+      "dr. H. Rosmana Heriadhi Kus Endang",
+      "dr. Djero Aryadi Soemerep",
+      "dr. Mardiana Maya Utari"
+    ],
+    "doctorMetadata": {
+      "dr. Aji Pramito, Sp.B": {
+        "ksm": "Bedah",
+        "category": "OPERATOR"
+      },
+      "dr. Aulia Ahimsa Martawiguna, M. Biomed., Sp.B.": {
+        "ksm": "Bedah",
+        "category": "OPERATOR"
+      },
+      "dr. Muhammad Tontowi Jauhari, Sp.B., Subsp. Onk (K)": {
+        "ksm": "Onkologi",
+        "category": "OPERATOR"
+      },
+      "dr. Raden Lyana Sulistyanti, Sp.B": {
+        "ksm": "Bedah",
+        "category": "OPERATOR"
+      },
+      "dr. Ahmad Rizan Hendrawan, Sp.OT": {
+        "ksm": "Orthopedi",
+        "category": "OPERATOR"
+      },
+      "dr. Luky Tandio Putra Sp.OT": {
+        "ksm": "Orthopedi",
+        "category": "OPERATOR"
+      },
+      "dr. Sukmawendi Triwirita Sanjaya, Sp.OT": {
+        "ksm": "Orthopedi",
+        "category": "OPERATOR"
+      },
+      "drg. Cita Darmastuti, Sp.BM": {
+        "ksm": "Gigi & Mulut",
+        "category": "OPERATOR"
+      },
+      "dr. Edi Surya Bara, M.Ked.Klin, Sp.BTKV": {
+        "ksm": "BTKV",
+        "category": "OPERATOR"
+      },
+      "dr. Samudra Widagdo Arifin, Sp.U": {
+        "ksm": "Urologi",
+        "category": "OPERATOR"
+      },
+      "dr. Teuku Arie Hidayat, Sp.BS": {
+        "ksm": "Bedah Syaraf",
+        "category": "OPERATOR"
+      },
+      "dr. Sri Subekti, Sp.M,Msc": {
+        "ksm": "Mata",
+        "category": "OPERATOR"
+      },
+      "dr. Iva Rini Aryani, SpM, Msc": {
+        "ksm": "Mata",
+        "category": "OPERATOR"
+      },
+      "dr. Ni Putu Anggraeni Eka Wahyuni, Sp. THT- KL": {
+        "ksm": "THT-KL",
+        "category": "OPERATOR"
+      },
+      "dr. Dadan Rohdiana, Sp.THT-KL": {
+        "ksm": "THT-KL",
+        "category": "OPERATOR"
+      },
+      "dr. Hj. Nurkristi Permatasari Amin, Sp.P": {
+        "ksm": "Paru",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Yuris Hikman Karunia, Sp.P": {
+        "ksm": "Paru",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Dewa Ayu Gora Nusantari, Sp. JP": {
+        "ksm": "Jantung",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Hesti Wulandari, Sp.JP": {
+        "ksm": "Jantung",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Lalu Galih Pratama Rinjani, Sp.JP": {
+        "ksm": "Jantung",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Zaki Saidi, Sp.JP": {
+        "ksm": "Jantung",
+        "category": "NON_OPERATOR"
+      },
+      "dr. H. Karsito, SpPD": {
+        "ksm": "Penyakit Dalam",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Ellen, Sp.PD": {
+        "ksm": "Penyakit Dalam",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Zakiah, Sp.PD": {
+        "ksm": "Penyakit Dalam",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Junnia Hartanadi, Sp.PD": {
+        "ksm": "Penyakit Dalam",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Wa Ode Nelly Estika, Sp.PD": {
+        "ksm": "Penyakit Dalam",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Ero Eri Angga, Sp.P.D": {
+        "ksm": "Penyakit Dalam",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Anugrah Dzucha Mubarok, Sp.P.D.": {
+        "ksm": "Penyakit Dalam",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Hj. Wikan Tyasning, Sp.PD": {
+        "ksm": "Penyakit Dalam",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Nia Krisdiantari, Sp.A": {
+        "ksm": "Anak",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Maria Christine Florens Sandra, Sp.A": {
+        "ksm": "Anak",
+        "category": "NON_OPERATOR"
+      },
+      "dr.Oktaria Safitri,Sp.A,M.Ked.Klin": {
+        "ksm": "Anak",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Christantina Pradescha Assa, Sp.N": {
+        "ksm": "Saraf",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Safat Wahyudi, Sp.S": {
+        "ksm": "Saraf",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Dewa Ayu Citra Mahardina, Sp.N": {
+        "ksm": "Saraf",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Abdul Qadir Jaelani, Sp.An.TI": {
+        "ksm": "Anestesi",
+        "category": "ANESTHESIA"
+      },
+      "dr. Cahya Hendrawan D.B, Sp.An": {
+        "ksm": "Anestesi",
+        "category": "ANESTHESIA"
+      },
+      "dr. I Nyoman Sudiarsana,Sp.An": {
+        "ksm": "Anestesi",
+        "category": "ANESTHESIA"
+      },
+      "dr. Lalu Ramadlan, Sp.An-TI": {
+        "ksm": "Anestesi",
+        "category": "ANESTHESIA"
+      },
+      "dr. Febriana Puspita Adji, SpKJ.": {
+        "ksm": "Jiwa",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Hana Milatieka, Sp.K.F.R": {
+        "ksm": "Rehab Medik",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Tri Sundari Tika,Sp.OG": {
+        "ksm": "Obgyn",
+        "category": "OPERATOR"
+      },
+      "dr. Dewa Made Sucipta P., Sp.OG (K)": {
+        "ksm": "Obgyn",
+        "category": "OPERATOR"
+      },
+      "dr. Mohammad Khoiron Tamami, Sp.OG": {
+        "ksm": "Obgyn",
+        "category": "OPERATOR"
+      },
+      "dr. Suaidi,Sp.OG": {
+        "ksm": "Obgyn",
+        "category": "OPERATOR"
+      },
+      "dr. Lysa Mariam, Sp.KK": {
+        "ksm": "Kulit & Kelamin",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Citra Rozaaq Lahay, Sp.Rad": {
+        "ksm": "Radiologi",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Anjasmoro,Sp. Rad": {
+        "ksm": "Radiologi",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Saida Hayati, Sp.MK": {
+        "ksm": "Patologi Klinis",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Uswatun Hasanah, Sp.PA": {
+        "ksm": "Patologi Anatomi",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Febrian Parlangga M., M.Ked(surg), Sp.B": {
+        "ksm": "Bedah",
+        "category": "OPERATOR"
+      },
+      "dr. H. Rosmana Heriadhi Kus Endang": {
+        "ksm": "Umum",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Djero Aryadi Soemerep": {
+        "ksm": "Umum",
+        "category": "NON_OPERATOR"
+      },
+      "dr. Mardiana Maya Utari": {
+        "ksm": "Umum",
+        "category": "NON_OPERATOR"
+      }
+    },
+    "nurses": [
+      "Lalu Qariyiddin,S.Kep.Ns.",
+      "Muhammad Abdul Rosid, S.Kep",
+      "Yayuk aprianis",
+      "SAUFIA HAYATI UMAJAN",
+      "NILA SISNAWATI",
+      "Ria Ardila Savitri,S.Kep,Ners",
+      "Raden Teguh Pribadi, S.Kep.Ns.,MM",
+      "Uswatun Hasanah, S.Kep",
+      "Jumahardi,SE",
+      "Ria Hardani",
+      "Ns. Novi Harianto,S.Kep",
+      "Wahyu Hidayati, A.M.Kp",
+      "Patmayanti Multisari, A.Md.Kep",
+      "Joni Bahtiar,S.Kep.,Ns.",
+      "Dianti,A.Md.Kep",
+      "Lalu Dody Apriatma,S.Kep.,Ns",
+      "Ns., Erna Winarti, S.Kep",
+      "Rusna Winarti, S.Kep.Ns",
+      "Nomi Asyirifa,A.Md.Kep",
+      "Lalu Syarifudin Khamzah,S.Kep,Ners",
+      "Zulkifli,A.Md.Kep",
+      "Ns., Winda Yuniarti, S.Kep",
+      "Nurul Wahyuni,S.Kep.,Ners",
+      "Fikhurrahman, A.Md.Kep",
+      "Sri Suyatmi Laely, S.Kep.Ns",
+      "Ns., Bq Dian Septiana,S.Kep",
+      "Ns., Muhammad Abdurrahim,S.Kep",
+      "Tatia Maresta,Amd,Kep",
+      "Raihul Jannah, A.M.Kp",
+      "Mustakim, S.Kep.,Ns",
+      "LALU QARIYIDDIN S. Kep, Ners.",
+      "MUHAMMAD ABDUL ROSID, S.Kep",
+      "Raden Teguh Pribadi,S.kep.Ns.MM",
+      "Uswatun hasanah",
+      "Joni Bahtiar",
+      "MUHAMMAD ABDURRAHIM",
+      "ZULKIPLI",
+      "Baiq dian septiana",
+      "Novi Harianto",
+      "Lalu Dody Apriatama",
+      "PATMAYANTI MULTISARI",
+      "Tatia Maresta",
+      "Wahyu hidayati",
+      "RAIHUL JANNAH",
+      "Mustakim,S,kep, Ns",
+      "Nurul wahyuni",
+      "Nomy Asyrifa",
+      "WINDA YUNIARTI",
+      "Erna Winarti",
+      "Lalu surya madi",
+      "RUSNAWINARTI, S Kep.Ns",
+      "SRI SUYATMI LAILI AZIZAH",
+      "Zaenal amami",
+      "Thohry As'Ary",
+      "DIANTI",
+      "FIKHURRAHMAN"
+    ],
+    "nurseMetadata": {
+      "Lalu Qariyiddin,S.Kep.Ns.": {
+        "position": "Kepala Ruangan",
+        "unit": "Ruang Bedah"
+      },
+      "Muhammad Abdul Rosid, S.Kep": {
+        "position": "Sekretaris Ruangan",
+        "unit": "Ruang Bedah"
+      },
+      "Yayuk aprianis": {
+        "position": "Perawat Primer",
+        "unit": "Ruang Bedah"
+      },
+      "SAUFIA HAYATI UMAJAN": {
+        "position": "Perawat Primer",
+        "unit": "Ruang Bedah"
+      },
+      "NILA SISNAWATI": {
+        "position": "Perawat Primer",
+        "unit": "Ruang Bedah"
+      },
+      "Ria Ardila Savitri,S.Kep,Ners": {
+        "position": "Perawat pengganti",
+        "unit": "Ruang Bedah"
+      },
+      "Raden Teguh Pribadi, S.Kep.Ns.,MM": {
+        "position": "Perawat pengganti",
+        "unit": "Ruang Bedah"
+      },
+      "Uswatun Hasanah, S.Kep": {
+        "position": "PIC",
+        "unit": "Ruang Bedah"
+      },
+      "Jumahardi,SE": {
+        "position": "Admin",
+        "unit": "Ruang Bedah"
+      },
+      "Ria Hardani": {
+        "position": "Admin",
+        "unit": "Ruang Bedah"
+      },
+      "Ns. Novi Harianto,S.Kep": {
+        "position": "Ketua Shift",
+        "unit": "Ruang Bedah"
+      },
+      "Wahyu Hidayati, A.M.Kp": {
+        "position": "PA",
+        "unit": "Ruang Bedah"
+      },
+      "Patmayanti Multisari, A.Md.Kep": {
+        "position": "PA",
+        "unit": "Ruang Bedah"
+      },
+      "Joni Bahtiar,S.Kep.,Ns.": {
+        "position": "PA",
+        "unit": "Ruang Bedah"
+      },
+      "Dianti,A.Md.Kep": {
+        "position": "PA",
+        "unit": "Ruang Bedah"
+      },
+      "Lalu Dody Apriatma,S.Kep.,Ns": {
+        "position": "Ketua Shift",
+        "unit": "Ruang Bedah"
+      },
+      "Ns., Erna Winarti, S.Kep": {
+        "position": "PA",
+        "unit": "Ruang Bedah"
+      },
+      "Rusna Winarti, S.Kep.Ns": {
+        "position": "PA",
+        "unit": "Ruang Bedah"
+      },
+      "Nomi Asyirifa,A.Md.Kep": {
+        "position": "PA",
+        "unit": "Ruang Bedah"
+      },
+      "Lalu Syarifudin Khamzah,S.Kep,Ners": {
+        "position": "PA",
+        "unit": "Ruang Bedah"
+      },
+      "Zulkifli,A.Md.Kep": {
+        "position": "Ketua Shift",
+        "unit": "Ruang Bedah"
+      },
+      "Ns., Winda Yuniarti, S.Kep": {
+        "position": "PA",
+        "unit": "Ruang Bedah"
+      },
+      "Nurul Wahyuni,S.Kep.,Ners": {
+        "position": "PA",
+        "unit": "Ruang Bedah"
+      },
+      "Fikhurrahman, A.Md.Kep": {
+        "position": "PA",
+        "unit": "Ruang Bedah"
+      },
+      "Sri Suyatmi Laely, S.Kep.Ns": {
+        "position": "PA",
+        "unit": "Ruang Bedah"
+      },
+      "Ns., Bq Dian Septiana,S.Kep": {
+        "position": "Ketua Shift",
+        "unit": "Ruang Bedah"
+      },
+      "Ns., Muhammad Abdurrahim,S.Kep": {
+        "position": "PA",
+        "unit": "Ruang Bedah"
+      },
+      "Tatia Maresta,Amd,Kep": {
+        "position": "PA",
+        "unit": "Ruang Bedah"
+      },
+      "Raihul Jannah, A.M.Kp": {
+        "position": "PA",
+        "unit": "Ruang Bedah"
+      },
+      "Mustakim, S.Kep.,Ns": {
+        "position": "PA",
+        "unit": "Ruang Bedah"
+      },
+      "LALU QARIYIDDIN S. Kep, Ners.": {
+        "position": "Kepala Ruangan"
+      },
+      "MUHAMMAD ABDUL ROSID, S.Kep": {
+        "position": "Sekretaris Ruangan"
+      },
+      "Raden Teguh Pribadi,S.kep.Ns.MM": {
+        "position": "PIC"
+      },
+      "Uswatun hasanah": {
+        "position": "PIC"
+      },
+      "Joni Bahtiar": {
+        "position": "Perawat Pengganti"
+      },
+      "MUHAMMAD ABDURRAHIM": {
+        "position": "Perawat Pengganti"
+      },
+      "ZULKIPLI": {
+        "position": "Ketua Shift"
+      },
+      "Baiq dian septiana": {
+        "position": "Ketua Shift"
+      },
+      "Novi Harianto": {
+        "position": "Ketua Shift"
+      },
+      "Lalu Dody Apriatama": {
+        "position": "Ketua Shift"
+      }
+    },
+    "users": [
+      {
+        "username": "administrator",
+        "password": "rrr123",
+        "role": "SUPER_ADMIN",
+        "name": "Super User",
+        "position": "Super User"
+      },
+      {
+        "username": "bidang1",
+        "password": "bidang123",
+        "role": "BIDANG",
+        "name": "Bidang Keperawatan",
+        "position": "Bidang",
+        "unit": "Semua"
+      },
+      {
+        "role": "BIDANG",
+        "position": "Super User",
+        "unit": "",
+        "name": "Rully Hadi Prabowo",
+        "username": "rully",
+        "password": "rully123",
+        "lastModified": "2026-06-06T08:45:36.245Z"
+      },
+      {
+        "username": "bidangetik",
+        "password": "bidang123",
+        "role": "BIDANG",
+        "name": "Nurul Watan",
+        "position": "Bidang",
+        "unit": "Semua"
+      },
+      {
+        "username": "nila",
+        "password": "1234",
+        "role": "PPJA",
+        "name": "NILA SISNAWATI",
+        "position": "Perawat Primer",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "saufia",
+        "password": "1234",
+        "role": "PPJA",
+        "name": "SAUFIA HAYATI UMAJAN",
+        "position": "Perawat Primer",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "yayuk",
+        "password": "1234",
+        "role": "PPJA",
+        "name": "Yayuk aprianis",
+        "position": "Perawat Primer",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "dianti",
+        "password": "1234",
+        "role": "STAFF",
+        "name": "Dianti, A.Md.Kep",
+        "position": "Perawat Assosiate",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "fiki",
+        "password": "1234",
+        "role": "STAFF",
+        "name": "Fikhurrahman, A.Md.Kep",
+        "position": "Perawat Assosiate",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "joni",
+        "password": "1234",
+        "role": "STAFF",
+        "name": "Joni Bahtiar, S.Kep., Ns.",
+        "position": "Perawat Assosiate",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "dody",
+        "password": "1234",
+        "role": "PPJA",
+        "name": "Lalu Dody Apriatma, S.Kep., Ns",
+        "position": "Ketua Shift",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "syarif",
+        "password": "1234",
+        "role": "STAFF",
+        "name": "Lalu Syarifudin Khamzah, S.Kep, Ners",
+        "position": "Perawat Assosiate",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "akim",
+        "password": "1234",
+        "role": "STAFF",
+        "name": "Mustakim, S.Kep., Ns",
+        "position": "Perawat Assosiate",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "nomi",
+        "password": "1234",
+        "role": "STAFF",
+        "name": "Nomi Asyirifa, A.Md.Kep",
+        "position": "Perawat Assosiate",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "novi",
+        "password": "1234",
+        "role": "PPJA",
+        "name": "Ns. Novi Harianto, S.Kep",
+        "position": "Ketua Shift",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "dian",
+        "password": "1234",
+        "role": "STAFF",
+        "name": "Ns., Bq Dian Septiana, S.Kep",
+        "position": "Ketua Shift",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "erna",
+        "password": "1234",
+        "role": "STAFF",
+        "name": "Ns., Ema Winarti, S.Kep",
+        "position": "Perawat Assosiate",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "ahim",
+        "password": "1234",
+        "role": "STAFF",
+        "name": "Ns., Muhammad Abdurrahim, S.Kep",
+        "position": "Perawat Assosiate",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "winda",
+        "password": "1234",
+        "role": "STAFF",
+        "name": "Ns., Winda Yuniarti, S.Kep",
+        "position": "Perawat Assosiate",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "yuni",
+        "password": "1234",
+        "role": "STAFF",
+        "name": "Nurul Wahyuni, S.Kep., Ners",
+        "position": "Perawat Assosiate",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "patma",
+        "password": "1234",
+        "role": "PPJA",
+        "name": "Patmayanti Multisari, A.Md.Kep",
+        "position": "Perawat Assosiate",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "teguh",
+        "password": "1234",
+        "role": "STAFF",
+        "name": "Raden Teguh Pribadi, S.Kep.Ns., MM",
+        "position": "Perawat Pengganti",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "raihul",
+        "password": "1234",
+        "role": "STAFF",
+        "name": "Raihul Jannah, A.M.Kp",
+        "position": "Perawat Assosiate",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "ardila",
+        "password": "1234",
+        "role": "STAFF",
+        "name": "Ria Ardila Savitri, S.Kep, Ners",
+        "position": "Perawat Pengganti",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "rusna",
+        "password": "1234",
+        "role": "STAFF",
+        "name": "Rusna Winarti, S.Kep.Ns",
+        "position": "Perawat Assosiate",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "eli",
+        "password": "1234",
+        "role": "STAFF",
+        "name": "Sri Suyatmi Laely, S.Kep.Ns",
+        "position": "Perawat Assosiate",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "tatia",
+        "password": "1234",
+        "role": "STAFF",
+        "name": "Tatia Maresta, Amd.Kep",
+        "position": "Perawat Assosiate",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "wahyu",
+        "password": "1234",
+        "role": "STAFF",
+        "name": "Wahyu Hidayati, A.M.Kp",
+        "position": "Perawat Assosiate",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "zul",
+        "password": "1234",
+        "role": "PPJA",
+        "name": "Zulkifli, A.Md.Kep",
+        "position": "Ketua Shift",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "juma",
+        "password": "1234",
+        "role": "ADMIN_RUANGAN",
+        "name": "Jumahardi SE",
+        "position": "Administrasi",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "hardani",
+        "password": "1234",
+        "role": "ADMIN_RUANGAN",
+        "name": "Ria Hardani",
+        "position": "Administrasi",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "uswa",
+        "password": "1234",
+        "role": "ADMIN_RUANGAN",
+        "name": "Uswatun Hasanah",
+        "position": "PIC",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "rosid",
+        "password": "1234",
+        "role": "SEKRU",
+        "name": "Muhammad Abdul Rosid",
+        "position": "Sekretaris Ruangan",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "qari",
+        "password": "1234",
+        "role": "KARU",
+        "name": "Lalu Qariyiddin",
+        "position": "Kepala Ruangan",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "ardi",
+        "password": "1234",
+        "role": "ADMIN_RUANGAN",
+        "name": "Jumahardi,SE",
+        "position": "Admin",
+        "unit": "Ruang Bedah"
+      },
+      {
+        "username": "ria",
+        "password": "1234",
+        "role": "ADMIN_RUANGAN",
+        "name": "Ria Hardani",
+        "position": "Admin",
+        "unit": "Ruang Bedah"
+      }
+    ],
+    "units": [
+      "Ruang Bedah",
+      "Ruang Dane Rahil",
+      "Ruang Intermediet",
+      "Ruang Syaraf",
+      "Ruang Interna",
+      "Ruang Paru",
+      "Ruang Anak",
+      "Ruang Rinjani/Nifas",
+      "Ruang Neonatus",
+      "ICU",
+      "ICCU",
+      "IBS",
+      "OK MCC",
+      "Hemodialisa"
+    ],
+    "unitToClasses": {
+      "Ruang Bedah": [
+        "Kelas 3",
+        "Kelas 2",
+        "Non Kelas"
+      ],
+      "Ruang Dane Rahil": [
+        "Kelas VVIP",
+        "Kelas VIP",
+        "Kelas 1"
+      ],
+      "Ruang Intermediet": [
+        "Kelas HCU",
+        "Kelas Non HCU"
+      ],
+      "Ruang Syaraf": [
+        "Kelas 3",
+        "Kelas 2"
+      ],
+      "Ruang Interna": [
+        "Kelas 3",
+        "Kelas 2",
+        "Non Kelas"
+      ],
+      "Ruang Paru": [
+        "Kelas 3",
+        "Kelas 2"
+      ],
+      "Ruang Anak": [
+        "Kelas 3",
+        "Kelas 2"
+      ],
+      "Ruang Rinjani/Nifas": [
+        "Kelas 3",
+        "Kelas 2",
+        "Kelas 1"
+      ],
+      "Ruang Neonatus": [
+        "Non Kelas"
+      ],
+      "ICU": [
+        "Non Kelas"
+      ],
+      "ICCU": [
+        "Non Kelas"
+      ],
+      "IBS": [
+        "Non Kelas"
+      ],
+      "OK MCC": [
+        "Non Kelas"
+      ],
+      "Hemodialisa": [
+        "Non Kelas"
+      ]
+    },
+    "classToRooms": {
+      "Ruang Bedah - Kelas 3": [
+        "Bedah 3A",
+        "Bedah 3B",
+        "Bedah 3C",
+        "Bedah 3D",
+        "Bedah 3E",
+        "Bedah 3F"
+      ],
+      "Ruang Bedah - Kelas 2": [
+        "Bedah 2A",
+        "Bedah 2B",
+        "Bedah 2C",
+        "Bedah 2D"
+      ],
+      "Ruang Bedah - Non Kelas": [
+        "Iso Bedah"
+      ],
+      "Ruang Dane Rahil - Kelas VVIP": [
+        "DR Super VIP 1",
+        "DR Super VIP 2",
+        "DR Super VIP 3"
+      ],
+      "Ruang Dane Rahil - Kelas VIP": [
+        "DR VIP 1",
+        "DR VIP 2",
+        "DR VIP 3",
+        "DR VIP 4"
+      ],
+      "Ruang Dane Rahil - Kelas 1": [
+        "DR 1",
+        "DR 2",
+        "DR 3",
+        "DR 4",
+        "DR 5",
+        "DR 6",
+        "DR 7",
+        "DR 8",
+        "DR 9",
+        "DR 10",
+        "DR 11",
+        "DR 12",
+        "DR 13",
+        "DR 14",
+        "DR 15",
+        "DR 16",
+        "DR 17",
+        "DR 18",
+        "DR 19",
+        "DR 20",
+        "DR 21",
+        "DR 22",
+        "DR 23",
+        "DR 24",
+        "DR 25",
+        "DR 26"
+      ],
+      "Ruang Intermediet - Kelas HCU": [
+        "Intermediate HCU"
+      ],
+      "Ruang Intermediet - Kelas Non HCU": [
+        "Intermediate Non HCU"
+      ],
+      "Ruang Syaraf - Kelas 3": [
+        "Syaraf A",
+        "Syaraf B",
+        "Syaraf C",
+        "Syaraf D"
+      ],
+      "Ruang Syaraf - Kelas 2": [
+        "Syaraf E",
+        "Syaraf F"
+      ],
+      "Ruang Interna - Kelas 3": [
+        "Interna 3A (Observasi)",
+        "Interna 3B",
+        "Interna 3C",
+        "Interna 3D",
+        "Interna 3E",
+        "Interna 3F",
+        "Interna 3G"
+      ],
+      "Ruang Interna - Kelas 2": [
+        "Interna 2A"
+      ],
+      "Ruang Interna - Non Kelas": [
+        "Interna Isolasi/Imuno"
+      ],
+      "Ruang Paru - Kelas 3": [
+        "Paru TB Resisten (RO)",
+        "Paru Sensitif Obat (SO)",
+        "Paru Non TB",
+        "Paru Suspect TB1",
+        "Paru Suspect TB2"
+      ],
+      "Ruang Paru - Kelas 2": [
+        "Paru Non TB (Kls 2)",
+        "Paru Sensitif Obat (SO) (Kls 2)"
+      ],
+      "Ruang Anak - Kelas 3": [
+        "Anak 3A",
+        "Anak 3B",
+        "Anak 3C",
+        "Anak 3D (Kulit)",
+        "Anak 3E (Airbone)"
+      ],
+      "Ruang Anak - Kelas 2": [
+        "Anak 2A",
+        "Anak 2B"
+      ],
+      "Ruang Rinjani/Nifas - Kelas 3": [
+        "Rinjani 1",
+        "Rinjani 2",
+        "Rinjani 3",
+        "Rinjani 4",
+        "Rinjani 5",
+        "Rinjani 6",
+        "Rinjani 7",
+        "Rinjani 8",
+        "Rinjani 9",
+        "Rinjani 10",
+        "Rinjani 11",
+        "Rinjani 16 (Isolasi)"
+      ],
+      "Ruang Rinjani/Nifas - Kelas 2": [
+        "Rinjani 14",
+        "Rinjani 15"
+      ],
+      "Ruang Rinjani/Nifas - Kelas 1": [
+        "Rinjani 12",
+        "Rinjani 13",
+        "Rinjani 17",
+        "Rinjani 18"
+      ],
+      "Ruang Neonatus - Non Kelas": [
+        "NICU",
+        "Isolasi NICU",
+        "Ruang HCU",
+        "Isolasi HCU",
+        "Ruang Neonatus"
+      ],
+      "OK MCC - Non Kelas": [
+        "OK MCC"
+      ],
+      "ICU - Non Kelas": [
+        "ICU"
+      ],
+      "ICCU - Non Kelas": [
+        "ICCU"
+      ],
+      "IBS - Non Kelas": [
+        "IBS"
+      ],
+      "Hemodialisa - Non Kelas": [
+        "Hemodialisa"
+      ]
+    },
+    "roomToBeds": {
+      "Bedah 3A": [
+        "3A1",
+        "3A2",
+        "3A3",
+        "3A4",
+        "3A5",
+        "3A6"
+      ],
+      "Bedah 3B": [
+        "3B1",
+        "3B2",
+        "3B3",
+        "3B4",
+        "3B5",
+        "3B6"
+      ],
+      "Bedah 3C": [
+        "3C1",
+        "3C2",
+        "3C3",
+        "3C4",
+        "3C5",
+        "3C6"
+      ],
+      "Bedah 3D": [
+        "3D1",
+        "3D2",
+        "3D3",
+        "3D4",
+        "3D5",
+        "3D6"
+      ],
+      "Bedah 3E": [
+        "3E1",
+        "3E2",
+        "3E3",
+        "3E4",
+        "3E5",
+        "3E6"
+      ],
+      "Bedah 3F": [
+        "3F1",
+        "3F2",
+        "3F3",
+        "3F4"
+      ],
+      "Bedah 2A": [
+        "2A1",
+        "2A2"
+      ],
+      "Bedah 2B": [
+        "2B1",
+        "2B2"
+      ],
+      "Bedah 2C": [
+        "2C1",
+        "2C2"
+      ],
+      "Bedah 2D": [
+        "2D1",
+        "2D2",
+        "2D3"
+      ],
+      "Iso Bedah": [
+        "Iso 1",
+        "Iso 2",
+        "Iso 3"
+      ],
+      "DR Super VIP 1": [
+        "DR Super VIP 1"
+      ],
+      "DR Super VIP 2": [
+        "DR Super VIP 2"
+      ],
+      "DR Super VIP 3": [
+        "DR Super VIP 3"
+      ],
+      "DR VIP 1": [
+        "DR VIP 1"
+      ],
+      "DR VIP 2": [
+        "DR VIP 2"
+      ],
+      "DR VIP 3": [
+        "DR VIP 3"
+      ],
+      "DR VIP 4": [
+        "DR VIP 4"
+      ],
+      "DR 1": [
+        "DR 1"
+      ],
+      "DR 2": [
+        "DR 2"
+      ],
+      "DR 3": [
+        "DR 3"
+      ],
+      "DR 4": [
+        "DR 4"
+      ],
+      "DR 5": [
+        "DR 5"
+      ],
+      "DR 6": [
+        "DR 6"
+      ],
+      "DR 7": [
+        "DR 7"
+      ],
+      "DR 8": [
+        "DR 8"
+      ],
+      "DR 9": [
+        "DR 9"
+      ],
+      "DR 10": [
+        "DR 10"
+      ],
+      "DR 11": [
+        "DR 11"
+      ],
+      "DR 12": [
+        "DR 12"
+      ],
+      "DR 13": [
+        "DR 13"
+      ],
+      "DR 14": [
+        "DR 14"
+      ],
+      "DR 15": [
+        "DR 15"
+      ],
+      "DR 16": [
+        "DR 16"
+      ],
+      "DR 17": [
+        "DR 17"
+      ],
+      "DR 18": [
+        "DR 18"
+      ],
+      "DR 19": [
+        "DR 19"
+      ],
+      "DR 20": [
+        "DR 20"
+      ],
+      "DR 21": [
+        "DR 21"
+      ],
+      "DR 22": [
+        "DR 22"
+      ],
+      "DR 23": [
+        "DR 23"
+      ],
+      "DR 24": [
+        "DR 24"
+      ],
+      "DR 25": [
+        "DR 25"
+      ],
+      "DR 26": [
+        "DR 26"
+      ],
+      "Intermediate HCU": [
+        "Intermediate HCU Bed 1",
+        "Intermediate HCU Bed 2",
+        "Intermediate HCU Bed 3"
+      ],
+      "Intermediate Non HCU": [
+        "Intermediate Non HCU Bed 1",
+        "Intermediate Non HCU Bed 2",
+        "Intermediate Non HCU Bed 3",
+        "Intermediate Non HCU Bed 4",
+        "Intermediate Non HCU Bed 5",
+        "Intermediate Non HCU Bed 6"
+      ],
+      "Syaraf A": [
+        "A1",
+        "A2",
+        "A3",
+        "A4"
+      ],
+      "Syaraf B": [
+        "B1",
+        "B2",
+        "B3",
+        "B4"
+      ],
+      "Syaraf C": [
+        "C1",
+        "C2",
+        "C3",
+        "C4"
+      ],
+      "Syaraf D": [
+        "D1",
+        "D2",
+        "D3",
+        "D4"
+      ],
+      "Syaraf E": [
+        "E1",
+        "E2"
+      ],
+      "Syaraf F": [
+        "F1",
+        "F2",
+        "F3"
+      ],
+      "Interna 3A (Observasi)": [
+        "3A1",
+        "3A2",
+        "3A3",
+        "3A4",
+        "3A5"
+      ],
+      "Interna 3B": [
+        "3B1",
+        "3B2",
+        "3B3",
+        "3B4",
+        "3B5"
+      ],
+      "Interna 3C": [
+        "3C1",
+        "3C2",
+        "3C3",
+        "3C4",
+        "3C5"
+      ],
+      "Interna 3D": [
+        "3D1",
+        "3D2",
+        "3D3"
+      ],
+      "Interna 3E": [
+        "3E1",
+        "3E2",
+        "3E3",
+        "3E4"
+      ],
+      "Interna 3F": [
+        "3F1",
+        "3F2",
+        "3F3",
+        "3F4",
+        "3F5",
+        "3F6"
+      ],
+      "Interna 3G": [
+        "3G1",
+        "3G2",
+        "3G3",
+        "3G4",
+        "3G5"
+      ],
+      "Interna 2A": [
+        "2A1",
+        "2A2",
+        "2A3",
+        "2A4"
+      ],
+      "Interna Isolasi/Imuno": [
+        "Iso 1",
+        "Iso 2",
+        "Iso 3",
+        "Iso 4"
+      ],
+      "Paru TB Resisten (RO)": [
+        "Bed 1",
+        "Bed 2"
+      ],
+      "Paru Sensitif Obat (SO)": [
+        "Bed 1",
+        "Bed 2",
+        "Bed 3",
+        "Bed 4",
+        "Bed 5",
+        "Bed 6"
+      ],
+      "Paru Non TB": [
+        "Bed 1",
+        "Bed 2",
+        "Bed 3",
+        "Bed 4",
+        "Bed 5",
+        "Bed 6"
+      ],
+      "Paru Suspect TB1": [
+        "Bed 1",
+        "Bed 2",
+        "Bed 3",
+        "Bed 4"
+      ],
+      "Paru Suspect TB2": [
+        "Bed 1",
+        "Bed 2",
+        "Bed 3",
+        "Bed 4"
+      ],
+      "Paru Non TB (Kls 2)": [
+        "Bed 1",
+        "Bed 2"
+      ],
+      "Paru Sensitif Obat (SO) (Kls 2)": [
+        "Bed 1",
+        "Bed 2"
+      ],
+      "Anak 3A": [
+        "3A1",
+        "3A2",
+        "3A3",
+        "3A4",
+        "3A5",
+        "3A6",
+        "3A7",
+        "3A8"
+      ],
+      "Anak 3B": [
+        "3B1",
+        "3B2",
+        "3B3",
+        "3B4",
+        "3B5",
+        "3B6",
+        "3B7",
+        "3B8"
+      ],
+      "Anak 3C": [
+        "3C1",
+        "3C2",
+        "3C3",
+        "3C4",
+        "3C5",
+        "3C6",
+        "3C7",
+        "3C8"
+      ],
+      "Anak 3D (Kulit)": [
+        "3D1",
+        "3D2"
+      ],
+      "Anak 3E (Airbone)": [
+        "3E1",
+        "3E2",
+        "3E3",
+        "3E4"
+      ],
+      "Anak 2A": [
+        "2A1",
+        "2A2"
+      ],
+      "Anak 2B": [
+        "2B1",
+        "2B2"
+      ],
+      "Rinjani 1": [
+        "Rinjani 1 Bed 1",
+        "Rinjani 1 Bed 2",
+        "Rinjani 1 Bed 3"
+      ],
+      "Rinjani 2": [
+        "Rinjani 2 Bed 1",
+        "Rinjani 2 Bed 2",
+        "Rinjani 2 Bed 3"
+      ],
+      "Rinjani 3": [
+        "Rinjani 3 Bed 1",
+        "Rinjani 3 Bed 2",
+        "Rinjani 3 Bed 3"
+      ],
+      "Rinjani 4": [
+        "Rinjani 4 Bed 1",
+        "Rinjani 4 Bed 2",
+        "Rinjani 4 Bed 3"
+      ],
+      "Rinjani 5": [
+        "Rinjani 5 Bed 1",
+        "Rinjani 5 Bed 2",
+        "Rinjani 5 Bed 3"
+      ],
+      "Rinjani 6": [
+        "Rinjani 6 Bed 1",
+        "Rinjani 6 Bed 2",
+        "Rinjani 6 Bed 3"
+      ],
+      "Rinjani 7": [
+        "Rinjani 7 Bed 1",
+        "Rinjani 7 Bed 2",
+        "Rinjani 7 Bed 3"
+      ],
+      "Rinjani 8": [
+        "Rinjani 8 Bed 1",
+        "Rinjani 8 Bed 2",
+        "Rinjani 8 Bed 3"
+      ],
+      "Rinjani 9": [
+        "Rinjani 9 Bed 1",
+        "Rinjani 9 Bed 2",
+        "Rinjani 9 Bed 3"
+      ],
+      "Rinjani 10": [
+        "Rinjani 10 Bed 1",
+        "Rinjani 10 Bed 2",
+        "Rinjani 10 Bed 3"
+      ],
+      "Rinjani 11": [
+        "Rinjani 11 Bed 1",
+        "Rinjani 11 Bed 2",
+        "Rinjani 11 Bed 3"
+      ],
+      "Rinjani 16 (Isolasi)": [
+        "Rinjani 16 (Isolasi) Bed 1",
+        "Rinjani 16 (Isolasi) Bed 2"
+      ],
+      "Rinjani 14": [
+        "Rinjani 14 Bed 1",
+        "Rinjani 14 Bed 2"
+      ],
+      "Rinjani 15": [
+        "Rinjani 15 Bed 1",
+        "Rinjani 15 Bed 2"
+      ],
+      "Rinjani 12": [
+        "Rinjani 12"
+      ],
+      "Rinjani 13": [
+        "Rinjani 13"
+      ],
+      "Rinjani 17": [
+        "Rinjani 17"
+      ],
+      "Rinjani 18": [
+        "Rinjani 18"
+      ],
+      "NICU": [
+        "NICU Bed 1",
+        "NICU Bed 2",
+        "NICU Bed 3",
+        "NICU Bed 4"
+      ],
+      "Isolasi NICU": [
+        "Isolasi NICU Bed 1",
+        "Isolasi NICU Bed 2",
+        "Isolasi NICU Bed 3",
+        "Isolasi NICU Bed 4"
+      ],
+      "Ruang HCU": [
+        "HCU Bed 1",
+        "HCU Bed 2",
+        "HCU Bed 3",
+        "HCU Bed 4",
+        "HCU Bed 5"
+      ],
+      "Isolasi HCU": [
+        "Isolasi HCU Bed 1",
+        "Isolasi HCU Bed 2",
+        "Isolasi HCU Bed 3"
+      ],
+      "Ruang Neonatus": [
+        "Neonatus Bed 1",
+        "Neonatus Bed 2",
+        "Neonatus Bed 3",
+        "Neonatus Bed 4",
+        "Neonatus Bed 5",
+        "Neonatus Bed 6",
+        "Neonatus Bed 7",
+        "Neonatus Bed 8",
+        "Neonatus Bed 9",
+        "Neonatus Bed 10",
+        "Neonatus Bed 11",
+        "Neonatus Bed 12",
+        "Neonatus Bed 13",
+        "Neonatus Bed 14"
+      ],
+      "OK MCC": [
+        "OK MCC 1",
+        "OK MCC 2",
+        "OK MCC 3"
+      ],
+      "ICU": [
+        "ICU Bed 1",
+        "ICU Bed 2",
+        "ICU Bed 3",
+        "ICU Bed 4",
+        "ICU Bed 5",
+        "ICU Bed 6",
+        "ICU Bed 7",
+        "ICU Bed 8",
+        "ICU Bed 9",
+        "ICU Bed 10",
+        "ICU Bed 11"
+      ],
+      "ICCU": [
+        "ICCU Bed 1",
+        "ICCU Bed 2",
+        "ICCU Bed 3",
+        "ICCU Bed 4",
+        "ICCU Bed 5",
+        "ICCU Bed 6",
+        "ICCU Bed 7"
+      ],
+      "IBS": [
+        "IBS 1",
+        "IBS 2",
+        "IBS 3",
+        "IBS 4",
+        "IBS 5",
+        "IBS 6",
+        "IBS 7",
+        "IBS 8",
+        "IBS 9",
+        "IBS 10"
+      ],
+      "Hemodialisa": [
+        "HD 1",
+        "HD 2",
+        "HD 3",
+        "HD 4",
+        "HD 5",
+        "HD 6",
+        "HD 7",
+        "HD 8",
+        "HD 9",
+        "HD 10",
+        "HD 11",
+        "HD 12",
+        "HD 13",
+        "HD 14",
+        "HD 15",
+        "HD 16",
+        "HD 17",
+        "HD 18",
+        "HD 19",
+        "HD 20",
+        "HD 21",
+        "HD 22",
+        "HD 23",
+        "HD 24",
+        "HD 25",
+        "HD 26",
+        "HD 27",
+        "HD 28",
+        "HD 29",
+        "HD 30",
+        "HD 31",
+        "HD 32",
+        "HD 33"
+      ]
+    },
+    "rooms": [
+      "Bedah 3A",
+      "Bedah 3B",
+      "Bedah 3C",
+      "Bedah 3D",
+      "Bedah 3E",
+      "Bedah 3F",
+      "Bedah 2A",
+      "Bedah 2B",
+      "Bedah 2C",
+      "Bedah 2D",
+      "Iso Bedah",
+      "DR Super VIP 1",
+      "DR Super VIP 2",
+      "DR Super VIP 3",
+      "DR VIP 1",
+      "DR VIP 2",
+      "DR VIP 3",
+      "DR VIP 4",
+      "DR 1",
+      "DR 2",
+      "DR 3",
+      "DR 4",
+      "DR 5",
+      "DR 6",
+      "DR 7",
+      "DR 8",
+      "DR 9",
+      "DR 10",
+      "DR 11",
+      "DR 12",
+      "DR 13",
+      "DR 14",
+      "DR 15",
+      "DR 16",
+      "DR 17",
+      "DR 18",
+      "DR 19",
+      "DR 20",
+      "DR 21",
+      "DR 22",
+      "DR 23",
+      "DR 24",
+      "DR 25",
+      "DR 26",
+      "Intermediate HCU",
+      "Intermediate Non HCU",
+      "Syaraf A",
+      "Syaraf B",
+      "Syaraf C",
+      "Syaraf D",
+      "Syaraf E",
+      "Syaraf F",
+      "Interna 3A (Observasi)",
+      "Interna 3B",
+      "Interna 3C",
+      "Interna 3D",
+      "Interna 3E",
+      "Interna 3F",
+      "Interna 3G",
+      "Interna 2A",
+      "Interna Isolasi/Imuno",
+      "Paru TB Resisten (RO)",
+      "Paru Sensitif Obat (SO)",
+      "Paru Non TB",
+      "Paru Suspect TB1",
+      "Paru Suspect TB2",
+      "Paru Non TB (Kls 2)",
+      "Paru Sensitif Obat (SO) (Kls 2)",
+      "Anak 3A",
+      "Anak 3B",
+      "Anak 3C",
+      "Anak 3D (Kulit)",
+      "Anak 3E (Airbone)",
+      "Anak 2A",
+      "Anak 2B",
+      "Rinjani 1",
+      "Rinjani 2",
+      "Rinjani 3",
+      "Rinjani 4",
+      "Rinjani 5",
+      "Rinjani 6",
+      "Rinjani 7",
+      "Rinjani 8",
+      "Rinjani 9",
+      "Rinjani 10",
+      "Rinjani 11",
+      "Rinjani 16 (Isolasi)",
+      "Rinjani 14",
+      "Rinjani 15",
+      "Rinjani 12",
+      "Rinjani 13",
+      "Rinjani 17",
+      "Rinjani 18",
+      "NICU",
+      "Isolasi NICU",
+      "Ruang HCU",
+      "Isolasi HCU",
+      "Ruang Neonatus",
+      "OK MCC",
+      "ICU",
+      "ICCU",
+      "IBS",
+      "Hemodialisa"
+    ],
+    "roomClasses": [],
+    "bedMapping": {},
+    "addresses": [],
+    "customFields": [],
+    "qualityIndicators": [
+      {
+        "id": "inm-1",
+        "title": "Kepatuhan Kebersihan Tangan",
+        "numerator": "Jumlah peluang kebersihan tangan yang dilakukan",
+        "denominator": "Jumlah peluang kebersihan tangan yang diamati",
+        "target": 85,
+        "unit": "%",
+        "frequency": "MONTHLY",
+        "category": "INM"
+      },
+      {
+        "id": "inm-2",
+        "title": "Kepatuhan Penggunaan APD",
+        "numerator": "Jumlah petugas yang menggunakan APD lengkap",
+        "denominator": "Jumlah petugas yang diamati",
+        "target": 100,
+        "unit": "%",
+        "frequency": "MONTHLY",
+        "category": "INM"
+      },
+      {
+        "id": "inm-3",
+        "title": "Kepatuhan Identifikasi Pasien",
+        "numerator": "Jumlah proses identifikasi yang dilakukan dengan benar",
+        "denominator": "Jumlah proses identifikasi yang diamati",
+        "target": 100,
+        "unit": "%",
+        "frequency": "DAILY",
+        "category": "INM"
+      },
+      {
+        "id": "pathway-1",
+        "title": "Kepatuhan Clinical Pathway",
+        "numerator": "Jumlah audit clinical pathway yang patuh standar",
+        "denominator": "Jumlah total audit clinical pathway",
+        "target": 80,
+        "unit": "%",
+        "frequency": "MONTHLY",
+        "category": "PRO-UNIT"
+      },
+      {
+        "id": "aps-1",
+        "title": "Laporan Pasien Pulang Atas Permintaan Sendiri (APS)",
+        "numerator": "Jumlah pasien APS dengan alasan terdokumentasi",
+        "denominator": "Total pasien yang pulang APS",
+        "target": 100,
+        "unit": "%",
+        "frequency": "DAILY",
+        "category": "PELAYANAN"
+      }
+    ],
+    "refs": {
+      "positions": [
+        "Super User",
+        "Kepala Ruangan",
+        "Sekretaris Ruangan",
+        "PIC",
+        "Perawat Primer",
+        "Perawat Pengganti",
+        "Ketua Shift",
+        "Perawat Assosiate",
+        "Administrasi"
+      ],
+      "ksmList": [
+        "Bedah",
+        "Orthopedi",
+        "Bedah Syaraf",
+        "Onkologi",
+        "Urologi",
+        "BTKV",
+        "Penyakit Dalam",
+        "Anak",
+        "Obgyn",
+        "Saraf",
+        "Anestesi",
+        "THT-KL",
+        "Mata",
+        "Jantung",
+        "Paru",
+        "Umum",
+        "Radiologi",
+        "Patologi Klinis",
+        "Patologi Anatomi",
+        "Jiwa",
+        "Rehab Medik",
+        "Kulit & Kelamin",
+        "Gigi & Mulut",
+        "Lainnya"
+      ],
+      "asalMasuk": [
+        "IGD",
+        "IGD Ponek",
+        "P. Bedah",
+        "P. Orthopedi",
+        "P. Bedah Syaraf",
+        "P. Bedah Onkologi",
+        "P. Bedah Mulut",
+        "P. BTKV",
+        "P. Urologi",
+        "P. THT",
+        "P. Mata",
+        "P. Anak",
+        "P. Kulit & Kelamin",
+        "P. Dalam",
+        "P. Jantung",
+        "P. Syaraf",
+        "P. Obgyn",
+        "P. Fetomaternal",
+        "P. Jiwa",
+        "Ruang Bedah",
+        "Ruang Dane Rahil",
+        "Ruang Intermediet",
+        "Ruang Syaraf",
+        "Ruang Interna",
+        "Ruang Rinjani/Nifas",
+        "Ruang Paru",
+        "Ruan Anak",
+        "Ruang Neonatus",
+        "IBS",
+        "ICU",
+        "CVCU",
+        "Hemodialisa",
+        "OK MCC"
+      ],
+      "jenisKll": [
+        "Bukan KLL",
+        "KLL Tunggal",
+        "KLL Ganda",
+        "KLL ditabarak",
+        "KLL JR Maks",
+        "Kecelakaan Kerja",
+        "-"
+      ],
+      "caraBayar": [
+        "BPJS",
+        "Jasa Raharja (JR)",
+        "Umum",
+        "BPJS Ketenagakerjaan",
+        "Tanggungan Negara",
+        "Baksos",
+        "Asuransi Swasta",
+        "Lain-lain"
+      ],
+      "statusTanggungan": [
+        "Menjaminkan",
+        "BPJS",
+        "Jasa Raharja (JR)",
+        "Umum",
+        "BPJS Ketenagakerjaan",
+        "Tanggungan Negara",
+        "Baksos",
+        "Asuransi Swasta",
+        "Lain-lain"
+      ],
+      "statusSep": [
+        "Belum Terbit",
+        "Sudah Terbit",
+        "Pending",
+        "Ditolak",
+        "Hapus SEP",
+        "Tidak Ada SEP"
+      ],
+      "statusDataPasien": [
+        "Masih Dirawat",
+        "BPL",
+        "APS",
+        "Dirujuk",
+        "Dipindah ke Ruangan Lain",
+        "Meninggal"
+      ],
+      "caraKeluar": [
+        "BPL (Boleh Pulang)",
+        "APS (Pulang Paksa)",
+        "Dirujuk",
+        "Meninggal",
+        "Dipindah ke Ruangan Lain"
+      ]
+    },
+    "restrictedDrugs": [
+      {
+        "drugName": "Ketorolac",
+        "maxDays": 3
+      },
+      {
+        "drugName": "Ceftriaxone",
+        "maxDays": 5
+      },
+      {
+        "drugName": "Meropenem",
+        "maxDays": 7
+      },
+      {
+        "drugName": "Levofloxacin",
+        "maxDays": 5
+      },
+      {
+        "drugName": "Dexamethasone",
+        "maxDays": 3
+      },
+      {
+        "drugName": "Methylprednisolone",
+        "maxDays": 5
+      },
+      {
+        "drugName": "Ranitidine",
+        "maxDays": 5
+      },
+      {
+        "drugName": "Ketoprofen",
+        "maxDays": 3
+      }
+    ],
+    "settings": {
+      "appName": "SiMANTAP BEDAH",
+      "appSlogan": "Manajemen Laporan Terpadu & Akurat Ruang Bedah",
+      "themeColor": "#9fc8f4",
+      "fontColor": "#1c1c1c",
+      "appWallpaperUrl": "https://lh3.googleusercontent.com/d/1ZyNuBQ7YAVV_iiR3IgR7nUokMfVPZyww",
+      "loginWallpaperUrl": "https://lh3.googleusercontent.com/d/1fXUqPGQU2BfOuJnGclJjc-B4_qs1I7UG",
+      "settingsTimestamp": "2026-06-11T14:40:43.102Z",
+      "isSidebarAutohide": true
+    }
+  },
+  "instruments": [
+    {
+      "code": "01",
+      "name": "tensi meter",
+      "category": "Alat Bedah Umum",
+      "status": "IN_USE",
+      "id": "INST-1776936961585",
+      "lastMaintenance": "2026-04-23"
+    }
+  ],
+  "operationReports": [],
+  "financeRecords": [
+    {
+      "type": "INCOME",
+      "date": "2026-05-26",
+      "amount": 0,
+      "category": "Visite & Billing Pasien Pulang",
+      "description": "",
+      "ksm": "Bedah",
+      "dpjp": "dr. Aji Pramito, Sp.B",
+      "numVisites": 1,
+      "billingAkomodasi": 0,
+      "billingTindakan": 0,
+      "billingGasMedis": 0,
+      "dischargeDate": "2026-05-26",
+      "unit": "Bedah 3A",
+      "patientId": "P-1779766486514",
+      "patientName": "sss",
+      "noRM": "2",
+      "id": "1779774343825",
+      "recordedBy": "Super User",
+      "lastModified": "2026-05-26T05:45:43.825Z"
+    },
+    {
+      "type": "INCOME",
+      "date": "2026-05-26",
+      "amount": 0,
+      "category": "Visite & Billing Pasien Pulang",
+      "description": "",
+      "ksm": "Bedah",
+      "dpjp": "dr. Raden Lyana Sulistyanti, Sp.B",
+      "numVisites": 1,
+      "billingAkomodasi": 0,
+      "billingTindakan": 0,
+      "billingGasMedis": 0,
+      "dischargeDate": "2026-05-26",
+      "unit": "Bedah 3A",
+      "patientId": "P-1779766486514",
+      "patientName": "sss",
+      "noRM": "2",
+      "id": "1779774358014",
+      "recordedBy": "Super User",
+      "lastModified": "2026-05-26T05:45:58.014Z"
+    },
+    {
+      "type": "INCOME",
+      "date": "2026-04-23",
+      "amount": 60000,
+      "category": "Visite",
+      "description": "",
+      "ksm": "Bedah",
+      "dpjp": "dr. Raden Lyana Sulistyanti, Sp.B",
+      "patientId": "P-1776435659526",
+      "patientName": "asxasdadasd ",
+      "noRM": "111111",
+      "id": "1776942776861",
+      "recordedBy": "Admin Finansial"
+    }
+  ],
+  "deletedIds": [
+    "P-1779759947075",
+    "9np0rwj9u",
+    "P-1779766486514",
+    "P-1779149861815",
+    "P-1779150256535",
+    "P-1779782718143",
+    "P-1779782722703",
+    "P-1779782725448",
+    "P-1779782753767",
+    "P-1776943392650",
+    "P-1776938313067",
+    "P-1776435659526",
+    "P-1776438150804",
+    "P-1779282280219",
+    "P-1780204743744",
+    "P-1780215505458",
+    "P-1780217196522",
+    "1776942776861",
+    "1779774358014",
+    "1779774343825",
+    "P-1780215590736",
+    "USER_thohry",
+    "USER_amami",
+    "USER_qori",
+    "USER_hardi",
+    "USER_fia",
+    "USER_ananda",
+    "USER_isnan",
+    "USER_madi",
+    "USER_lina",
+    "USER_nida",
+    "USER_nomy",
+    "USER_novik",
+    "USER_nurafni",
+    "USER_reni",
+    "USER_siska",
+    "USER_sufiatun",
+    "USER_wahdah",
+    "USER_surya",
+    "USER_sur",
+    "1776936096901",
+    "1776938532155",
+    "1776938643211",
+    "1780326312501",
+    "P-1780322157963",
+    "P-1780336585537"
+  ]
+}

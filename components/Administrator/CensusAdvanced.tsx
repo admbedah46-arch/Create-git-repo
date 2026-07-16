@@ -72,7 +72,7 @@ export const CensusAdvanced: React.FC<CensusAdvancedProps> = ({ appData, current
       const keluarHidupP = keluarHidup.filter(p => p.gender === 'P').length;
 
       // 4. Pindah Ruang (Keluar)
-      const pindahKeluar = dayPatients.filter(p => p.dischargeDate === currentDate && p.statusDataPasien === 'Pindah Ruangan');
+      const pindahKeluar = dayPatients.filter(p => p.dischargeDate === currentDate && (p.statusDataPasien === 'Pindah Ruangan' || p.statusDataPasien === 'Dipindah ke Ruangan Lain'));
       const pindahKeluarL = pindahKeluar.filter(p => p.gender === 'L').length;
       const pindahKeluarP = pindahKeluar.filter(p => p.gender === 'P').length;
 

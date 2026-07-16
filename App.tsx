@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Layout } from './components/Layout';
 import { Login } from './components/Auth/Login';
 import { DataManagement } from './components/Administrator/DataManagement';
@@ -13,11 +13,19 @@ import { InventoryModule } from './components/Administrator/InventoryModule';
 import { OperationReportModule } from './components/Administrator/OperationReportModule';
 import { ServiceMatrix } from './components/Nursing/ServiceMatrix';
 import { QualityWorksheet } from './components/Quality/QualityWorksheet';
+import { PrintQualityWorksheet } from './components/Quality/PrintQualityWorksheet';
 import { QualityReports } from './components/Quality/QualityReports';
 import { DoctorVisitAdmin } from './components/Finance/DoctorVisitAdmin';
+import { FinanceSummaryView } from './components/Finance/FinanceSummaryView';
+import { AdminRegistrasiModule } from './components/Finance/AdminRegistrasiModule';
+import { AsesmenAwalMedisWorksheet } from './components/Quality/AsesmenAwalMedisWorksheet';
+import { MonitoringPasienKeluarMasuk } from './components/Patient/MonitoringPasienKeluarMasuk';
+import { PatientDetailModal } from './components/Patient/PatientDetailModal';
 import { Button } from './components/Button';
-import { getDB, saveDB, uploadDataBackground, mergeData, getApiUrl, saveApiUrl, syncData, uploadData, registerDeletedId } from './db';
-import { AppData, User, FinanceRecord, IncidentReport, Patient, DailyReportEntry, QualityMeasurement, DependencyLevel, Instrument, OperationReport, DoctorVisitRecord } from './types';
+import { SearchableSelect } from './components/SearchableSelect';
+import { getDB, saveDB, uploadDataBackground, mergeData, getApiUrl, saveApiUrl, syncData, uploadData, registerDeletedId, getIsCurrentlyUploading, resilientParse, normalizeDatesInDb } from './db';
+import { INITIAL_DATA } from './constants';
+import { AppData, User, FinanceRecord, IncidentReport, Patient, DailyReportEntry, QualityMeasurement, DependencyLevel, Instrument, OperationReport, DoctorVisitRecord, getRoomBedStyles, getPaymentMethodStyles, getShiftFromTime } from './types';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Cell, AreaChart, Area
@@ -26,11 +34,87 @@ import {
   Activity, Wallet, AlertCircle, Calendar, Plus, Search, Filter, 
   TrendingUp, Users, ShieldAlert, BarChart3, Clock, 
   CheckCircle2, Stethoscope, HeartPulse, ClipboardCheck, FileText,
-  UserCheck, ClipboardList, FilePieChart, Bed, ArrowRight
+  UserCheck, ClipboardList, FilePieChart, Bed, ArrowRight,
+  Edit, Trash2, X
 } from 'lucide-react';
 
+const mergeDailyReportItems = (local: any, incoming: any): any => {
+  if (!local) return incoming;
+  if (!incoming) return local;
+
+  const merged: any = {
+    patientId: local.patientId || incoming.patientId,
+    date: local.date || incoming.date,
+    fieldModifiedTimes: {
+      ...(incoming.fieldModifiedTimes || {}),
+      ...(local.fieldModifiedTimes || {})
+    }
+  };
+
+  const localTimes = local.fieldModifiedTimes || {};
+  const incomingTimes = incoming.fieldModifiedTimes || {};
+
+  const fields = [
+    'morningReport', 'morningTherapy', 'morningRecordedBy', 'morningDependency',
+    'afternoonReport', 'afternoonTherapy', 'afternoonRecordedBy', 'afternoonDependency',
+    'nightReport', 'nightTherapy', 'nightRecordedBy', 'nightDependency',
+    'diagnosis', 'surgeryProcedure', 'surgeryOperator', 'surgeryDate',
+    'surgeryStatus', 'surgeryDelayReason', 'surgeryTime', 'surgeryAnesthesiaType',
+    'surgeryUrgency', 'surgeryNewDate', 'surgeryNewTime', 'adminNote'
+  ];
+
+  fields.forEach(f => {
+    const localVal = local[f];
+    const incomingVal = incoming[f];
+
+    const localTime = localTimes[f] ? new Date(localTimes[f]).getTime() : 0;
+    const incomingTime = incomingTimes[f] ? new Date(incomingTimes[f]).getTime() : 0;
+
+    if (localTime >= incomingTime) {
+      merged[f] = localVal;
+      if (localTimes[f]) {
+        merged.fieldModifiedTimes[f] = localTimes[f];
+      }
+    } else {
+      merged[f] = incomingVal;
+      if (incomingTimes[f]) {
+        merged.fieldModifiedTimes[f] = incomingTimes[f];
+      }
+    }
+  });
+
+  const localLm = local.lastModified ? new Date(local.lastModified).getTime() : 0;
+  const incomingLm = incoming.lastModified ? new Date(incoming.lastModified).getTime() : 0;
+  merged.lastModified = localLm >= incomingLm ? local.lastModified : incoming.lastModified;
+
+  return merged;
+};
+
 const App: React.FC = () => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, rawSetUser] = useState<User | null>(() => {
+    try {
+      const savedUser = localStorage.getItem('surgihub_user') || sessionStorage.getItem('surgihub_user');
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
+  const setUser = (newUser: User | null) => {
+    rawSetUser(newUser);
+    try {
+      if (newUser) {
+        localStorage.setItem('surgihub_user', JSON.stringify(newUser));
+        sessionStorage.setItem('surgihub_user', JSON.stringify(newUser));
+      } else {
+        localStorage.removeItem('surgihub_user');
+        sessionStorage.removeItem('surgihub_user');
+      }
+    } catch (e) {
+      console.warn('Failed to write user session to storage:', e);
+    }
+  };
+
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [appData, setAppData] = useState<AppData>(getDB());
   const [isPatientModalOpen, setIsPatientModalOpen] = useState(false);
@@ -41,8 +125,23 @@ const App: React.FC = () => {
   const [isMobile, setIsMobile] = useState(false);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'danger'} | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [qualityFilterDate, setQualityFilterDate] = useState<string>(
+    new Date().toISOString().split('T')[0]
+  );
   const [lastLocalAction, setLastLocalAction] = useState(0);
+  const lastLocalActionRef = useRef<number>(Date.now());
+  const saveTimeoutRef = useRef<any>(null);
+  const retrySyncTimerRef = useRef<any>(null);
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: string; name: string; type: 'patient' | 'incident' | 'cache' } | null>(null);
+  const [scheduleFilterDate, setScheduleFilterDate] = useState<string>(new Date().toLocaleDateString('en-CA'));
+  const [scheduleFilterRoom, setScheduleFilterRoom] = useState<string>('');
+  const [scheduleFilterDpjp, setScheduleFilterDpjp] = useState<string>('');
+  const [scheduleGlobalSearch, setScheduleGlobalSearch] = useState<string>('');
+  const [editingScheduleSurgery, setEditingScheduleSurgery] = useState<any | null>(null);
+  const [monitoringFilterDate, setMonitoringFilterDate] = useState<string>(new Date().toLocaleDateString('en-CA'));
+  const [monitoringFilterShift, setMonitoringFilterShift] = useState<'PAGI' | 'SIANG' | 'MALAM'>('PAGI');
+  const [selectedDetailPatientId, setSelectedDetailPatientId] = useState<string | null>(null);
+  const [patientLocks, setPatientLocks] = useState<{ [patientId: string]: { username: string; lockedAt: number } }>({});
 
   const notify = (message: string, type: 'success' | 'danger' = 'success') => {
     setNotification({ message, type });
@@ -60,83 +159,372 @@ const App: React.FC = () => {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  // FORCE FETCH ALL MODULES FROM GOOGLE SHEETS (Absolute Centrally Governed Overwrite)
+  const ForceFetchAllModules = async () => {
+    try {
+      console.log('[Aggressive Fetch] Executing ForceFetchAllModules...');
+      setSyncStatus('SYNCING');
+      let apiUrl = getApiUrl();
+      const response = await fetch(`/api/data?url=${encodeURIComponent(apiUrl)}&force=true&t=${Date.now()}`);
+      const result = await response.json();
+      
+      let fetchedData = null;
+      if (result) {
+        if (result.data && (result.data.patients || result.data.dailyReports || result.data.operationReports)) {
+          fetchedData = result.data;
+        } else if (result.patients || result.dailyReports || result.operationReports) {
+          fetchedData = result;
+        }
+      }
+      const isPayloadEmpty = !fetchedData || 
+                             (!fetchedData.patients || fetchedData.patients.length === 0) &&
+                             (!fetchedData.dailyReports || fetchedData.dailyReports.length === 0) &&
+                             (!fetchedData.operationReports || fetchedData.operationReports.length === 0);
+      
+      if (isPayloadEmpty) {
+        console.warn('[Safety Buffer] Force fetch payload is empty! Retrying with text-plain raw bypass...');
+        try {
+          const bypassResponse = await fetch(`/api/data?url=${encodeURIComponent(apiUrl)}&force=true&bypass=true&t=${Date.now()}`);
+          const bypassResult = await bypassResponse.json();
+          if (bypassResult) {
+            let bypassData = null;
+            if (bypassResult.data && (bypassResult.data.patients || bypassResult.data.dailyReports || bypassResult.data.operationReports)) {
+              bypassData = bypassResult.data;
+            } else if (bypassResult.patients || bypassResult.dailyReports || bypassResult.operationReports) {
+              bypassData = bypassResult;
+            }
+            const bypassHasRecords = bypassData && 
+                                     ((bypassData.patients && bypassData.patients.length > 0) ||
+                                      (bypassData.dailyReports && bypassData.dailyReports.length > 0) ||
+                                      (bypassData.operationReports && bypassData.operationReports.length > 0));
+            if (bypassHasRecords) {
+              console.log('[Safety Buffer] Successfully retrieved and parsed raw data on retry!', bypassData);
+              fetchedData = bypassData;
+            }
+          }
+        } catch (bypassErr) {
+          console.error('[Safety Buffer] Text-plain raw bypass retry failed:', bypassErr);
+        }
+      }
+
+      if (fetchedData) {
+        const localDb = getDB();
+        const merged = mergeData(localDb, fetchedData);
+        setAppData(merged);
+        saveDB(merged);
+        setSyncStatus('SUCCESS');
+        setTimeout(() => setSyncStatus('IDLE'), 2000);
+        return merged;
+      }
+    } catch (e) {
+      console.warn('ForceFetchAllModules failed:', e);
+      setSyncStatus('ERROR');
+    }
+    return null;
+  };
+
   // INITIAL DATA FETCH
   useEffect(() => {
-    const savedUser = localStorage.getItem('surgihub_user');
-    if (savedUser) {
-      try {
-        setUser(JSON.parse(savedUser));
-      } catch (e) {
-        localStorage.removeItem('surgihub_user');
+    try {
+      const savedUser = localStorage.getItem('surgihub_user') || sessionStorage.getItem('surgihub_user');
+      if (savedUser) {
+        const parsed = JSON.parse(savedUser);
+        if (parsed && (!user || user.username !== parsed.username)) {
+          setUser(parsed);
+        }
       }
+    } catch (e) {
+      console.warn('Silent session restore error:', e);
     }
     
     const initData = async () => {
+      // 1. Load from local database immediately to make application startup instantaneous (Stale-While-Revalidate)!
+      const localDb = getDB();
+      setAppData(localDb);
+      setIsReady(true); // App is now immediately interactive!
+
       try {
         let apiUrl = getApiUrl();
-        // Automatically sync Apps Script URL with the server's global config
-        try {
-          const configRes = await fetch('/api/config');
-          const configJson = await configRes.json();
-          if (configJson && configJson.appsScriptUrl && configJson.appsScriptUrl !== apiUrl) {
-            apiUrl = configJson.appsScriptUrl;
-            saveApiUrl(apiUrl);
+        setSyncStatus('SYNCING');
+        
+        const robustParse = (rawText: string) => {
+          try {
+            const parsed = resilientParse(rawText);
+            return parsed ? normalizeDatesInDb(parsed) : null;
+          } catch (e) {
+            return null;
           }
-        } catch (e) {
-          console.warn('Failed to fetch config on startup:', e);
+        };
+
+        const extractStandardData = (obj: any): any => {
+          if (!obj) return null;
+          const target = obj.data || obj;
+          if (target && typeof target === 'object') {
+            const standardKeys = ['patients', 'dailyReports', 'nursingReports', 'operations', 'doctorVisits', 'financeRecords', 'incidentReports', 'qualityMeasurements', 'instruments', 'operationReports'];
+            standardKeys.forEach(k => {
+              if (!Array.isArray(target[k])) {
+                target[k] = [];
+              }
+            });
+            return target;
+          }
+          return null;
+        };
+
+        // PARALLEL PROMISE.ALL PIPELINE: Pull config, snappy data cache, and locks in parallel to maximize loading speed!
+        console.log('[On-Load Sync] Initiating Parallel Promise.all data acquisition pipeline...');
+        const [configResponse, fastResponse, locksResponse] = await Promise.all([
+          fetch('/api/config').catch(() => null),
+          fetch(`/api/data?url=${encodeURIComponent(apiUrl)}&force=false&t=${Date.now()}`).catch(() => null),
+          fetch('/api/patients/locks').catch(() => null)
+        ]);
+
+        // Process Configuration
+        let configJson: any = null;
+        if (configResponse && configResponse.ok) {
+          try {
+            configJson = await configResponse.json();
+            if (configJson && configJson.appsScriptUrl) {
+              if (!apiUrl || apiUrl.trim() === '') {
+                apiUrl = configJson.appsScriptUrl;
+                saveApiUrl(apiUrl);
+              } else if (apiUrl !== configJson.appsScriptUrl) {
+                console.log('[API URL Sync] Propagating customized client Apps Script URL to server:', apiUrl);
+                fetch('/api/config', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ appsScriptUrl: apiUrl })
+                }).catch(() => {});
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to parse synchronized config:', e);
+          }
+        }
+
+        // Process locks in background
+        if (locksResponse && locksResponse.ok) {
+          locksResponse.json().then(res => {
+            if (res.success) setPatientLocks(res.locks || {});
+          }).catch(() => {});
+        }
+
+        let fetchedData: any = null;
+
+        // Process Fast Snappy Cache
+        if (fastResponse && fastResponse.ok) {
+          try {
+            const rawText = await fastResponse.text();
+            const result = robustParse(rawText);
+            if (result) {
+              const tempFetched = extractStandardData(result);
+              const isCacheNotEmpty = tempFetched && 
+                                      ((tempFetched.patients && tempFetched.patients.length > 0) ||
+                                       (tempFetched.dailyReports && tempFetched.dailyReports.length > 0));
+              if (isCacheNotEmpty) {
+                console.log('[On-Load Sync] Snappy server cache retrieved successfully in parallel!', tempFetched.patients?.length, 'patients.');
+                fetchedData = tempFetched;
+              }
+            }
+          } catch (fastErr) {
+            console.warn('[On-Load Sync] Parallel cache parse failed:', fastErr);
+          }
+        }
+
+        // Parallel Table Fetching to fulfill user database requirements
+        const fetchTableParallel = async (tableName: string) => {
+          try {
+            const tRes = await fetch(`/api/data?url=${encodeURIComponent(apiUrl)}&force=false&table=${tableName}&t=${Date.now()}`);
+            if (tRes.ok) {
+              const text = await tRes.text();
+              const parsed = robustParse(text);
+              if (parsed) {
+                const target = parsed.data || parsed;
+                if (target && Array.isArray(target[tableName]) && target[tableName].length > 0) {
+                  return target[tableName];
+                }
+              }
+            }
+          } catch (err) {
+            console.warn(`Parallel fetch failed for table: ${tableName}`, err);
+          }
+          return null;
+        };
+
+        // Explicit Parallel Promise (Promise.all) for Pasien, Laporan Keperawatan, and Laporan Keuangan
+        const [patientsTable, dailyReportsTable, financeRecordsTable] = await Promise.all([
+          fetchTableParallel('patients'),
+          fetchTableParallel('dailyReports'),
+          fetchTableParallel('financeRecords')
+        ]);
+
+        if (patientsTable !== null || dailyReportsTable !== null || financeRecordsTable !== null) {
+          console.log('[On-Load Sync] Specific tables loaded in parallel via Promise.all. Merging with cache.');
+          if (!fetchedData) fetchedData = extractStandardData({ patients: [], dailyReports: [], financeRecords: [] }) || {};
+          if (patientsTable !== null) fetchedData.patients = patientsTable;
+          if (dailyReportsTable !== null) fetchedData.dailyReports = dailyReportsTable;
+          if (financeRecordsTable !== null) fetchedData.financeRecords = financeRecordsTable;
+        }
+
+        // STEP B: Only do blocking fresh pull if server cache was empty or invalid
+        if (!fetchedData) {
+          let retries = 3;
+          while (retries > 0) {
+            try {
+              console.log(`[On-Load Sync] Server cache empty. Forcing central Google Sheets fresh pull (Attempts remaining: ${retries})...`);
+              const response = await fetch(`/api/data?url=${encodeURIComponent(apiUrl)}&force=true&t=${Date.now()}`);
+              if (response.ok) {
+                const rawText = await response.text();
+                const result = robustParse(rawText);
+                if (result) {
+                  const tempFetched = extractStandardData(result);
+                  const isEmpty = !tempFetched || 
+                                  (!tempFetched.patients || tempFetched.patients.length === 0) &&
+                                  (!tempFetched.dailyReports || tempFetched.dailyReports.length === 0) &&
+                                  (!tempFetched.operationReports || tempFetched.operationReports.length === 0);
+                  
+                  if (!isEmpty) {
+                    fetchedData = tempFetched;
+                    break;
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn(`[On-Load Sync] Attempt failed:`, e);
+            }
+            retries--;
+            if (retries > 0) {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+          }
         }
         
-        setSyncStatus('SYNCING');
-        const response = await fetch(`/api/data?url=${encodeURIComponent(apiUrl)}&t=${Date.now()}`);
-        const result = await response.json();
+        const isPayloadEmpty = !fetchedData || 
+                               (!fetchedData.patients || fetchedData.patients.length === 0) &&
+                               (!fetchedData.dailyReports || fetchedData.dailyReports.length === 0) &&
+                               (!fetchedData.operationReports || fetchedData.operationReports.length === 0);
         
-        if ((result.status === 'ready' || result.status === 'success') && result.data) {
-          const merged = mergeData(getDB(), result.data);
+        if (isPayloadEmpty) {
+          console.warn('[Safety Buffer] On-load fetched payload is empty! Retrying with text-plain raw bypass...');
+          try {
+            const bypassResponse = await fetch(`/api/data?url=${encodeURIComponent(apiUrl)}&force=true&bypass=true&t=${Date.now()}`);
+            const rawText = await bypassResponse.text();
+            const bypassResult = robustParse(rawText);
+            if (bypassResult) {
+              const bypassData = extractStandardData(bypassResult);
+              const bypassHasRecords = bypassData && 
+                                       ((bypassData.patients && bypassData.patients.length > 0) ||
+                                        (bypassData.dailyReports && bypassData.dailyReports.length > 0) ||
+                                        (bypassData.operationReports && bypassData.operationReports.length > 0));
+              if (bypassHasRecords) {
+                console.log('[Safety Buffer] Successfully retrieved and parsed raw data on retry!', bypassData);
+                fetchedData = bypassData;
+              }
+            }
+          } catch (bypassErr) {
+            console.error('[Safety Buffer] Text-plain raw bypass retry failed:', bypassErr);
+          }
+        }
+        
+        if (fetchedData) {
+          console.log('[On-Load Sync] Fresh central data retrieved successfully. Merging with local state.');
+          if (configJson) {
+            if (!fetchedData.masterData) fetchedData.masterData = {};
+            fetchedData.masterData.settings = {
+              ...(fetchedData.masterData.settings || {}),
+              appName: configJson.appName || fetchedData.masterData.settings?.appName || 'SiMANTAP',
+              appSlogan: configJson.appSlogan || fetchedData.masterData.settings?.appSlogan || 'Manajemen Laporan Terpadu & Akurat',
+              logoUrl: configJson.logoUrl || fetchedData.masterData.settings?.logoUrl || '',
+              loginWallpaperUrl: configJson.loginWallpaperUrl || fetchedData.masterData.settings?.loginWallpaperUrl || '',
+              appWallpaperUrl: configJson.appWallpaperUrl || fetchedData.masterData.settings?.appWallpaperUrl || '',
+              themeColor: configJson.themeColor || fetchedData.masterData.settings?.themeColor || '#144272',
+              fontColor: configJson.fontColor || fetchedData.masterData.settings?.fontColor || '#ffffff',
+              isSidebarAutohide: configJson.isSidebarAutohide !== undefined ? configJson.isSidebarAutohide : !!fetchedData.masterData.settings?.isSidebarAutohide
+            };
+          }
+          const merged = mergeData(localDb, fetchedData);
           setAppData(merged);
           saveDB(merged);
           setSyncStatus('SUCCESS');
           setTimeout(() => setSyncStatus('IDLE'), 2000);
+        } else {
+          console.warn('[On-Load Sync] Server responded but data lists were invalid. Using local memory database.');
+          const currentLocal = getDB();
+          if (configJson) {
+            if (!currentLocal.masterData) {
+              currentLocal.masterData = JSON.parse(JSON.stringify(INITIAL_DATA.masterData));
+            }
+            currentLocal.masterData.settings = {
+              ...(currentLocal.masterData.settings || {}),
+              appName: configJson.appName || currentLocal.masterData.settings?.appName || 'SiMANTAP',
+              appSlogan: configJson.appSlogan || currentLocal.masterData.settings?.appSlogan || 'Manajemen Laporan Terpadu & Akurat',
+              logoUrl: configJson.logoUrl || currentLocal.masterData.settings?.logoUrl || '',
+              loginWallpaperUrl: configJson.loginWallpaperUrl || currentLocal.masterData.settings?.loginWallpaperUrl || '',
+              appWallpaperUrl: configJson.appWallpaperUrl || currentLocal.masterData.settings?.appWallpaperUrl || '',
+              themeColor: configJson.themeColor || currentLocal.masterData.settings?.themeColor || '#144272',
+              fontColor: configJson.fontColor || currentLocal.masterData.settings?.fontColor || '#ffffff',
+              isSidebarAutohide: configJson.isSidebarAutohide !== undefined ? configJson.isSidebarAutohide : !!currentLocal.masterData.settings?.isSidebarAutohide
+            };
+          }
+          setAppData(currentLocal);
+          setSyncStatus('IDLE');
         }
       } catch (e) {
-        console.warn('Initial sync unsuccessful');
+        console.warn('On-load sync unsuccessful, loading local memory database:', e);
+        const currentLocal = getDB();
+        setAppData(currentLocal);
         setSyncStatus('ERROR');
-      } finally {
-        setIsReady(true);
       }
     };
     
     initData();
   }, []);
 
+  // FETCH INITIAL PATIENT LOCKS
+  useEffect(() => {
+    fetch('/api/patients/locks')
+      .then(res => res.json())
+      .then(res => {
+        if (res.success) setPatientLocks(res.locks || {});
+      })
+      .catch(() => {});
+  }, []);
+
   // BACKGROUND POLLING
   useEffect(() => {
-    const syncNow = async () => {
-      // Avoid polling if we just made a local update
-      if (Date.now() - lastLocalAction < 2000) return;
+    let isLocalSyncing = false;
 
+    const syncNow = async () => {
+      if (isLocalSyncing) return;
+      // Avoid polling if background upload is currently in progress
+      if (getIsCurrentlyUploading()) return;
+      // Avoid polling if we just made a local update within 5 seconds
+      if (Date.now() - lastLocalAction < 5000) return;
+
+      isLocalSyncing = true;
       try {
-        const apiUrl = getApiUrl();
-        
-        setSyncStatus('SYNCING');
-        const res = await syncData(true);
+        const res = await syncData(false);
         if (res.success) {
           const freshData = getDB();
           setAppData(freshData);
-          setSyncStatus('SUCCESS');
           setLastSyncTime(new Date());
-          setTimeout(() => setSyncStatus('IDLE'), 2000);
-        } else {
-          setSyncStatus('ERROR');
-          // Don't auto-reset ERROR status so user can see it
+          
+          // Auto-heal: Clear any previous visual error states once connection is restored
+          setSyncStatus(prev => prev === 'ERROR' ? 'SUCCESS' : prev);
+          setTimeout(() => {
+            setSyncStatus(prev => prev === 'SUCCESS' ? 'IDLE' : prev);
+          }, 2000);
         }
       } catch (e) {
-        setSyncStatus('ERROR');
+        console.warn('Background auto-sync silently suspended:', e);
+      } finally {
+        isLocalSyncing = false;
       }
     };
 
     const interval = setInterval(() => {
       if (!document.hidden) syncNow();
-    }, 30000); // Poll every 30 seconds to prevent Google Sheets rate-limiting/timeouts
+    }, 25000); // Poll every 25 seconds (instead of 3s) for major CPU load savings, since real-time SSE already handles instant updates!
 
     const handleVisibility = () => {
       if (!document.hidden) syncNow();
@@ -149,27 +537,468 @@ const App: React.FC = () => {
     };
   }, [lastLocalAction]);
 
-  const handleUpdateAppData = async (newData: AppData) => {
-    setLastLocalAction(Date.now());
-    setAppData(newData);
-    saveDB(newData);
+  // --- REAL-TIME SERVER-SENT EVENTS (SSE) LISTENER ---
+  useEffect(() => {
+    let eventSource: EventSource | null = null;
+    let reconnectTimeout: any = null;
+
+    const connectSSE = () => {
+      console.log("Connecting to SIMANTAP real-time sync event stream...");
+      if (eventSource) {
+        eventSource.close();
+      }
+      eventSource = new EventSource('/api/events');
+
+      eventSource.onmessage = async (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          
+          if (payload.type === 'handshake') {
+            const serverVersion = payload.version;
+            const CLIENT_VERSION = "2.2.0-recovery-sync";
+            console.log(`[SSE Handshake] Server Build: ${serverVersion} | Local Build: ${CLIENT_VERSION}`);
+            
+            // If the server changed versions (user completed code updates in AI Studio), trigger smooth live hot reload!
+            if (serverVersion && serverVersion !== CLIENT_VERSION) {
+              console.log("[Live Update] Outdated browser build detected! Clearing storage & hot reloading...");
+              setNotification({ 
+                message: "Aplikasi SIMANTAP diperbarui ke versi terbaru. Memuat ulang sistem secara real-time...", 
+                type: 'success' 
+              });
+              
+              if ('caches' in window) {
+                try {
+                  const names = await caches.keys();
+                  await Promise.all(names.map(name => caches.delete(name)));
+                } catch (e) {}
+              }
+              
+              setTimeout(() => {
+                window.location.reload();
+              }, 1500);
+            }
+          } else if (payload.type === 'delta-update') {
+            const table = payload.table;
+            const items = payload.items || [];
+            console.log(`[SSE Delta Event] Delta update received for ${table}:`, items);
+            if (items.length > 0 && table) {
+              const currentDB = getDB();
+              let localList = [...(currentDB[table] || [])];
+              let updatedLocal = false;
+              const keyField = 'id';
+
+              items.forEach((newItem: any) => {
+                if (!newItem) return;
+                if (table === 'dailyReports') {
+                  if (!newItem.patientId || !newItem.date) return;
+                  const key = `${newItem.patientId}_${newItem.date}`;
+                  const localIdx = localList.findIndex(r => `${r.patientId}_${r.date}` === key);
+                  if (localIdx > -1) {
+                    const localItem = localList[localIdx];
+                    const mergedItem = mergeDailyReportItems(localItem, newItem);
+                    if (JSON.stringify(localItem) !== JSON.stringify(mergedItem)) {
+                      localList[localIdx] = mergedItem;
+                      updatedLocal = true;
+                    }
+                  } else {
+                    localList.push(newItem);
+                    updatedLocal = true;
+                  }
+                } else {
+                  if (newItem[keyField] === undefined || newItem[keyField] === null) return;
+                  const itemId = String(newItem[keyField]);
+                  const localIdx = localList.findIndex(r => String(r[keyField]) === itemId);
+                  if (localIdx > -1) {
+                    const localItem = localList[localIdx];
+                    const localLm = localItem.lastModified ? new Date(localItem.lastModified).getTime() : 0;
+                    const newLm = newItem.lastModified ? new Date(newItem.lastModified).getTime() : 0;
+                    if (newLm >= localLm) {
+                      localList[localIdx] = { ...localItem, ...newItem };
+                      updatedLocal = true;
+                    }
+                  } else {
+                    localList.push(newItem);
+                    updatedLocal = true;
+                  }
+                }
+              });
+
+              if (updatedLocal) {
+                const updatedDB = { ...currentDB, [table]: localList };
+                saveDB(updatedDB);
+              }
+
+              // Update in active React state reference
+              setAppData(prev => {
+                const stateList = [...(prev[table] || [])];
+                let updatedState = false;
+                items.forEach((newItem: any) => {
+                  if (!newItem) return;
+                  if (table === 'dailyReports') {
+                    const key = `${newItem.patientId}_${newItem.date}`;
+                    const idx = stateList.findIndex(r => `${r.patientId}_${r.date}` === key);
+                    if (idx > -1) {
+                      const stateItem = stateList[idx];
+                      const mergedItem = mergeDailyReportItems(stateItem, newItem);
+                      if (JSON.stringify(stateItem) !== JSON.stringify(mergedItem)) {
+                        stateList[idx] = mergedItem;
+                        updatedState = true;
+                      }
+                    } else {
+                      stateList.push(newItem);
+                      updatedState = true;
+                    }
+                  } else {
+                    if (newItem[keyField] === undefined || newItem[keyField] === null) return;
+                    const itemId = String(newItem[keyField]);
+                    const idx = stateList.findIndex(r => String(r[keyField]) === itemId);
+                    if (idx > -1) {
+                      const stateItem = stateList[idx];
+                      const localLm = stateItem.lastModified ? new Date(stateItem.lastModified).getTime() : 0;
+                      const newLm = newItem.lastModified ? new Date(newItem.lastModified).getTime() : 0;
+                      if (newLm >= localLm) {
+                        stateList[idx] = { ...stateItem, ...newItem };
+                        updatedState = true;
+                      }
+                    } else {
+                      stateList.push(newItem);
+                      updatedState = true;
+                    }
+                  }
+                });
+                if (updatedState) {
+                  return { ...prev, [table]: stateList };
+                }
+                return prev;
+              });
+              setLastSyncTime(new Date());
+            }
+          } else if (payload.type === 'hard-sync') {
+            // Force Sync / Hard Pull: Triggered by other devices' changes
+            // To prevent self-override loops, skip only if we recently edited (within 1 second)
+            const timeSinceLastLocal = Date.now() - lastLocalActionRef.current;
+            if (timeSinceLastLocal < 1000) {
+              console.log("[SSE Event] Hard sync skipped on originating device.");
+              return;
+            }
+            console.log("[SSE Event] Hard sync signal received. Triggering immediate Hard Pull...");
+            (async () => {
+              const res = await syncData(true); // force pull from Google Sheets
+              if (res.success) {
+                setAppData(getDB());
+                setLastSyncTime(new Date());
+              }
+            })();
+          } else if (payload.type === 'data-update') {
+            // Anti-rollback/race condition check: If this device recently performed a local edit (within 5s),
+            // it's highly likely that this data-update event was triggered by our own push, or we are currently editing.
+            // Under these high-concurrency conditions, skip downloading to prevent overwriting static client state.
+            const timeSinceLastLocal = Date.now() - lastLocalActionRef.current;
+            if (timeSinceLastLocal < 5000) {
+              console.log("[SSE Event] Data change detected, but skipped because of recent local action in progress.");
+              return;
+            }
+            console.log("[SSE Event] Data change detected, triggering silent sync now.");
+            // Silent sync
+            const res = await syncData(false);
+            if (res.success) {
+              setAppData(getDB());
+              setLastSyncTime(new Date());
+            }
+          } else if (payload.type === 'patient-locks') {
+            setPatientLocks(payload.locks || {});
+          } else if (payload.type === 'theme-update') {
+            console.log("[SSE Event] Theme update received from server:", payload.settings);
+            const settings = payload.settings;
+            if (settings) {
+              setAppData(prev => {
+                if (!prev) return prev;
+                const next = { ...prev };
+                if (!next.masterData) next.masterData = {};
+                next.masterData.settings = {
+                  ...(next.masterData.settings || {}),
+                  ...settings
+                };
+                saveDB(next);
+                return next;
+              });
+            }
+          }
+        } catch (err) {
+          console.error("[SSE Event error] Error processing SSE payload:", err);
+        }
+      };
+
+      eventSource.onerror = (err) => {
+        console.warn("[SSE Connection] Stream lost, trying to reconnect in 5 seconds...");
+        if (eventSource) {
+          eventSource.close();
+        }
+        reconnectTimeout = setTimeout(connectSSE, 5000);
+      };
+    };
+
+    connectSSE();
+
+    const handleOnline = () => {
+      console.log("[SSE Network] Network online, forcing immediate reconnection...");
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      connectSSE();
+    };
+
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (eventSource) eventSource.close();
+      window.removeEventListener('online', handleOnline);
+    };
+  }, []);
+
+  // Listen for background successful offline uploads and update state dynamically
+  useEffect(() => {
+    const handleOfflineSynced = (e: Event) => {
+      const customEv = e as CustomEvent;
+      if (customEv.detail) {
+        console.log('[Offline Queue Synced] Dynamic state refresh initiated.');
+        const updated = syncCatatanKhususToAdminNote(customEv.detail);
+        setAppData(updated);
+        setNotification({
+          message: 'Sinkronisasi antrean data offline selesai. Data Anda kini 100% aman di server.',
+          type: 'success'
+        });
+      }
+    };
+    const handleSurgihubToast = (e: Event) => {
+      const customEv = e as CustomEvent;
+      if (customEv.detail) {
+        setNotification({
+          message: customEv.detail.message,
+          type: customEv.detail.type || 'success'
+        });
+        setTimeout(() => setNotification(null), 3000);
+      }
+    };
+    window.addEventListener('surgihub_offline_queue_synced', handleOfflineSynced);
+    window.addEventListener('surgihub_toast', handleSurgihubToast);
+    return () => {
+      window.removeEventListener('surgihub_offline_queue_synced', handleOfflineSynced);
+      window.removeEventListener('surgihub_toast', handleSurgihubToast);
+    };
+  }, []);
+
+  const syncCatatanKhususToAdminNote = (data: AppData): AppData => {
+    if (!data || !data.patients) return data;
+    const reports = [...(data.dailyReports || [])];
+    let touched = false;
+
+    data.patients.forEach(p => {
+      // Kolom keterangan di registrasi pasien (catatanKhusus) wajib terisi langsung ke adminNote pada laporan keperawatan untuk tanggal MRS (entryDate)
+      const targetDate = p.entryDate || new Date().toISOString().split('T')[0];
+      
+      let noteValue = p.catatanKhusus || '';
+      const badges: string[] = [];
+      if (p.isRisikoBermasalah) badges.push('💥 RISIKO BERMASALAH');
+      if (p.statusMasalah === 'ON_PROSES') badges.push('⏳ ON PROSES');
+      if (p.statusMasalah === 'SELESAI') badges.push('✅ MASALAH SELESAI');
+
+      if (badges.length > 0) {
+        noteValue = `${noteValue} [${badges.join(' | ')}]`.trim();
+      }
+      
+      const idx = reports.findIndex(r => r.patientId === p.id && r.date === targetDate);
+      if (idx > -1) {
+        if (reports[idx].adminNote !== noteValue) {
+          reports[idx] = {
+            ...reports[idx],
+            adminNote: noteValue,
+            lastModified: new Date().toISOString()
+          };
+          touched = true;
+        }
+      } else if (noteValue.trim() !== '') {
+        const newReport = {
+          patientId: p.id,
+          date: targetDate,
+          adminNote: noteValue,
+          lastModified: new Date().toISOString()
+        };
+        reports.push(newReport as any);
+        touched = true;
+      }
+    });
+
+    if (touched) {
+      return {
+        ...data,
+        dailyReports: reports
+      };
+    }
+    return data;
+  };
+
+  const handleUpdateAppData = async (newData: AppData, immediate: boolean = false): Promise<any> => {
+    if (user?.isRecovery) {
+      setNotification({
+        message: 'Mode Pemulihan Read-Only aktif: Perubahan data dinonaktifkan.',
+        type: 'danger'
+      });
+      setTimeout(() => setNotification(null), 3000);
+      return { success: false, error: 'Read-only mode active' };
+    }
+
+    const now = Date.now();
+    lastLocalActionRef.current = now;
+    setLastLocalAction(now);
+    
+    const syncedData = syncCatatanKhususToAdminNote(newData);
+    
+    // Instantly update UI and lock locally (Optimistic UI & Local State Lock)
+    setAppData(syncedData);
+    saveDB(syncedData);
     setSyncStatus('SYNCING');
     
-    try {
-      const res = await uploadData(newData);
-      if (res.success) {
-        if (res.data) {
-          setAppData(res.data);
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+
+    if (immediate) {
+      try {
+        const res = await uploadData(syncedData, true);
+        if (res.success) {
+          if (lastLocalActionRef.current === now) {
+            if (res.data) {
+              const syncedResData = syncCatatanKhususToAdminNote(res.data);
+              setAppData(syncedResData);
+            }
+          }
+          setSyncStatus('SUCCESS');
+          
+          if (retrySyncTimerRef.current) {
+            clearInterval(retrySyncTimerRef.current);
+            retrySyncTimerRef.current = null;
+          }
+          
+          setTimeout(() => setSyncStatus(prev => prev === 'SUCCESS' ? 'IDLE' : prev), 3000);
+          return res;
+        } else {
+          throw new Error(res.error || 'Sync failed');
         }
+      } catch (e: any) {
+        console.warn('Google Sheets immediate sync failed (silent fallback to offline queue):', e);
+        // Fallback silently to offline queue as requested. Do not trigger a hard alert or block the user.
+        setSyncStatus('IDLE');
+        
+        if (!retrySyncTimerRef.current) {
+          retrySyncTimerRef.current = setInterval(async () => {
+            console.log('[Resilient Sync] Retrying pending upload every 3s...');
+            try {
+              const currentLocalDB = getDB();
+              const retryRes = await uploadData(currentLocalDB);
+              if (retryRes.success) {
+                console.log('[Resilient Sync] Silent background retry successful!');
+                clearInterval(retrySyncTimerRef.current);
+                retrySyncTimerRef.current = null;
+                
+                setAppData(getDB());
+                setSyncStatus('SUCCESS');
+                setTimeout(() => setSyncStatus(prev => prev === 'SUCCESS' ? 'IDLE' : prev), 3000);
+              }
+            } catch (retryErr) {
+              console.warn('[Resilient Sync] Silent retry failed, will try again in 3s...');
+            }
+          }, 3000);
+        }
+        // Return a mock success response to avoid throwing browser alerts or blocking UI
+        return { success: true, fallback: true, error: e.message };
+      }
+    } else {
+      return new Promise((resolve) => {
+        saveTimeoutRef.current = setTimeout(async () => {
+          try {
+            const res = await uploadData(syncedData);
+            if (res.success) {
+              // Anti-rollback safeguard: Only update react state from server if there has been
+              // no newer local edits during the network flight time. This prevents typing overwrites.
+              if (lastLocalActionRef.current === now) {
+                if (res.data) {
+                  const syncedResData = syncCatatanKhususToAdminNote(res.data);
+                  setAppData(syncedResData);
+                }
+              }
+              setSyncStatus('SUCCESS');
+              
+              // Clear retry timer if active
+              if (retrySyncTimerRef.current) {
+                clearInterval(retrySyncTimerRef.current);
+                retrySyncTimerRef.current = null;
+              }
+              
+              setTimeout(() => setSyncStatus(prev => prev === 'SUCCESS' ? 'IDLE' : prev), 3000);
+              resolve(res);
+            } else {
+              throw new Error(res.error || 'Sync failed');
+            }
+          } catch (e: any) {
+            console.warn('Google Sheets sync failed (silent background retry loop initiated):', e);
+            setSyncStatus('IDLE');
+            
+            // Start retry timer if not already running
+            if (!retrySyncTimerRef.current) {
+              retrySyncTimerRef.current = setInterval(async () => {
+                console.log('[Resilient Sync] Retrying pending upload every 3s...');
+                try {
+                  const currentLocalDB = getDB();
+                  const retryRes = await uploadData(currentLocalDB);
+                  if (retryRes.success) {
+                    console.log('[Resilient Sync] Silent background retry successful!');
+                    clearInterval(retrySyncTimerRef.current);
+                    retrySyncTimerRef.current = null;
+                    
+                    // Merge and update UI safely
+                    setAppData(getDB());
+                    setSyncStatus('SUCCESS');
+                    setTimeout(() => setSyncStatus(prev => prev === 'SUCCESS' ? 'IDLE' : prev), 3000);
+                  }
+                } catch (retryErr) {
+                  console.warn('[Resilient Sync] Silent retry failed, will try again in 3s...');
+                }
+              }, 3000);
+            }
+            resolve({ success: true, fallback: true, error: e.message });
+          }
+        }, 1000);
+      });
+    }
+  };
+
+  const handleTriggerSyncManual = async (isForce: boolean = false): Promise<boolean> => {
+    try {
+      const apiUrl = getApiUrl();
+      setSyncStatus('SYNCING');
+      const response = await fetch(`/api/data?url=${encodeURIComponent(apiUrl)}&force=${isForce}&t=${Date.now()}`);
+      const result = await response.json();
+      let fetchedDb: any = null;
+      if (result) {
+        if (result.data && (result.data.patients || result.data.dailyReports || result.data.operationReports)) {
+          fetchedDb = result.data;
+        } else if (result.patients || result.dailyReports || result.operationReports) {
+          fetchedDb = result;
+        }
+      }
+      if (fetchedDb) {
+        const localDb = getDB();
+        const merged = mergeData(localDb, fetchedDb);
+        setAppData(merged);
+        saveDB(merged);
         setSyncStatus('SUCCESS');
-        setTimeout(() => setSyncStatus('IDLE'), 3000);
-      } else {
-        setSyncStatus('ERROR');
+        setTimeout(() => setSyncStatus('IDLE'), 2000);
+        return true;
       }
     } catch (e) {
-      console.warn('Google Sheets sync failed, data saved locally');
-      setSyncStatus('ERROR');
+      console.warn('Manual sync pull failed:', e);
     }
+    setSyncStatus('ERROR');
+    setTimeout(() => setSyncStatus('IDLE'), 2000);
+    return false;
   };
 
   const handleLogin = (loggedInUser: User) => {
@@ -182,16 +1011,134 @@ const App: React.FC = () => {
     localStorage.removeItem('surgihub_user');
   };
 
+  const handleStartEditPatient = async (p: Patient) => {
+    if (user?.isRecovery) {
+      setNotification({
+        message: 'Mode Pemulihan Read-Only aktif: Edit data pasien dinonaktifkan.',
+        type: 'danger'
+      });
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+    const username = user?.username || 'Guest';
+    try {
+      const res = await fetch(`/api/patients/${p.id}/lock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username })
+      });
+      const result = await res.json();
+      if (result.success === false) {
+        alert(`[CONCURRENCY LOCK] Pasien [${p.name}] sedang diedit oleh [${result.lockedBy}]. Anda tidak dapat menyimpan perubahan hingga kunci dilepaskan atau masa berlaku habis (10 menit).`);
+        return;
+      }
+      setEditingPatient(p);
+      setIsPatientModalOpen(true);
+    } catch (e) {
+      // Fallback
+      setEditingPatient(p);
+      setIsPatientModalOpen(true);
+    }
+  };
+
+  const enforceMasihDirawatBypass = (pData: any): any => {
+    const statusUpper = (pData.statusDataPasien || '').toUpperCase().trim();
+    const isMasihDirawat = statusUpper === 'MASIH DIRAWAT' || statusUpper === 'AKTIF' || statusUpper === '';
+    if (isMasihDirawat) {
+      return {
+        ...pData,
+        statusDataPasien: 'Masih Dirawat',
+        status: 'ADMITTED',
+        dischargeDate: '',
+        dischargeTime: '',
+        apsReason: '',
+        referralDestination: '',
+        deathTime: '',
+        transferDestinationRoom: ''
+      };
+    }
+    return pData;
+  };
+
+  const checkBedDoubleBooking = (patientId: string | null, rgn: string, bNo: string): string | null => {
+    if (!rgn || !bNo || rgn === '-' || bNo === '-') return null;
+    const cleanRoom = rgn.trim().toLowerCase();
+    const cleanBed = bNo.trim().toLowerCase();
+
+    const conflictingPatient = (appData.patients || []).find(p => {
+      if (patientId && p.id === patientId) return false;
+      const statusUpper = (p.statusDataPasien || '').toUpperCase().trim();
+      const isActive = statusUpper === 'MASIH DIRAWAT' || statusUpper === 'AKTIF' || statusUpper === '';
+      if (!isActive) return false;
+
+      return (p.ruangan || '').trim().toLowerCase() === cleanRoom &&
+             (p.nomorBed || '').trim().toLowerCase() === cleanBed;
+    });
+
+    if (conflictingPatient) {
+      return `Kamar / Bed "${cleanBed}" di Ruangan "${rgn}" sudah ditempati oleh pasien "${conflictingPatient.name}" (RM: ${conflictingPatient.noRM}) yang saat ini berstatus "Masih Dirawat".`;
+    }
+    return null;
+  };
+
   const handleAddPatient = (patientData: Omit<Patient, 'id'>) => {
     const newData = { ...appData };
+    
+    // Check double-booking for the added / edited patient
+    const statusUpper = (patientData.statusDataPasien || '').toUpperCase().trim();
+    const isAdmitted = statusUpper === 'MASIH DIRAWAT' || statusUpper === 'AKTIF' || statusUpper === '';
+    
+    if (isAdmitted) {
+      const conflictMsg = checkBedDoubleBooking(editingPatient ? editingPatient.id : null, patientData.ruangan || '', patientData.nomorBed || '');
+      if (conflictMsg) {
+        alert(`[DETEKSI DOUBLE-BOOKING]\n\n${conflictMsg}\n\nTransaksi dibatalkan. Selesaikan status pasien sebelumnya atau ganti alokasi Bed.`);
+        return;
+      }
+    }
+
     if (editingPatient) {
-      newData.patients = (newData.patients || []).map(p => 
-        p.id === editingPatient.id ? { ...p, ...patientData, lastModified: new Date().toISOString() } : p
-      );
+      const pId = editingPatient.id;
+      const username = user?.username || 'Guest';
+      fetch(`/api/patients/${pId}/unlock`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username })
+      }).catch(() => {});
+
+      const dbPatient = (newData.patients || []).find(p => p.id === editingPatient.id);
+      if (dbPatient && dbPatient.lastModified && editingPatient.lastModified && dbPatient.lastModified !== editingPatient.lastModified) {
+        const confirmOverride = window.confirm(
+          `[CONCURRENCY LOCK] Pasien telah diperbarui oleh perangkat lain pada ${new Date(dbPatient.lastModified).toLocaleTimeString()}.\n\nApakah Anda yakin ingin menimpa data terbaru tersebut?`
+        );
+        if (!confirmOverride) return;
+      }
+
+      newData.patients = (newData.patients || []).map(p => {
+        if (p.id === editingPatient.id) {
+          const merged = { ...p, ...patientData };
+          if (patientData.dpjpList !== undefined) {
+            const firstDoc = patientData.dpjpList?.[0] || '';
+            merged.dpjp = firstDoc;
+            merged.ksm = firstDoc ? (newData.masterData.doctorMetadata?.[firstDoc]?.ksm || '') : '';
+          }
+          const cleanPatient = enforceMasihDirawatBypass(merged);
+          return { ...cleanPatient, lastModified: new Date().toISOString() };
+        }
+        return p;
+      });
     } else {
+      const mergedNew = { ...patientData };
+      if (patientData.dpjpList !== undefined) {
+        const firstDoc = patientData.dpjpList?.[0] || '';
+        mergedNew.dpjp = firstDoc;
+        mergedNew.ksm = firstDoc ? (newData.masterData.doctorMetadata?.[firstDoc]?.ksm || '') : '';
+      }
+      const cleanNew = enforceMasihDirawatBypass({
+        ...mergedNew,
+        id: `P-${Date.now()}`
+      });
       const newPatient: Patient = {
-        ...patientData,
-        id: `P-${Date.now()}`,
+        ...cleanNew,
         lastModified: new Date().toISOString()
       };
       newData.patients = [...(newData.patients || []), newPatient];
@@ -203,111 +1150,362 @@ const App: React.FC = () => {
   };
 
   const handleUpdatePatient = (id: string, updates: Partial<Patient>) => {
-    setAppData(prev => {
-      const newData = { ...prev };
-      newData.patients = (newData.patients || []).map(p => p.id === id ? { ...p, ...updates, lastModified: new Date().toISOString() } : p);
-      saveDB(newData);
-      uploadDataBackground();
-      return newData;
+    // Extract _autoRegisterNewRecord if present
+    const autoRegisterNewRecord = (updates as any)._autoRegisterNewRecord;
+    const batchUpdates = (updates as any)._batchUpdates as { id: string; updates: Partial<Patient> }[] | undefined;
+    const cleanUpdates = { ...updates };
+    delete (cleanUpdates as any)._autoRegisterNewRecord;
+    delete (cleanUpdates as any)._batchUpdates;
+
+    // Check double-booking for update
+    const currentPatient = (appData.patients || []).find(p => p.id === id);
+    if (currentPatient) {
+      const targetRuangan = cleanUpdates.ruangan !== undefined ? cleanUpdates.ruangan : currentPatient.ruangan;
+      const targetBed = cleanUpdates.nomorBed !== undefined ? cleanUpdates.nomorBed : currentPatient.nomorBed;
+      const targetStatus = cleanUpdates.statusDataPasien !== undefined ? cleanUpdates.statusDataPasien : currentPatient.statusDataPasien;
+      const statusUpper = (targetStatus || '').toUpperCase().trim();
+      const isAdmitted = statusUpper === 'MASIH DIRAWAT' || statusUpper === 'AKTIF' || statusUpper === '';
+
+      if (isAdmitted && (cleanUpdates.nomorBed !== undefined || cleanUpdates.ruangan !== undefined || cleanUpdates.statusDataPasien !== undefined)) {
+        const conflictMsg = checkBedDoubleBooking(id, targetRuangan || '', targetBed || '');
+        if (conflictMsg) {
+          alert(`[DETEKSI DOUBLE-BOOKING]\n\n${conflictMsg}\n\nPerubahan Bed/Ruangan atau status dibatalkan.`);
+          return;
+        }
+      }
+    }
+
+    const newData = { ...appData };
+    newData.patients = (newData.patients || []).map(p => {
+      // Check if there is a batch update for this patient
+      const matchBatch = batchUpdates?.find(bu => bu.id === p.id);
+      const activeUpdates = p.id === id ? cleanUpdates : (matchBatch ? matchBatch.updates : null);
+
+      if (activeUpdates) {
+        const merged = { ...p, ...activeUpdates };
+        if (activeUpdates.dpjpList !== undefined) {
+          const firstDoc = activeUpdates.dpjpList?.[0] || '';
+          merged.dpjp = firstDoc;
+          merged.ksm = firstDoc ? (newData.masterData.doctorMetadata?.[firstDoc]?.ksm || '') : '';
+        }
+        const cleanPatient = enforceMasihDirawatBypass(merged);
+        return { ...cleanPatient, lastModified: new Date().toISOString() };
+      }
+      return p;
     });
-    if (updates.perawatPrimer) notify('PENUGASAN PPJA DIPERBARUI');
+
+    if (autoRegisterNewRecord) {
+      newData.patients.push(autoRegisterNewRecord);
+    }
+
+    handleUpdateAppData(newData);
+    if (cleanUpdates.perawatPrimer) notify('PENUGASAN PPJA DIPERBARUI');
+  };
+
+  const handleCreateEmptyPatient = () => {
+    const savedAdmin = typeof window !== 'undefined' ? localStorage.getItem('simantap_admin_pj') || '' : '';
+    const newPatient: Patient = {
+      id: `P-${Date.now()}`,
+      noRegister: `REG-${Date.now().toString().slice(-6)}`,
+      noRM: '',
+      name: 'PASIEN BARU',
+      gender: 'L',
+      birthDate: '1985-01-01',
+      address: '',
+      entryDate: new Date().toISOString().split('T')[0],
+      origin: 'IGD',
+      unitTujuan: 'Rawat Inap',
+      kelasRawat: 'Kelas 3',
+      ruangan: appData.masterData.rooms[0] || '3A1',
+      nomorBed: '',
+      statusDataPasien: 'AKTIF',
+      diagnosaUtama: '',
+      diagnosaSekunder: '',
+      tindakanProsedur: '',
+      dpjpList: [],
+      paymentMethod: ['BPJS'],
+      noSEP: '',
+      statusSEP: 'Selesai SEP',
+      jenisKLL: 'Bukan KLL',
+      noLP: '',
+      perawatPrimer: '',
+      adminResp: savedAdmin,
+      catatanKhusus: '',
+      status: 'ADMITTED',
+      lastModified: new Date().toISOString()
+    };
+    
+    const newData = {
+      ...appData,
+      patients: [...(appData.patients || []), newPatient]
+    };
+    handleUpdateAppData(newData);
+    notify('BARIS DATA PASIEN BARU BERHASIL DITAMBAHKAN');
   };
 
   const handleAddDoctorVisit = (visit: DoctorVisitRecord) => {
-    setAppData(prev => {
-      const newData = { ...prev };
-      const visitWithLm = { ...visit, lastModified: new Date().toISOString() };
-      newData.doctorVisits = [...(newData.doctorVisits || []), visitWithLm];
-      saveDB(newData);
-      uploadDataBackground();
-      return newData;
+    const visitWithLm = { ...visit, lastModified: new Date().toISOString() };
+    const patientObj = (appData.patients || []).find(p => p.id === visit.patientId);
+    
+    // Propagate doctor to Registrasi Admin (patient's dpjpList) without destroying manual data
+    const updatedPatients = (appData.patients || []).map(p => {
+      if (p.id === visit.patientId) {
+        const currentDpjpList = p.dpjpList || [];
+        if (!currentDpjpList.includes(visit.doctorName)) {
+          return {
+            ...p,
+            dpjpList: [...currentDpjpList, visit.doctorName],
+            lastModified: new Date().toISOString()
+          };
+        }
+      }
+      return p;
     });
-    notify('VISITE DOKTER BERHASIL DICATAT');
+
+    const newData = {
+      ...appData,
+      patients: updatedPatients,
+      doctorVisits: [...(appData.doctorVisits || []), visitWithLm]
+    };
+    handleUpdateAppData(newData);
+    notify('VISITE DOKTER BERHASIL DICATAT KE MEDIS & ABSENSI');
   };
 
   const handleUpdateDoctorVisit = (id: string, updates: Partial<DoctorVisitRecord>) => {
-    setAppData(prev => {
-      const newData = { ...prev };
-      newData.doctorVisits = (newData.doctorVisits || []).map(v => v.id === id ? { ...v, ...updates, lastModified: new Date().toISOString() } : v);
-      saveDB(newData);
-      uploadDataBackground();
-      return newData;
-    });
+    const updatedLM = new Date().toISOString();
+    const originalVisit = (appData.doctorVisits || []).find(v => v.id === id);
+    let updatedPatients = appData.patients || [];
+    
+    if (originalVisit && updates.doctorName && originalVisit.doctorName !== updates.doctorName) {
+      updatedPatients = updatedPatients.map(p => {
+        if (p.id === originalVisit.patientId) {
+          const currentDpjpList = p.dpjpList || [];
+          const filtered = currentDpjpList.filter(d => d !== originalVisit.doctorName);
+          if (!filtered.includes(updates.doctorName!)) {
+            filtered.push(updates.doctorName!);
+          }
+          return {
+            ...p,
+            dpjpList: filtered,
+            lastModified: updatedLM
+          };
+        }
+        return p;
+      });
+    }
+
+    const newData = {
+      ...appData,
+      patients: updatedPatients,
+      doctorVisits: (appData.doctorVisits || []).map(v => v.id === id ? { ...v, ...updates, lastModified: updatedLM } : v)
+    };
+    handleUpdateAppData(newData);
   };
 
   const handleDeleteDoctorVisit = (id: string) => {
     registerDeletedId(id);
-    setAppData(prev => {
-      const newData = { ...prev };
-      newData.doctorVisits = (newData.doctorVisits || []).filter(v => v.id !== id);
-      saveDB(newData);
-      uploadDataBackground();
-      return newData;
-    });
+    const newData = {
+      ...appData,
+      doctorVisits: (appData.doctorVisits || []).filter(v => v.id !== id)
+    };
+    handleUpdateAppData(newData);
     notify('DATA VISITE DOKTER DIHAPUS', 'danger');
   };
 
-  const handleUpdateDailyReport = (patientId: string, type: keyof DailyReportEntry, content: any, date?: string) => {
-    setAppData(prev => {
-      const newData = { ...prev };
-      const targetDate = date || new Date().toISOString().split('T')[0];
-      const reports = [...(newData.dailyReports || [])];
-      const existingIdx = reports.findIndex(r => r.patientId === patientId && r.date === targetDate);
-      
-      if (existingIdx > -1) {
-        reports[existingIdx] = { ...reports[existingIdx], [type]: content, lastModified: new Date().toISOString() };
+  const handleUpdateDailyReport = async (patientId: string, type: keyof DailyReportEntry | 'BATCH', content: any, date?: string) => {
+    const targetDate = date || new Date().toISOString().split('T')[0];
+    let reports = [...(appData.dailyReports || [])];
+
+    // Check if the update is setting / editing surgery fields
+    const isEditingSurgery = 
+      (type === 'BATCH' && (content.surgeryProcedure !== undefined || content.surgeryStatus !== undefined)) ||
+      type === 'surgeryProcedure' || type === 'surgeryStatus';
+
+    const isRescheduling = isEditingSurgery && 
+      ((type === 'BATCH' && content.surgeryStatus === 'RESCHEDULED' && content.surgeryNewDate) ||
+       (type === 'surgeryStatus' && content === 'RESCHEDULED'));
+
+    const allowedDates = [targetDate];
+    if (isRescheduling) {
+      if (type === 'BATCH' && content.surgeryNewDate) {
+        allowedDates.push(content.surgeryNewDate);
       } else {
-        const newEntry: DailyReportEntry = {
-          patientId,
-          date: targetDate,
-          [type]: content,
-          lastModified: new Date().toISOString()
-        } as DailyReportEntry;
-        reports.push(newEntry);
+        const currentReport = reports.find(r => r.patientId === patientId && r.date === targetDate);
+        if (currentReport?.surgeryNewDate) {
+          allowedDates.push(currentReport.surgeryNewDate);
+        }
       }
-      newData.dailyReports = reports;
-      saveDB(newData);
-      uploadDataBackground();
-      return newData;
-    });
-    if (type.includes('Report')) notify('LAPORAN SHIFT DISIMPAN');
-    if (type.includes('Therapy')) notify('TERAPI MEDIS DIPERBARUI');
+    }
+
+    // Auto-deduplication: If this patient already has a surgery record on another date,
+    // we must clear other duplicate surgery records for this patient to ensure they don't show up in quality reports.
+    if (isEditingSurgery) {
+      reports = reports.map(r => {
+        if (r.patientId === patientId && !allowedDates.includes(r.date)) {
+          if (r.surgeryProcedure) {
+            return {
+              ...r,
+              surgeryProcedure: "",
+              surgeryOperator: "",
+              surgeryDate: "",
+              surgeryTime: "",
+              surgeryAnesthesiaType: "",
+              surgeryUrgency: "ELECTIVE",
+              surgeryStatus: "SCHEDULED",
+              surgeryDelayReason: "",
+              surgeryNewDate: "",
+              surgeryNewTime: "",
+              lastModified: new Date().toISOString()
+            };
+          }
+        }
+        return r;
+      });
+    }
+
+    const nowStr = new Date().toISOString();
+    const existingIdx = reports.findIndex(r => r.patientId === patientId && r.date === targetDate);
+    const existingReport = existingIdx > -1 ? reports[existingIdx] : null;
+    const existingFieldTimes = existingReport?.fieldModifiedTimes || {};
+    
+    const newFieldTimes = { ...existingFieldTimes };
+    if (type === 'BATCH') {
+      Object.keys(content).forEach(k => {
+        newFieldTimes[k] = nowStr;
+      });
+    } else {
+      newFieldTimes[type] = nowStr;
+    }
+
+    let updatedReports;
+    if (existingIdx > -1) {
+      if (type === 'BATCH') {
+        updatedReports = reports.map((r, i) => i === existingIdx ? { ...r, ...content, fieldModifiedTimes: newFieldTimes, lastModified: nowStr } : r);
+      } else {
+        updatedReports = reports.map((r, i) => i === existingIdx ? { ...r, [type]: content, fieldModifiedTimes: newFieldTimes, lastModified: nowStr } : r);
+      }
+    } else {
+      const newEntry: DailyReportEntry = {
+        patientId,
+        date: targetDate,
+        ...(type === 'BATCH' ? content : { [type]: content }),
+        fieldModifiedTimes: newFieldTimes,
+        lastModified: nowStr
+      } as DailyReportEntry;
+      updatedReports = [...reports, newEntry];
+    }
+
+    // Handle automatic rescheduling copy/move
+    if (isRescheduling) {
+      const currentReport = updatedReports.find(r => r.patientId === patientId && r.date === targetDate) || {};
+      const newDate = currentReport.surgeryNewDate;
+      if (newDate) {
+        const newTime = currentReport.surgeryNewTime || currentReport.surgeryTime || "08:00";
+        const newDateIdx = updatedReports.findIndex(r => r.patientId === patientId && r.date === newDate);
+        
+        const surgeryDataForNewDate = {
+          surgeryProcedure: currentReport.surgeryProcedure || "",
+          surgeryOperator: currentReport.surgeryOperator || "",
+          surgeryDate: newDate,
+          surgeryTime: newTime,
+          surgeryAnesthesiaType: currentReport.surgeryAnesthesiaType || "",
+          surgeryUrgency: currentReport.surgeryUrgency || "ELECTIVE",
+          surgeryStatus: "SCHEDULED", // Scheduled on the new date
+          surgeryDelayReason: "",
+          surgeryNewDate: "",
+          surgeryNewTime: "",
+        };
+
+        const rescheduledFieldTimes: Record<string, string> = {
+          ...(newDateIdx > -1 ? (updatedReports[newDateIdx].fieldModifiedTimes || {}) : {})
+        };
+        Object.keys(surgeryDataForNewDate).forEach(k => {
+          rescheduledFieldTimes[k] = nowStr;
+        });
+
+        if (newDateIdx > -1) {
+          updatedReports = updatedReports.map((r, i) => 
+            i === newDateIdx ? { ...r, ...surgeryDataForNewDate, fieldModifiedTimes: rescheduledFieldTimes, lastModified: nowStr } : r
+          );
+        } else {
+          const newDateEntry = {
+            patientId,
+            date: newDate,
+            ...surgeryDataForNewDate,
+            fieldModifiedTimes: rescheduledFieldTimes,
+            lastModified: nowStr
+          };
+          updatedReports = [...updatedReports, newDateEntry];
+        }
+      }
+    }
+    
+    const newData = {
+      ...appData,
+      dailyReports: updatedReports
+    };
+    const res = await handleUpdateAppData(newData, false);
+    if (typeof type === 'string' && type.includes('Report')) notify('LAPORAN SHIFT DISIMPAN');
+    if (typeof type === 'string' && type.includes('Therapy')) notify('TERAPI MEDIS DIPERBARUI');
+    return res;
   };
 
   const handleUpdateDependency = (patientId: string, shift: 'morning' | 'afternoon' | 'night', level: DependencyLevel, date?: string) => {
-    setAppData(prev => {
-      const newData = { ...prev };
-      const targetDate = date || new Date().toISOString().split('T')[0];
-      const reports = [...(newData.dailyReports || [])];
-      const existingIdx = reports.findIndex(r => r.patientId === patientId && r.date === targetDate);
-      
-      const fieldName = `${shift}Dependency` as keyof DailyReportEntry;
-      
-      if (existingIdx > -1) {
-        reports[existingIdx] = { ...reports[existingIdx], [fieldName]: level, lastModified: new Date().toISOString() } as any;
-      } else {
-        const newEntry: DailyReportEntry = {
-          patientId,
-          date: targetDate,
-          [fieldName]: level,
-          lastModified: new Date().toISOString()
-        } as any;
-        reports.push(newEntry);
-      }
-      newData.dailyReports = reports;
-      saveDB(newData);
-      uploadDataBackground();
-      return newData;
-    });
+    const targetDate = date || new Date().toISOString().split('T')[0];
+    const reports = [...(appData.dailyReports || [])];
+    const existingIdx = reports.findIndex(r => r.patientId === patientId && r.date === targetDate);
+    
+    const fieldName = `${shift}Dependency` as keyof DailyReportEntry;
+    
+    let updatedReports;
+    if (existingIdx > -1) {
+      updatedReports = reports.map((r, i) => i === existingIdx ? { ...r, [fieldName]: level, lastModified: new Date().toISOString() } as any : r);
+    } else {
+      const newEntry: DailyReportEntry = {
+        patientId,
+        date: targetDate,
+        [fieldName]: level,
+        lastModified: new Date().toISOString()
+      } as any;
+      updatedReports = [...reports, newEntry];
+    }
+    
+    const newData = {
+      ...appData,
+      dailyReports: updatedReports
+    };
+    handleUpdateAppData(newData);
     notify(`TINGKAT KETERGANTUNGAN ${level} CARE BERHASIL DISIMPAN`);
   };
 
   const handleAddFinance = (rec: FinanceRecord) => {
     const newData = { ...appData };
     const recWithLm = { ...rec, lastModified: new Date().toISOString() };
-    newData.financeRecords = [...(newData.financeRecords || []), recWithLm];
+    const exists = (newData.financeRecords || []).some(r => r.id === rec.id);
+    if (exists) {
+      newData.financeRecords = (newData.financeRecords || []).map(r => r.id === rec.id ? recWithLm : r);
+      notify('TRANSAKSI KEUANGAN BERHASIL DIPERBARUI');
+    } else {
+      newData.financeRecords = [...(newData.financeRecords || []), recWithLm];
+      notify('TRANSAKSI KEUANGAN BERHASIL DIPOSTING');
+    }
     handleUpdateAppData(newData);
-    notify('TRANSAKSI KEUANGAN BERHASIL DIPOSTING');
+  };
+
+  const handleDeleteFinance = (id: string) => {
+    registerDeletedId(id);
+    const newData = { ...appData };
+    newData.financeRecords = (newData.financeRecords || []).filter(r => r.id !== id);
+    handleUpdateAppData(newData);
+    notify('DATA ENTRY KEUANGAN BERHASIL DIHAPUS', 'danger');
+  };
+
+  const handleImportFinance = (recs: FinanceRecord[]) => {
+    const newData = { ...appData };
+    const recsWithLm = recs.map(r => ({ ...r, lastModified: new Date().toISOString() }));
+    newData.financeRecords = [...(newData.financeRecords || []), ...recsWithLm];
+    handleUpdateAppData(newData);
+    notify(`${recs.length} BARIS TRANSAKSI BERHASIL DIIMPOR`);
   };
 
   const handleAddIncident = (rep: IncidentReport) => {
@@ -327,12 +1525,25 @@ const App: React.FC = () => {
   };
 
   const handleUpdateMasterData = (newMasterData: AppData['masterData']) => {
-    const newData = { ...appData, masterData: newMasterData };
-    handleUpdateAppData(newData);
-    // DataManagement has its own notify, but we can call global one too if desired
+    if (typeof window !== "undefined") {
+      (window as any).isCloudError = false;
+      (window as any).cloudStatus = 'CONNECTED';
+    }
+    const updatedSettings = {
+      ...(newMasterData?.settings || {}),
+      settingsTimestamp: new Date().toISOString()
+    };
+    const updatedMaster = {
+      ...(newMasterData || {}),
+      settings: updatedSettings
+    };
+    const newData = { ...appData, masterData: updatedMaster as any };
+    // Purely asynchronous background sync to satisfy the globalization and zero-delay requirements
+    handleUpdateAppData(newData, false).catch(() => {});
   };
 
   const handleSync = async () => {
+    if (syncStatus === 'SYNCING') return;
     setSyncStatus('SYNCING');
     try {
       const res = await syncData(true);
@@ -346,26 +1557,31 @@ const App: React.FC = () => {
         if (res.error) setNotification({ message: `Sync Gagal: ${res.error}`, type: 'danger' });
       }
     } catch (e) {
-      console.error('Manual sync failed:', e);
+      console.warn('Manual sync failed:', e);
       setSyncStatus('ERROR');
       setTimeout(() => setSyncStatus('IDLE'), 3000);
     }
   };
 
-  const handleSaveQualityMeasurement = (measurement: QualityMeasurement) => {
+  const handleSaveQualityMeasurement = (measurement: QualityMeasurement | QualityMeasurement[], immediate: boolean = false) => {
     const newData = { ...appData };
-    const measurements = [...(newData.qualityMeasurements || [])];
-    const existingIdx = measurements.findIndex(m => m.indicatorId === measurement.indicatorId && m.date === measurement.date);
     
-    const measurementWithLm = { ...measurement, lastModified: new Date().toISOString() };
-    if (existingIdx > -1) {
-      measurements[existingIdx] = measurementWithLm;
+    if (Array.isArray(measurement)) {
+      newData.qualityMeasurements = measurement;
     } else {
-      measurements.push(measurementWithLm);
+      const measurements = [...(newData.qualityMeasurements || [])];
+      const existingIdx = measurements.findIndex(m => m.indicatorId === measurement.indicatorId && m.date === measurement.date);
+      
+      const measurementWithLm = { ...measurement, lastModified: new Date().toISOString() };
+      if (existingIdx > -1) {
+        measurements[existingIdx] = measurementWithLm;
+      } else {
+        measurements.push(measurementWithLm);
+      }
+      newData.qualityMeasurements = measurements;
     }
     
-    newData.qualityMeasurements = measurements;
-    handleUpdateAppData(newData);
+    return handleUpdateAppData(newData, immediate);
     notify('DATA PENGUKURAN MUTU TERSIMPAN');
   };
 
@@ -395,6 +1611,23 @@ const App: React.FC = () => {
     newData.operationReports = [...(newData.operationReports || []), newReport];
     handleUpdateAppData(newData);
     notify('LAPORAN OPERASI BERHASIL DISIMPAN');
+  };
+
+  const handleUpdateOperationReport = (id: string, report: Partial<OperationReport>) => {
+    const newData = { ...appData };
+    newData.operationReports = (newData.operationReports || []).map(r => 
+      r.id === id ? { ...r, ...report, lastModified: new Date().toISOString() } : r
+    );
+    handleUpdateAppData(newData);
+    notify('LAPORAN OPERASI BERHASIL DIPERBARUI');
+  };
+
+  const handleDeleteOperationReport = (id: string) => {
+    registerDeletedId(id);
+    const newData = { ...appData };
+    newData.operationReports = (newData.operationReports || []).filter(r => r.id !== id);
+    handleUpdateAppData(newData);
+    notify('LAPORAN OPERASI BERHASIL DIHAPUS', 'danger');
   };
 
   const handleDeletePatient = (id: string) => {
@@ -437,11 +1670,39 @@ const App: React.FC = () => {
 
     const dischargedToday = patients.filter(isDischarged).length;
     const occupiedBedsCount = patients.filter(p => !isDischarged(p)).length;
-    const surgeryToday = (appData.dailyReports || []).filter(r => r.surgeryDate === today).length;
+
+    // Helper functions to get deduplicated surgery reports per patient per surgery date
+    const getUniqueSurgeryReports = (list: any[]) => {
+      const map = new Map<string, any>();
+      (list || []).forEach(r => {
+        if (!r.surgeryDate) return;
+        const key = `${r.patientId}_${r.surgeryDate}`;
+        const existing = map.get(key);
+        // Overwrite if newer report is found
+        if (!existing || (r.lastModified && existing.lastModified && r.lastModified > existing.lastModified) || r.date > existing.date) {
+          map.set(key, r);
+        }
+      });
+      return Array.from(map.values());
+    };
+
+    const uniqueSurgeryReports = getUniqueSurgeryReports(appData.dailyReports || []);
+    const surgeryToday = uniqueSurgeryReports.filter(r => r.surgeryDate === today).length;
     
     // Bed Occupancy (BOR)
     const totalBedsAcrossUnits: number = (Object.values(appData.masterData.roomToBeds || {}) as string[][]).reduce((acc: number, beds: string[]) => acc + beds.length, 0) || 1;
     const bor = Math.round((occupiedBedsCount / totalBedsAcrossUnits) * 100);
+
+    // Quality Compliance Rate Calculation
+    const qualityList = appData.qualityMeasurements || [];
+    let complianceRate = '98.2%';
+    if (qualityList.length > 0) {
+      const scoredList = qualityList.filter((q: any) => q.score !== undefined);
+      if (scoredList.length > 0) {
+        const avg = scoredList.reduce((acc: number, q: any) => acc + (Number(q.score) || 0), 0) / scoredList.length;
+        complianceRate = `${avg.toFixed(1)}%`;
+      }
+    }
 
     // Charts data
     const last7Days = Array.from({ length: 7 }, (_, i) => {
@@ -452,7 +1713,7 @@ const App: React.FC = () => {
 
     const performanceData = last7Days.map(date => ({
       day: ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'][new Date(date).getDay()],
-      val: (appData.dailyReports || []).filter(r => r.surgeryDate === date).length
+      val: uniqueSurgeryReports.filter(r => r.surgeryDate === date).length
     }));
 
     const financeByMonth = Array.from({ length: 4 }, (_, i) => {
@@ -467,17 +1728,17 @@ const App: React.FC = () => {
 
     const surgeriesTodayList = (appData.patients || [])
       .filter(p => {
-        const report = (appData.dailyReports || []).find(r => r.patientId === p.id && r.surgeryDate === today);
+        const report = uniqueSurgeryReports.find(r => r.patientId === p.id && r.surgeryDate === today);
         return !!report;
       })
       .map(p => {
-        const report = (appData.dailyReports || []).find(r => r.patientId === p.id && r.surgeryDate === today);
+        const report = uniqueSurgeryReports.find(r => r.patientId === p.id && r.surgeryDate === today);
         return {
           id: p.id,
-          time: report?.surgeryDate?.split('T')[1]?.slice(0, 5) || '08:00',
+          time: report?.surgeryTime || '08:00',
           patient: p.name,
-          op: p.diagnosaUtama || 'Proses Pembedahan',
-          doc: p.dpjp || 'dr. Bedah, Sp.B'
+          op: report?.surgeryProcedure || p.diagnosaUtama || 'Proses Pembedahan',
+          doc: report?.surgeryOperator || p.dpjp || 'dr. Bedah, Sp.B'
         };
       });
 
@@ -499,7 +1760,7 @@ const App: React.FC = () => {
               {[
                 { label: 'Operasi Hari Ini', val: surgeryToday, icon: <Activity/>, color: 'blue', desc: 'Real-time schedule' },
                 { label: 'Revenue Pelayanan', val: `Rp${(financeRecords.filter(f => f.type === 'INCOME').reduce((a, b) => a + b.amount, 0) / 1000000).toFixed(1)}M`, icon: <Wallet/>, color: 'emerald', desc: 'Bulan berjalan' },
-                { label: 'Indikator Mutu', val: '98.2%', icon: <HeartPulse/>, color: 'indigo', desc: 'Compliance Rate' },
+                { label: 'Indikator Mutu', val: complianceRate, icon: <HeartPulse/>, color: 'indigo', desc: 'Compliance Rate' },
                 { label: 'Insiden Aktif', val: openIncidents.length, icon: <AlertCircle/>, color: 'red', desc: 'Segera tindak lanjuti' }
               ].map((stat, idx) => (
                 <div key={`${stat.label}-${idx}`} className="p-5 sm:p-6 rounded-3xl sm:rounded-[2rem] border shadow-sm group hover:shadow-xl transition-all border-b-4 bg-white/70 backdrop-blur-md" style={{ borderColor: `var(--tw-color-${stat.color}-500)` }}>
@@ -575,7 +1836,7 @@ const App: React.FC = () => {
                 <Button onClick={() => setIsPatientModalOpen(true)} className="py-4 rounded-2xl font-black text-xs uppercase tracking-widest bg-blue-600 hover:bg-blue-700 text-white shadow-xl shadow-blue-100">
                   <Plus size={18} className="mr-2"/> Input Pasien Baru
                 </Button>
-                <Button variant="secondary" className="py-4 rounded-2xl font-black text-xs uppercase tracking-widest">
+                <Button variant="secondary" onClick={() => setActiveMenu('patients')} className="py-4 rounded-2xl font-black text-xs uppercase tracking-widest cursor-pointer">
                   <Search size={18} className="mr-2"/> Cari Data Pasien
                 </Button>
              </div>
@@ -605,10 +1866,7 @@ const App: React.FC = () => {
                           </td>
                           <td className="p-4 text-right flex items-center justify-end gap-2">
                              <button 
-                               onClick={() => {
-                                 setEditingPatient(p);
-                                 setIsPatientModalOpen(true);
-                               }}
+                               onClick={() => handleStartEditPatient(p)}
                                className="px-4 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black uppercase transition-all hover:bg-blue-600 hover:text-white"
                              >
                                Edit
@@ -645,19 +1903,195 @@ const App: React.FC = () => {
           <PatientModule 
             appData={appData} 
             onAddPatient={() => setIsPatientModalOpen(true)}
-            onEditPatient={(p) => {
-              setEditingPatient(p);
-              setIsPatientModalOpen(true);
-            }}
+            onEditPatient={handleStartEditPatient}
             onDeletePatient={handleDeletePatient}
             currentUser={user}
           />
         );
 
-      case 'adm-data-bed':
+      case 'monitoring-keluar-masuk':
+        return (
+          <MonitoringPasienKeluarMasuk 
+            appData={appData}
+            currentUser={user}
+            onPatientClick={(id) => setSelectedDetailPatientId(id)}
+          />
+        );
+
+      case 'quality-asesmen-awal-medis':
+        return (
+          <AsesmenAwalMedisWorksheet 
+            appData={appData}
+            onSaveMeasurement={handleSaveQualityMeasurement}
+            currentUser={user}
+            selectedDate={qualityFilterDate}
+            setSelectedDate={setQualityFilterDate}
+          />
+        );
+
+      case 'adm-data-bed': {
         const targetUnit = bedUnitFilter;
         const unitClasses = appData.masterData.unitToClasses[targetUnit] || [];
         
+        const bedPatients = appData.patients || [];
+        
+        // Define clean occupants logic based on the dynamic Sensus Date (monitoringFilterDate)
+        const pOccupiesBedOnDate = (p: any, date: string, unitStr: string, rm: string, b: string) => {
+          // Exactly the same logic as ServiceMatrix.tsx
+          const isCurrentlyTreated = (p.statusDataPasien === "Masih Dirawat" || !p.statusDataPasien || (p.status !== "DISCHARGED" && (p.statusDataPasien === "Pindah Ruangan" || p.statusDataPasien === "Dipindah ke Ruangan Lain"))) && !String(p.statusDataPasien || '').toUpperCase().includes('BATAL');
+          const matchesMasihDirawat = isCurrentlyTreated && !!p.entryDate && p.entryDate <= date && (!p.dischargeDate || p.dischargeDate > date);
+          
+          if (!matchesMasihDirawat) return false;
+          
+          const activeUnit = p.unitTujuan;
+          const activeRoom = p.ruangan;
+          const activeBed = p.nomorBed;
+
+          return activeUnit === unitStr && activeRoom === rm && activeBed === b;
+        };
+
+        const getShiftRank = (shift: 'PAGI' | 'SIANG' | 'MALAM') => {
+          if (shift === 'PAGI') return 1;
+          if (shift === 'SIANG') return 2;
+          return 3;
+        };
+
+        // GLOBAL ACTIVE COUNT - 100% SINKRON DENGAN REGISTRASI ADMIN
+        const globalActivePatientsCount = bedPatients.filter(p => {
+          const isDischarged = ['BPL', 'APS', 'DIRUJUK', 'MENINGGAL', 'PINDAH RUANGAN', 'BATAL'].some(s => (p.statusDataPasien || '').toUpperCase().includes(s)) || 
+                               (p.statusDataPasien || '').toUpperCase().includes('PINDAH') ||
+                               p.status === 'DISCHARGED';
+          return !isDischarged;
+        }).length;
+
+        // Origin/Active Unit for a patient in transition today
+        const getActiveUnitOnDate = (p: any, date: string) => {
+          const isTransferredToday = (p.statusDataPasien === "Pindah Ruangan" || p.statusDataPasien === "Dipindah ke Ruangan Lain" || p.status === "DISCHARGED") && p.dischargeDate === date;
+          return isTransferredToday ? (p.transferUnit || p.unitTujuan) : p.unitTujuan;
+        };
+
+        // DAILY ACCUMULATION (TOTAL SEHARI) - FOR SELECTED DATE
+        // 1. Total Daily New Patients
+        const dailyNewCount = bedPatients.filter(p => p.entryDate === monitoringFilterDate && p.unitTujuan === targetUnit).length;
+
+        // 2. Total Daily Discharged Patients (filtered by original unit)
+        const dailyDischargedPatients = bedPatients.filter(p => {
+          const isDischargedToday = p.dischargeDate === monitoringFilterDate;
+          const originUnit = getActiveUnitOnDate(p, monitoringFilterDate);
+          return isDischargedToday && originUnit === targetUnit;
+        });
+        const dailyDischargedCount = dailyDischargedPatients.length;
+
+        const dailyBPL = dailyDischargedPatients.filter(p => {
+          const st = String(p.statusDataPasien || '').toLowerCase();
+          return st.includes('bpl') || st.includes('pulang') || st.includes('boleh');
+        }).length;
+
+        const dailyAPS = dailyDischargedPatients.filter(p => {
+          const st = String(p.statusDataPasien || '').toLowerCase();
+          return st.includes('aps') || st.includes('atas permintaan sendiri') || st.includes('paksa');
+        }).length;
+
+        const dailyMeninggal = dailyDischargedPatients.filter(p => {
+          const st = String(p.statusDataPasien || '').toLowerCase();
+          return st.includes('meninggal');
+        }).length;
+
+        const dailyRujuk = dailyDischargedPatients.filter(p => {
+          const st = String(p.statusDataPasien || '').toLowerCase();
+          return st.includes('rujuk') || st.includes('dirujuk');
+        }).length;
+
+        const dailyPindah = dailyDischargedPatients.filter(p => {
+          const st = String(p.statusDataPasien || '').toLowerCase();
+          return st.includes('pindah') || st.includes('ruangan lain') || st.includes('transfer');
+        }).length;
+
+        // 3. Total Daily Active
+        const dailyActiveCount = bedPatients.filter(p => {
+          const isCurrentlyTreated = p.statusDataPasien === "Masih Dirawat" || !p.statusDataPasien || (p.status !== "DISCHARGED" && (p.statusDataPasien === "Pindah Ruangan" || p.statusDataPasien === "Dipindah ke Ruangan Lain"));
+          const matchesMasihDirawat = isCurrentlyTreated && !!p.entryDate && p.entryDate <= monitoringFilterDate && (!p.dischargeDate || p.dischargeDate > monitoringFilterDate);
+          return matchesMasihDirawat && p.unitTujuan === targetUnit;
+        }).length;
+
+
+        // SHIFT-SPECIFIC COUNTS (PILIHAN SHIFT) - FOR SELECTED DATE & SHIFT
+        // 1. New Patients in shift
+        const shiftNewCount = bedPatients.filter(p => 
+          p.entryDate === monitoringFilterDate && 
+          p.unitTujuan === targetUnit && 
+          getShiftFromTime(p.entryTime) === monitoringFilterShift
+        ).length;
+
+        // 2. Discharged Patients in shift
+        const shiftDischargedPatients = dailyDischargedPatients.filter(p => 
+          getShiftFromTime(p.dischargeTime || '08:00') === monitoringFilterShift
+        );
+        const shiftDischargedCount = shiftDischargedPatients.length;
+
+        const shiftBPL = shiftDischargedPatients.filter(p => {
+          const st = String(p.statusDataPasien || '').toLowerCase();
+          return st.includes('bpl') || st.includes('pulang') || st.includes('boleh');
+        }).length;
+
+        const shiftAPS = shiftDischargedPatients.filter(p => {
+          const st = String(p.statusDataPasien || '').toLowerCase();
+          return st.includes('aps') || st.includes('atas permintaan sendiri') || st.includes('paksa');
+        }).length;
+
+        const shiftMeninggal = shiftDischargedPatients.filter(p => {
+          const st = String(p.statusDataPasien || '').toLowerCase();
+          return st.includes('meninggal');
+        }).length;
+
+        const shiftRujuk = shiftDischargedPatients.filter(p => {
+          const st = String(p.statusDataPasien || '').toLowerCase();
+          return st.includes('rujuk') || st.includes('dirujuk');
+        }).length;
+
+        const shiftPindah = shiftDischargedPatients.filter(p => {
+          const st = String(p.statusDataPasien || '').toLowerCase();
+          return st.includes('pindah') || st.includes('ruangan lain') || st.includes('transfer');
+        }).length;
+
+        // 3. Active in shift
+        const shiftActiveCount = bedPatients.filter(p => {
+          if (!p.entryDate || p.entryDate > monitoringFilterDate) return false;
+          if (p.entryDate === monitoringFilterDate && getShiftRank(getShiftFromTime(p.entryTime)) > getShiftRank(monitoringFilterShift)) return false;
+          
+          if (p.dischargeDate && p.dischargeDate < monitoringFilterDate) return false;
+          if (p.dischargeDate && p.dischargeDate === monitoringFilterDate) {
+            if (getShiftRank(getShiftFromTime(p.dischargeTime || '08:00')) <= getShiftRank(monitoringFilterShift)) {
+              return false;
+            }
+          }
+          
+          return p.unitTujuan === targetUnit;
+        }).length;
+
+        // 4. Calculate Bed stats per room dynamically
+        const targetRoomsStats = (() => {
+          const statsList: { roomName: string; className: string; totalBeds: number; occupiedBeds: number; emptyBeds: number; occupancyRate: number }[] = [];
+          unitClasses.forEach(cls => {
+            const classRooms = appData.masterData.classToRooms[`${targetUnit} - ${cls}`] || [];
+            classRooms.forEach(rm => {
+              const roomBeds = appData.masterData.roomToBeds[rm] || [];
+              const occupiedInRoom = roomBeds.filter(b => (appData.patients || []).some(p => pOccupiesBedOnDate(p, monitoringFilterDate, targetUnit, rm, b))).length;
+              const emptyInRoom = roomBeds.length - occupiedInRoom;
+              const occupancyRate = roomBeds.length > 0 ? (occupiedInRoom / roomBeds.length) * 100 : 0;
+              statsList.push({
+                roomName: rm,
+                className: cls,
+                totalBeds: roomBeds.length,
+                occupiedBeds: occupiedInRoom,
+                emptyBeds: emptyInRoom,
+                occupancyRate
+              });
+            });
+          });
+          return statsList;
+        })();
+
         return (
           <div className="space-y-8 animate-fade-in pb-20">
             <div className="bg-white/70 backdrop-blur-md rounded-[2.5rem] p-8 border shadow-sm">
@@ -679,6 +2113,261 @@ const App: React.FC = () => {
                 </div>
               </div>
 
+              {/* Sensus & Filter Panel (Date & Shift) */}
+              <div className="mb-10 p-6 bg-slate-50/50 rounded-3xl border border-slate-100 flex flex-col gap-6">
+                <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-slate-500">
+                    <Filter size={14} className="text-[#144272]"/> Sensus Harian Pasien
+                  </div>
+                  <div className="flex flex-wrap gap-3 items-center">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Tanggal Sensus:</span>
+                      <input 
+                        type="date" 
+                        value={monitoringFilterDate}
+                        onChange={(e) => setMonitoringFilterDate(e.target.value)}
+                        className="border-2 border-slate-100 rounded-xl px-3 py-1.5 text-xs font-black outline-none focus:border-blue-500 bg-white"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Shift Sensus:</span>
+                      <select 
+                        value={monitoringFilterShift}
+                        onChange={(e) => setMonitoringFilterShift(e.target.value as any)}
+                        className="border-2 border-slate-100 rounded-xl px-3 py-1.5 text-xs font-black text-blue-600 outline-none focus:border-blue-500 bg-white"
+                      >
+                        <option value="PAGI">PAGI (07:00 - 14:00)</option>
+                        <option value="SIANG">SIANG (14:00 - 21:00)</option>
+                        <option value="MALAM">MALAM (21:00 - 07:00)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Real-time Global Sync Indicator */}
+                <div className="flex items-center justify-between px-6 py-3.5 bg-blue-50/50 border border-blue-100 rounded-2xl gap-4 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                    </span>
+                    <span className="text-[10px] font-black uppercase text-indigo-950 tracking-wider">Status Sinkronisasi Data Pasien Aktif</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black uppercase text-slate-500">Pasien Aktif Rawat (Global Se-RS):</span>
+                    <span className="px-3.5 py-1 bg-[#144272] text-white rounded-full text-[11px] font-black tracking-wide border border-blue-800 shadow-sm">{globalActivePatientsCount} Pasien</span>
+                  </div>
+                </div>
+
+                {/* Grid Layout containing Shift Sensus and Accumulation */}
+                <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                  {/* Left Column: Shift-specific Sensus Details */}
+                  <div className="xl:col-span-7 bg-white/90 backdrop-blur-md p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-4 bg-blue-600 rounded-full"></span>
+                        <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-800">Sensus Shift {monitoringFilterShift}</h4>
+                      </div>
+                      <span className="bg-blue-50 text-blue-700 text-[8.5px] font-black px-2.5 py-1 rounded-md border border-blue-100">FILTER AKTIF ({monitoringFilterShift})</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {/* Shift Pasien Baru */}
+                      <div className="bg-emerald-50/40 p-4 rounded-2xl border border-emerald-100/50 flex flex-col justify-between">
+                        <div>
+                          <div className="text-[8.5px] font-black text-emerald-600 uppercase tracking-widest">Pasien Baru (Shift)</div>
+                          <div className="text-2xl font-black text-emerald-800 mt-1">{shiftNewCount}</div>
+                        </div>
+                        <span className="text-[8px] text-emerald-500 font-bold block mt-2 uppercase">MASUK SHIFT INI</span>
+                      </div>
+
+                      {/* Shift Pasien Dirawat */}
+                      <div className="bg-blue-50/40 p-4 rounded-2xl border border-blue-100 flex flex-col justify-between">
+                        <div>
+                          <div className="text-[8.5px] font-black text-blue-600 uppercase tracking-widest">Sisa Di Rawat (Shift)</div>
+                          <div className="text-2xl font-black text-blue-900 mt-1">{shiftActiveCount}</div>
+                        </div>
+                        <span className="text-[8px] text-blue-500 font-bold block mt-2 uppercase">UNIT {targetUnit}</span>
+                      </div>
+
+                      {/* Shift Pasien Keluar */}
+                      <div className="bg-rose-50/40 p-4 rounded-2xl border border-rose-100/50 flex flex-col justify-between">
+                        <div>
+                          <div className="text-[8.5px] font-black text-rose-600 uppercase tracking-widest">Pasien Keluar (Shift)</div>
+                          <div className="text-2xl font-black text-rose-800 mt-1">{shiftDischargedCount}</div>
+                        </div>
+                        <span className="text-[8px] text-rose-500 font-bold block mt-2 uppercase">PULANG/PINDAH/APS</span>
+                      </div>
+                    </div>
+
+                    {/* Breakdown Pasien Keluar Shift */}
+                    <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-100">
+                      <div className="text-[8.5px] font-black text-slate-500 uppercase tracking-widest mb-2.5">Rincian Pasien Keluar pada Shift {monitoringFilterShift}:</div>
+                      <div className="grid grid-cols-5 gap-1.5 text-center">
+                        <div className="bg-white p-2 rounded-xl border border-slate-150">
+                          <div className="text-[8px] font-black text-slate-400" title="Boleh Pulang / Sembuh">BPL</div>
+                          <div className="text-xs font-black text-rose-700 mt-0.5">{shiftBPL}</div>
+                        </div>
+                        <div className="bg-white p-2 rounded-xl border border-slate-150">
+                          <div className="text-[8px] font-black text-slate-400" title="Atas Permintaan Sendiri">APS</div>
+                          <div className="text-xs font-black text-rose-700 mt-0.5">{shiftAPS}</div>
+                        </div>
+                        <div className="bg-white p-2 rounded-xl border border-slate-150">
+                          <div className="text-[8px] font-black text-slate-400" title="Meninggal">Mng</div>
+                          <div className="text-xs font-black text-rose-700 mt-0.5">{shiftMeninggal}</div>
+                        </div>
+                        <div className="bg-white p-2 rounded-xl border border-slate-150">
+                          <div className="text-[8px] font-black text-slate-400" title="Rujuk">Rjk</div>
+                          <div className="text-xs font-black text-rose-700 mt-0.5">{shiftRujuk}</div>
+                        </div>
+                        <div className="bg-white p-2 rounded-xl border border-slate-150">
+                          <div className="text-[8px] font-black text-slate-400" title="Pindah Ruangan">Pndh</div>
+                          <div className="text-xs font-black text-rose-700 mt-0.5">{shiftPindah}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Daily Accumulation */}
+                  <div className="xl:col-span-5 bg-white/90 backdrop-blur-md p-6 rounded-3xl border border-slate-100 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-4 bg-purple-600 rounded-full"></span>
+                        <h4 className="text-[11px] font-black uppercase tracking-wider text-slate-800">Total Akumulasi Pasien Sehari</h4>
+                      </div>
+                      <span className="bg-purple-50 text-purple-750 text-[8.5px] font-black px-2.5 py-1 rounded-md border border-purple-100 uppercase">AKUMULASI HARIAN</span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2.5">
+                      {/* Daily Pasien Baru */}
+                      <div className="bg-emerald-50/30 p-4 rounded-2xl border border-emerald-500/15 flex flex-col justify-between">
+                        <div>
+                          <div className="text-[8.5px] font-black text-emerald-700 uppercase tracking-widest">Total Baru (Hari)</div>
+                          <div className="text-2xl font-black text-emerald-900 mt-1">{dailyNewCount}</div>
+                        </div>
+                        <span className="text-[8px] text-emerald-600 font-bold block mt-2 uppercase">SEMUA SHIFT MASUK</span>
+                      </div>
+
+                      {/* Daily Pasien Active */}
+                      <div className="bg-blue-50/30 p-4 rounded-2xl border border-blue-500/15 flex flex-col justify-between">
+                        <div>
+                          <div className="text-[8.5px] font-black text-blue-700 uppercase tracking-widest">Total Rawat (Hari)</div>
+                          <div className="text-2xl font-black text-blue-900 mt-1">{dailyActiveCount}</div>
+                        </div>
+                        <span className="text-[8px] text-blue-600 font-bold block mt-2 uppercase">UNIT {targetUnit}</span>
+                      </div>
+
+                      {/* Daily Pasien Keluar */}
+                      <div className="bg-rose-50/30 p-4 rounded-2xl border border-rose-500/15 flex flex-col justify-between">
+                        <div>
+                          <div className="text-[8.5px] font-black text-rose-700 uppercase tracking-widest">Total Keluar (Hari)</div>
+                          <div className="text-2xl font-black text-rose-900 mt-1">{dailyDischargedCount}</div>
+                        </div>
+                        <span className="text-[8px] text-rose-600 font-bold block mt-2 uppercase">SEMUA KELUAR</span>
+                      </div>
+                    </div>
+
+                    {/* Breakdown Pasien Keluar Daily */}
+                    <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-100">
+                      <div className="text-[8.5px] font-black text-slate-500 uppercase tracking-widest mb-2.5">Rincian Total Pasien Keluar Sehari (Semua Shift):</div>
+                      <div className="grid grid-cols-5 gap-1.5 text-center">
+                        <div className="bg-white p-2 rounded-xl border border-slate-150">
+                          <div className="text-[8px] font-black text-slate-400" title="Boleh Pulang / Sembuh">BPL</div>
+                          <div className="text-xs font-black text-slate-700 mt-0.5">{dailyBPL}</div>
+                        </div>
+                        <div className="bg-white p-2 rounded-xl border border-slate-150">
+                          <div className="text-[8px] font-black text-slate-400" title="Atas Permintaan Sendiri">APS</div>
+                          <div className="text-xs font-black text-slate-700 mt-0.5">{dailyAPS}</div>
+                        </div>
+                        <div className="bg-white p-2 rounded-xl border border-slate-150">
+                          <div className="text-[8px] font-black text-slate-400" title="Meninggal">Mng</div>
+                          <div className="text-xs font-black text-slate-700 mt-0.5">{dailyMeninggal}</div>
+                        </div>
+                        <div className="bg-white p-2 rounded-xl border border-slate-150">
+                          <div className="text-[8px] font-black text-slate-400" title="Rujuk">Rjk</div>
+                          <div className="text-xs font-black text-slate-700 mt-0.5">{dailyRujuk}</div>
+                        </div>
+                        <div className="bg-white p-2 rounded-xl border border-slate-150">
+                          <div className="text-[8px] font-black text-slate-400" title="Pindah Ruangan">Pndh</div>
+                          <div className="text-xs font-black text-slate-700 mt-0.5">{dailyPindah}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div> </div>
+
+              {/* Garis Besar Penggunaan Bed Per Ruangan Overview */}
+              <div className="bg-white/90 backdrop-blur-md rounded-3xl p-6 border border-slate-100 shadow-sm space-y-4 mb-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-1.5 h-4 bg-indigo-650 bg-indigo-600 rounded-full"></span>
+                    <div>
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-tight">Garis Besar Penggunaan Bed Per Ruangan ({targetUnit})</h4>
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Ikhtisar kapasitas, keterisian, dan sisa kuota kamar</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-1.5 text-[8.5px] font-black uppercase">
+                    <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-md border border-emerald-100">Kosong</span>
+                    <span className="px-2.5 py-1 bg-amber-50 text-amber-700 rounded-md border border-amber-100">Hampir Penuh</span>
+                    <span className="px-2.5 py-1 bg-rose-50 text-rose-700 rounded-md border border-rose-100 animate-pulse">Penuh</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {targetRoomsStats.map((item) => {
+                    const isFull = item.emptyBeds === 0;
+                    const isAlmostFull = item.occupancyRate >= 75 && !isFull;
+                    const statusColor = isFull 
+                      ? { bg: 'bg-rose-50/50', border: 'border-rose-100', text: 'text-rose-700 font-bold', bar: 'bg-rose-500', badge: 'bg-rose-100 text-rose-800' }
+                      : isAlmostFull
+                      ? { bg: 'bg-amber-50/50', border: 'border-amber-100', text: 'text-amber-800 font-bold', bar: 'bg-amber-500', badge: 'bg-amber-100 text-amber-800' }
+                      : { bg: 'bg-emerald-50/30', border: 'border-emerald-100/50', text: 'text-emerald-700 font-bold', bar: 'bg-emerald-500', badge: 'bg-emerald-100 text-emerald-800' };
+
+                    return (
+                      <div key={item.roomName} className={`p-4 rounded-2xl border ${statusColor.bg} ${statusColor.border} flex flex-col justify-between transition-all hover:scale-[1.01] hover:shadow-xs`}>
+                        <div>
+                          <div className="flex justify-between items-start mb-2.5">
+                            <div>
+                              <span className="text-xs font-black text-slate-800 uppercase block tracking-tight">{item.roomName}</span>
+                              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">{item.className}</span>
+                            </div>
+                            <span className={`text-[8.5px] font-black px-2 py-0.5 rounded-md ${statusColor.badge}`}>
+                              {isFull ? 'FULL' : `${Math.round(item.occupancyRate)}%`}
+                            </span>
+                          </div>
+                          
+                          <div className="grid grid-cols-3 gap-1 shadow-xs rounded-xl overflow-hidden text-center my-2.5 border border-slate-100 bg-white">
+                            <div className="bg-white/95 p-1.5 border-r border-slate-100">
+                              <div className="text-[7.5px] font-black text-slate-400 uppercase">Limit</div>
+                              <div className="text-[12px] font-black text-slate-700 mt-0.5">{item.totalBeds}</div>
+                            </div>
+                            <div className="bg-white/95 p-1.5 border-r border-slate-100">
+                              <div className="text-[7.5px] font-black text-slate-400 uppercase">Isi</div>
+                              <div className="text-[12px] font-black text-indigo-700 mt-0.5">{item.occupiedBeds}</div>
+                            </div>
+                            <div className="bg-white/95 p-1.5">
+                              <div className="text-[7.5px] font-black text-slate-400 uppercase">Sisa</div>
+                              <div className={`text-[12px] font-black mt-0.5 ${item.emptyBeds > 0 ? 'text-emerald-600' : 'text-slate-300'}`}>{item.emptyBeds}</div>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-1">
+                          <div className="w-full bg-slate-200/50 rounded-full h-1.5 overflow-hidden">
+                            <div className={`h-1.5 rounded-full ${statusColor.bar}`} style={{ width: `${item.occupancyRate}%` }}></div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {targetRoomsStats.length === 0 && (
+                    <div className="col-span-full text-center py-6 text-slate-400 italic text-xs font-bold">
+                      Tidak ada data ruangan untuk unit ini.
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div className="space-y-12">
                 {unitClasses.map(cls => (
                   <div key={cls} className="space-y-6">
@@ -691,14 +2380,14 @@ const App: React.FC = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                       {(appData.masterData.classToRooms[`${targetUnit} - ${cls}`] || []).map(rm => {
                         const roomBeds = appData.masterData.roomToBeds[rm] || [];
-                        const occupiedInRoom = roomBeds.filter(b => (appData.patients || []).some(p => p.ruangan === rm && p.nomorBed === b && p.status !== 'DISCHARGED')).length;
+                        const occupiedInRoom = roomBeds.filter(b => (appData.patients || []).some(p => pOccupiesBedOnDate(p, monitoringFilterDate, targetUnit, rm, b))).length;
                         const emptyInRoom = roomBeds.length - occupiedInRoom;
                         
                         return (
                           <div key={rm} className="bg-slate-50/50 rounded-[2rem] p-6 border border-slate-100">
                             <div className="flex justify-between items-center mb-4">
-                              <h5 className="text-xs font-black text-slate-700 flex items-center gap-2">
-                                <Bed size={14} className="text-blue-500"/> {rm}
+                              <h5 className="text-xs font-black text-slate-800 flex items-center gap-1.5 bg-slate-100 border border-slate-200 px-3 py-1 rounded-xl w-fit shadow-sm">
+                                <Bed size={14} className="text-[#144272]"/> {rm}
                               </h5>
                               <div className="flex gap-2">
                                 <span className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded-md text-[8px] font-black uppercase">Terisi: {occupiedInRoom}</span>
@@ -707,21 +2396,72 @@ const App: React.FC = () => {
                             </div>
                             <div className="grid grid-cols-1 gap-3">
                             {(appData.masterData.roomToBeds[rm] || []).map(b => {
-                              const resident = (appData.patients || []).find(p => p.ruangan === rm && p.nomorBed === b && p.status !== 'DISCHARGED');
+                              const residents = (appData.patients || []).filter(p => pOccupiesBedOnDate(p, monitoringFilterDate, targetUnit, rm, b));
+                              const resident = residents[0];
+                              const isDoubleBooked = residents.length > 1;
                               return (
-                                <div key={b} className={`p-4 rounded-2xl border transition-all ${resident ? 'bg-white border-blue-200 shadow-md shadow-blue-500/5' : 'bg-white/40 border-slate-200 border-dashed opacity-60'}`}>
+                                <div 
+                                  key={b} 
+                                  onClick={() => resident && setSelectedDetailPatientId(resident.id)}
+                                  className={`p-4 rounded-2xl border transition-all ${
+                                    isDoubleBooked 
+                                      ? 'bg-red-50/70 border-red-500 shadow-md shadow-red-500/10 cursor-pointer hover:scale-[1.02] hover:border-red-600 animate-pulse' 
+                                      : resident 
+                                        ? 'bg-white border-blue-200 shadow-md shadow-blue-500/5 cursor-pointer hover:scale-[1.02] hover:border-indigo-400' 
+                                        : 'bg-white/40 border-slate-200 border-dashed opacity-60'
+                                  }`}
+                                  id={`bed-card-${rm}-${b}`}
+                                >
                                   <div className="flex justify-between items-start">
-                                    <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase ${resident ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500'}`}>
-                                      BED {b}
-                                    </span>
-                                    {resident ? (
-                                      <span className="text-[9px] font-black text-blue-600 uppercase tracking-tight">{resident.paymentMethod?.[0] || 'UMUM'}</span>
+                                    {(() => {
+                                      const roomBedStyle = getRoomBedStyles(rm);
+                                      return (
+                                        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase border ${
+                                          isDoubleBooked 
+                                            ? 'bg-red-600 text-white border-red-700' 
+                                            : resident 
+                                              ? `${roomBedStyle.bg} ${roomBedStyle.text} ${roomBedStyle.border}` 
+                                              : 'bg-slate-100 text-slate-500 border-slate-250'
+                                        }`}>
+                                          BED {b}
+                                        </span>
+                                      );
+                                    })()}
+                                    {isDoubleBooked ? (
+                                      <span className="text-[9.5px] font-black uppercase px-2 py-0.5 rounded-lg bg-red-600 text-white">
+                                        DOUBLE BOOKED
+                                      </span>
+                                    ) : resident ? (
+                                      (() => {
+                                        const payStyle = getPaymentMethodStyles(resident.paymentMethod?.[0] || 'UMUM');
+                                        return (
+                                          <span className={`text-[9.5px] font-black uppercase px-2 py-0.5 rounded-lg ${payStyle.bg} ${payStyle.text}`}>
+                                            {resident.paymentMethod?.[0] || 'UMUM'}
+                                          </span>
+                                        );
+                                      })()
                                     ) : (
                                       <span className="text-[9px] font-bold text-slate-300 uppercase italic">Kosong</span>
                                     )}
                                   </div>
                                   
-                                  {resident ? (
+                                  {isDoubleBooked ? (
+                                    <div className="mt-3 space-y-3">
+                                      {residents.map((r, rIdx) => (
+                                        <div key={r.id} className={`p-2 rounded-lg bg-white border border-red-100 ${rIdx > 0 ? 'mt-2' : ''}`}>
+                                          <div className="text-xs font-black text-red-700 uppercase leading-tight">{r.name}</div>
+                                          <div className="flex items-center gap-2 text-[9px] text-red-600 font-bold mt-0.5">
+                                            <span>RM: {r.noRM}</span>
+                                            <span>•</span>
+                                            <span className="truncate max-w-[120px]">{r.address}</span>
+                                          </div>
+                                        </div>
+                                      ))}
+                                      <div className="px-2.5 py-1 bg-red-600 text-white text-[8.5px] font-black uppercase tracking-wider rounded-lg flex items-center gap-1 justify-center">
+                                        ⚠️ PERINGATAN: KELOLAAN GANDA
+                                      </div>
+                                    </div>
+                                  ) : resident ? (
                                     <div className="mt-3 space-y-1">
                                       <div className="text-sm font-black text-slate-800 uppercase leading-tight">{resident.name}</div>
                                       <div className="flex items-center gap-2 text-[10px] text-slate-500 font-bold">
@@ -749,8 +2489,630 @@ const App: React.FC = () => {
             </div>
           </div>
         );
+      }
 
-      case 'service-schedule':
+      case 'service-schedule': {
+        const calculateAgeObj = (birthDateStr?: string) => {
+          if (!birthDateStr) return '';
+          const birthDate = new Date(birthDateStr);
+          if (isNaN(birthDate.getTime())) return '';
+          const today = new Date();
+          let age = today.getFullYear() - birthDate.getFullYear();
+          const m = today.getMonth() - birthDate.getMonth();
+          if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+            age--;
+          }
+          return `${age} tahun`;
+        };
+
+        const getBedBadgeStyle = (bedNameStr: string, roomNameStr?: string) => {
+          const roomToUse = roomNameStr || bedNameStr;
+          const style = getRoomBedStyles(roomToUse);
+          return `${style.bg} ${style.text} ${style.border} border px-2.5 py-1 rounded-[10px] text-[10px] font-black shadow-xs block text-center`;
+        };
+
+        const getJaminanStyle = (insStr: string) => {
+          const style = getPaymentMethodStyles(insStr);
+          return `${style.bg} ${style.text} px-2.5 py-1 rounded-[10px] text-[10.5px] uppercase font-black`;
+        };
+
+        // Assemble all surgery schedules
+        const allSchedules = (appData.patients || []).flatMap(p => {
+          // Find all daily reports for this patient that have a surgeryDate from the deduplicated list
+          const reports = uniqueSurgeryReports.filter(r => r.patientId === p.id);
+          if (reports.length === 0) return [];
+          
+          const entries: any[] = [];
+          reports.forEach(r => {
+            // Original Entry
+            entries.push({
+              id: p.id,
+              patientName: p.name,
+              noRM: p.noRM,
+              gender: p.gender === 'L' ? 'Laki-Laki' : p.gender === 'P' ? 'Perempuan' : '-',
+              age: calculateAgeObj(p.birthDate),
+              address: p.address || '-',
+              insurance: Array.isArray(p.paymentMethod) ? p.paymentMethod.join(', ') : (p.paymentMethod || '-'),
+              diagnosis: p.diagnosaUtama || r.diagnosis || '-',
+              unitTujuan: p.unitTujuan || 'Rawat Jalan/IGD',
+              ruangan: p.ruangan || '-',
+              nomorBed: p.nomorBed || '-',
+              procedure: r.surgeryProcedure || p.tindakanProsedur || 'Proses Pembedahan',
+              operator: r.surgeryOperator || p.dpjpList?.[0] || 'dr. Bedah, Sp.B',
+              date: r.surgeryDate, // e.g. YYYY-MM-DD
+              time: r.surgeryTime || '08:00',
+              status: r.surgeryStatus || 'SCHEDULED',
+              report: r
+            });
+
+            // Rescheduled/Delayed New Date Entry (duplicate/move visibility on new date)
+            const isTundaOrRescheduled = 
+              r.surgeryStatus === 'DELAYED' || 
+              r.surgeryStatus === 'RESCHEDULED' || 
+              r.surgeryStatus === 'TERTUNDA' || 
+              r.surgeryStatus === 'TUNDA';
+
+            if (isTundaOrRescheduled && r.surgeryNewDate && r.surgeryNewDate !== r.surgeryDate) {
+              entries.push({
+                id: p.id,
+                patientName: p.name,
+                noRM: p.noRM,
+                gender: p.gender === 'L' ? 'Laki-Laki' : p.gender === 'P' ? 'Perempuan' : '-',
+                age: calculateAgeObj(p.birthDate),
+                address: p.address || '-',
+                insurance: Array.isArray(p.paymentMethod) ? p.paymentMethod.join(', ') : (p.paymentMethod || '-'),
+                diagnosis: p.diagnosaUtama || r.diagnosis || '-',
+                unitTujuan: p.unitTujuan || 'Rawat Jalan/IGD',
+                ruangan: p.ruangan || '-',
+                nomorBed: p.nomorBed || '-',
+                procedure: r.surgeryProcedure || p.tindakanProsedur || 'Proses Pembedahan',
+                operator: r.surgeryOperator || p.dpjpList?.[0] || 'dr. Bedah, Sp.B',
+                date: r.surgeryNewDate, // Appears on the NEW rescheduled date!
+                time: r.surgeryNewTime || r.surgeryTime || '08:00',
+                status: 'RESCHEDULED_ACTIVE',
+                originalDate: r.surgeryDate,
+                report: r
+              });
+            }
+          });
+          return entries;
+        });
+
+        // Filter Units and DPJP dynamically for dropdown selection options
+        const uniqueUnitsList = Array.from(new Set([
+          ...(appData.masterData?.units || []),
+          ...(appData.patients || []).map(p => p.unitTujuan)
+        ])).filter(Boolean).sort();
+
+        const rawDoctorStrings = [
+          ...(appData.masterData?.doctors || []),
+          ...(appData.patients || []).flatMap(p => p.dpjpList || []),
+          ...(appData.dailyReports || []).map(r => r.surgeryOperator)
+        ].filter(Boolean);
+
+        // Split by comma, semicolon, '&', or ' dan ' to get clean individual doctor names
+        const parsedDoctors = rawDoctorStrings.flatMap(docStr => {
+          if (typeof docStr !== 'string') return [];
+          return docStr
+            .split(/[,;&]|\s+dan\s+/gi)
+            .map(s => s.trim())
+            .filter(s => s.length > 0);
+        });
+
+        const uniqueDpjpList = Array.from(new Set(parsedDoctors)).sort();
+
+        // Prepare options for searchable select
+        const unitOptions = [
+          { label: "Semua Unit", value: "" },
+          ...uniqueUnitsList.map(unit => ({ label: unit, value: unit }))
+        ];
+
+        const dpjpOptions = [
+          { label: "Semua DPJP", value: "" },
+          ...uniqueDpjpList.map(doc => ({ label: doc, value: doc }))
+        ];
+
+        // Apply filters
+        const filteredSchedulesList = allSchedules.filter(s => {
+          const matchesDate = !scheduleFilterDate || s.date === scheduleFilterDate;
+          const matchesUnit = !scheduleFilterRoom || s.unitTujuan === scheduleFilterRoom;
+          
+          // Partial/Substring match for DPJP to support multi-DPJP/multi-operator scenarios
+          const matchesDpjp = !scheduleFilterDpjp || (s.operator || '').toLowerCase().includes(scheduleFilterDpjp.toLowerCase());
+          
+          // Real-time Global Search query: Patient Name, RM, Address, Diagnosis, and Procedure
+          let matchesSearch = true;
+          if (scheduleGlobalSearch) {
+            const query = scheduleGlobalSearch.toLowerCase().trim();
+            const nameMatch = (s.patientName || '').toLowerCase().includes(query);
+            const rmMatch = (s.noRM || '').toLowerCase().includes(query);
+            const addrMatch = (s.address || '').toLowerCase().includes(query);
+            const diagMatch = (s.diagnosis || '').toLowerCase().includes(query);
+            const procMatch = (s.procedure || '').toLowerCase().includes(query);
+            matchesSearch = nameMatch || rmMatch || addrMatch || diagMatch || procMatch;
+          }
+
+          return matchesDate && matchesUnit && matchesDpjp && matchesSearch;
+        });
+
+        // Sort automatically: by date, then alphabetically and numerically by Room (ruangan), then by Bed (nomorBed)
+        filteredSchedulesList.sort((a, b) => {
+          // 1. Sort by date first
+          const dateDiff = (a.date || '').localeCompare(b.date || '');
+          if (dateDiff !== 0) return dateDiff;
+
+          // 2. Sort by Room (ruangan) - place empty/dash at the end
+          const rA = a.ruangan && a.ruangan !== '-' ? a.ruangan : 'ZZZZZZZZ';
+          const rB = b.ruangan && b.ruangan !== '-' ? b.ruangan : 'ZZZZZZZZ';
+          const roomDiff = rA.localeCompare(rB, undefined, { numeric: true, sensitivity: 'base' });
+          if (roomDiff !== 0) return roomDiff;
+
+          // 3. Sort by Bed (nomorBed) - place empty/dash at the end
+          const bA = a.nomorBed && a.nomorBed !== '-' ? a.nomorBed : 'ZZZZZZZZ';
+          const bB = b.nomorBed && b.nomorBed !== '-' ? b.nomorBed : 'ZZZZZZZZ';
+          return bA.localeCompare(bB, undefined, { numeric: true, sensitivity: 'base' });
+        });
+
+        return (
+          <div className="bg-white/70 backdrop-blur-md rounded-[2.5rem] p-8 border shadow-sm animate-fade-in">
+            <h3 className="text-xl font-black tracking-tight mb-8 flex items-center gap-3" style={{ color: appData.masterData.settings?.fontColor || '#1e293b' }}>
+              <Calendar className="text-blue-600"/> Jadwal Operasi (Real-time)
+            </h3>
+
+            {/* Filters Panel */}
+            <div className="mb-8 p-6 bg-slate-50/50 rounded-3xl border border-slate-100 flex flex-col gap-6">
+              <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-slate-500">
+                <Filter size={14} className="text-blue-500"/> Filter Jadwal Operasi
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                {/* 1. Date Filter */}
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tanggal Tindakan</label>
+                  <div className="flex gap-2">
+                    <input 
+                      type="date" 
+                      value={scheduleFilterDate}
+                      onChange={(e) => setScheduleFilterDate(e.target.value)}
+                      className="flex-1 border-2 border-slate-100 rounded-2xl px-4 py-2 text-xs font-black uppercase outline-none focus:border-blue-500 bg-white"
+                    />
+                    {scheduleFilterDate && (
+                      <button 
+                        onClick={() => setScheduleFilterDate('')}
+                        className="px-3 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-[10px] font-black uppercase transition-all"
+                        title="Tampilkan Semua Tanggal"
+                      >
+                        Semua
+                      </button>
+                    )}
+                    {scheduleFilterDate !== today && (
+                      <button 
+                        onClick={() => setScheduleFilterDate(today)}
+                        className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-xl text-[10px] font-black uppercase transition-all"
+                        title="Set Hari Ini"
+                      >
+                        Hari Ini
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. Room Filter with SearchableSelect */}
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit Perawatan</label>
+                  <SearchableSelect 
+                    options={unitOptions}
+                    value={scheduleFilterRoom}
+                    onChange={(val) => setScheduleFilterRoom(val)}
+                    placeholder="Pilih Unit..."
+                  />
+                </div>
+
+                {/* 3. DPJP Filter with SearchableSelect */}
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">DPJP Bedah</label>
+                  <SearchableSelect 
+                    options={dpjpOptions}
+                    value={scheduleFilterDpjp}
+                    onChange={(val) => setScheduleFilterDpjp(val)}
+                    placeholder="Pilih DPJP..."
+                  />
+                </div>
+
+                {/* 4. Global Search */}
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pencarian Pintar</label>
+                  <div className="relative">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                    <input 
+                      type="text"
+                      value={scheduleGlobalSearch}
+                      onChange={(e) => setScheduleGlobalSearch(e.target.value)}
+                      placeholder="Cari Nama, No RM, Alamat, Diagnosa..."
+                      className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-550 outline-none shadow-sm bg-white"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Reset Control */}
+              {(scheduleFilterDate || scheduleFilterRoom || scheduleFilterDpjp || scheduleGlobalSearch) && (
+                <div className="flex justify-end">
+                  <button 
+                    onClick={() => {
+                      setScheduleFilterDate('');
+                      setScheduleFilterRoom('');
+                      setScheduleFilterDpjp('');
+                      setScheduleGlobalSearch('');
+                    }}
+                    className="text-[10px] font-black uppercase tracking-widest text-[#ef4444] hover:text-red-700 transition"
+                  >
+                    × Reset Semua Filter & Pencarian
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* List results in a beautiful, structured Spreadsheet columns style */}
+            <div className="overflow-x-auto rounded-[1.5rem] border border-slate-100 bg-white shadow-inner">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead className="bg-[#f8fafc] text-slate-500 font-black uppercase tracking-wider border-b border-slate-150">
+                  <tr className="divide-x divide-slate-100">
+                    <th className="p-4 font-black whitespace-nowrap bg-yellow-400 text-slate-900 border-b-2 border-slate-200">Nama Ruangan & No Bed</th>
+                    <th className="p-4 font-black whitespace-nowrap bg-yellow-400 text-slate-900 border-b-2 border-slate-200">Identitas (Nama/Umur/No RM/JK)</th>
+                    <th className="p-4 font-black whitespace-nowrap bg-yellow-400 text-slate-900 border-b-2 border-slate-200">Jaminan & Alamat</th>
+                    <th className="p-4 font-black whitespace-nowrap bg-yellow-400 text-slate-900 border-b-2 border-slate-200">Diagnosa</th>
+                    <th className="p-4 font-black whitespace-nowrap bg-yellow-400 text-slate-900 border-b-2 border-slate-200">Nama Tindakan</th>
+                    <th className="p-4 font-black whitespace-nowrap bg-yellow-400 text-slate-900 border-b-2 border-slate-200">Nama Operator</th>
+                    <th className="p-4 font-black whitespace-nowrap bg-yellow-400 text-slate-900 border-b-2 border-slate-200">Tanggal Rencana Operasi</th>
+                    <th className="p-4 font-black whitespace-nowrap bg-yellow-400 text-slate-900 border-b-2 border-slate-200 text-center">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredSchedulesList.length > 0 ? filteredSchedulesList.map((o, idx) => {
+                    let statusColor = 'bg-blue-50 text-blue-700 border border-blue-100';
+                    if (o.status === 'PERFORMED' || o.status === 'SURGERY_DONE') {
+                      statusColor = 'bg-emerald-50 text-emerald-700 border border-emerald-100';
+                    } else if (o.status === 'DELAYED') {
+                      statusColor = 'bg-amber-50 text-amber-700 border border-amber-100';
+                    } else if (o.status === 'CANCELLED') {
+                      statusColor = 'bg-rose-50 text-rose-700 border border-rose-100';
+                    } else if (o.status === 'RESCHEDULED_ACTIVE') {
+                      statusColor = 'bg-indigo-50 text-indigo-700 border border-indigo-150 font-bold animate-pulse';
+                    }
+ 
+                    return (
+                      <tr key={`${o.id}-${idx}`} className="hover:bg-slate-50/50 transition-colors duration-200 divide-x divide-slate-100">
+                        {/* 1. Nama Ruangan dan Nomor Bed */}
+                        <td className="p-4 bg-slate-50/25 whitespace-nowrap">
+                          <div className="font-extrabold text-slate-800 text-xs uppercase tracking-tight">{o.ruangan || '-'}</div>
+                          {o.nomorBed && o.nomorBed !== '-' ? (
+                            <div className="mt-1.5 inline-block">
+                              <span className={getBedBadgeStyle(o.nomorBed, o.ruangan)}>
+                                BED {o.nomorBed}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="text-[10px] text-slate-400 font-bold italic mt-0.5">Bed -</div>
+                          )}
+                        </td>
+                        
+                        {/* 2. Identitas (Nama/Umur/No RM/JK) */}
+                        <td className="p-4">
+                           <div className="font-black text-slate-900 text-sm uppercase tracking-tight">{o.patientName}</div>
+                           <div className="text-[10px] font-bold text-slate-500 mt-1 flex flex-wrap gap-2 items-center">
+                             <span className="bg-slate-100 text-slate-700 font-black px-1.5 py-0.5 rounded">RM: {o.noRM}</span>
+                             {o.age && <span className="bg-slate-50 text-slate-600 px-1.5 py-0.5 rounded font-black border border-slate-150">{o.age}</span>}
+                             {o.gender === 'Laki-Laki' ? (
+                               <span className="bg-blue-50 text-blue-700 rounded-lg px-2 py-0.5 text-[9px] font-black uppercase border border-blue-100">L</span>
+                             ) : o.gender === 'Perempuan' ? (
+                               <span className="bg-pink-50 text-pink-700 rounded-lg px-2 py-0.5 text-[9px] font-black uppercase border border-pink-100">P</span>
+                             ) : null}
+                           </div>
+                        </td>
+                        
+                        {/* 3. Jaminan & Alamat */}
+                        <td className="p-4 max-w-[180px]">
+                          <div className="mb-1.5">
+                            <span className={getJaminanStyle(o.insurance)}>
+                              {o.insurance}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-bold leading-normal truncate" title={o.address}>
+                            {o.address}
+                          </div>
+                        </td>
+                        
+                        {/* 4. Diagnosa */}
+                        <td className="p-4 max-w-[200px]" title={o.diagnosis}>
+                          <div className="text-slate-600 font-bold text-xs max-h-12 overflow-hidden leading-normal line-clamp-2">
+                            {o.diagnosis}
+                          </div>
+                        </td>
+                        
+                        {/* 5. Nama Tindakan */}
+                        <td className="p-4 max-w-[200px]" title={o.procedure}>
+                          <div className="text-slate-800 font-black text-xs max-h-12 overflow-hidden leading-normal line-clamp-2">
+                            {o.procedure}
+                          </div>
+                        </td>
+                        
+                        {/* 6. Nama Operator */}
+                        <td className="p-4">
+                          <div className="bg-purple-50 border border-purple-100 text-purple-750 font-black px-3 py-1.5 rounded-xl text-[10px] tracking-tight inline-block uppercase whitespace-normal max-w-[140px] leading-snug">
+                            {o.operator}
+                          </div>
+                        </td>
+                        
+                        {/* 7. Tanggal Rencana Operasi */}
+                        <td className="p-4 whitespace-nowrap">
+                          <div className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
+                            <Calendar size={13} className="text-blue-500 shrink-0"/> {o.date}
+                          </div>
+                          <div className="font-semibold text-slate-400 text-[10px] flex items-center gap-1 mt-1 font-mono">
+                            <Clock size={11} className="text-slate-300"/> {o.time} WIB
+                          </div>
+                          <div className="mt-2 text-left">
+                            <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider inline-block ${statusColor}`}>
+                              {o.status === 'RESCHEDULED_ACTIVE' ? 'RESCHEDULED' : o.status}
+                            </span>
+                          </div>
+                          {o.status === 'RESCHEDULED_ACTIVE' && o.originalDate && (
+                            <div className="mt-1 text-[9px] text-indigo-600 font-extrabold uppercase">
+                              🔄 Tunda Dari: {o.originalDate}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* 8. Aksi (Edit & Hapus) */}
+                        <td className="p-4 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setEditingScheduleSurgery(o)}
+                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded text-[9px] font-black uppercase tracking-wider border border-blue-105 cursor-pointer flex items-center gap-1 transition-all"
+                            >
+                              <Edit size={10} /> Edit Jadwal
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm("Apakah Anda yakin ingin menghapus jadwal operasi ini?")) {
+                                  handleUpdateDailyReport(
+                                    o.id,
+                                    "BATCH",
+                                    {
+                                      surgeryProcedure: "",
+                                      surgeryOperator: "",
+                                      surgeryDate: "",
+                                      surgeryTime: "",
+                                      surgeryAnesthesiaType: "",
+                                      surgeryUrgency: "ELECTIVE",
+                                      surgeryStatus: "SCHEDULED",
+                                      surgeryDelayReason: "",
+                                      surgeryNewDate: "",
+                                      surgeryNewTime: ""
+                                    },
+                                    o.report?.date || o.date
+                                  );
+                                  notify('JADWAL OPERASI BERHASIL DIHAPUS');
+                                }
+                              }}
+                              className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded text-[9px] font-black uppercase tracking-wider border border-rose-105 cursor-pointer flex items-center gap-1 transition-all"
+                            >
+                              <Trash2 size={10} /> Hapus Jadwal
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }) : (
+                    <tr>
+                      <td colSpan={8} className="py-24 text-center text-slate-400 font-bold italic bg-slate-50/10">
+                        Tidak ada jadwal operasi yang cocok dengan filter aktif.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Edit Schedule Surgery Modal */}
+            {editingScheduleSurgery && (
+              <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[999] flex items-center justify-center p-4">
+                <div className="bg-white rounded-[2rem] p-10 w-full max-w-lg shadow-2xl animate-fade-in border-t-8 border-indigo-650 max-h-[90vh] overflow-y-auto custom-scrollbar">
+                  <div className="flex justify-between items-center mb-6">
+                    <h4 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                      <Edit className="text-indigo-600" size={18} /> Edit Rencana & Jadwal Bedah
+                    </h4>
+                    <button 
+                      onClick={() => setEditingScheduleSurgery(null)}
+                      className="p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition duration-150"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Nama Pasien</label>
+                      <input 
+                        type="text" 
+                        disabled 
+                        className="w-full bg-slate-50 text-slate-500 font-bold px-4 py-2.5 rounded-xl text-xs" 
+                        value={`${editingScheduleSurgery.patientName} (${editingScheduleSurgery.noRM})`} 
+                      />
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Tanggal Rencana</label>
+                        <input 
+                          type="date" 
+                          className="w-full bg-slate-50 border border-slate-100 font-bold px-4 py-2.5 rounded-xl text-xs focus:ring-2 focus:ring-indigo-100 outline-none" 
+                          value={editingScheduleSurgery.date} 
+                          onChange={e => setEditingScheduleSurgery({ ...editingScheduleSurgery, date: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Jam Rencana</label>
+                        <input 
+                          type="time" 
+                          className="w-full bg-slate-50 border border-slate-100 font-bold px-4 py-2.5 rounded-xl text-xs focus:ring-2 focus:ring-indigo-100 outline-none" 
+                          value={editingScheduleSurgery.time} 
+                          onChange={e => setEditingScheduleSurgery({ ...editingScheduleSurgery, time: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Nama Tindakan Operasi</label>
+                      <input 
+                        type="text" 
+                        className="w-full bg-slate-50 border border-slate-100 font-extrabold px-4 py-2.5 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-indigo-100 outline-none" 
+                        value={editingScheduleSurgery.procedure} 
+                        onChange={e => setEditingScheduleSurgery({ ...editingScheduleSurgery, procedure: e.target.value })}
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Dokter Operator (DPJP)</label>
+                      <select 
+                        className="w-full bg-slate-55 bg-slate-50 border border-slate-100 font-extrabold px-4 py-2.5 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-indigo-100 outline-none" 
+                        value={editingScheduleSurgery.operator} 
+                        onChange={e => setEditingScheduleSurgery({ ...editingScheduleSurgery, operator: e.target.value })}
+                      >
+                        <option value="">-- Pilih DPJP --</option>
+                        {appData.masterData?.doctors?.map(d => (
+                          <option key={d} value={d}>{d}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Urgensi Operasi</label>
+                        <select 
+                          className="w-full bg-slate-50 border border-slate-100 font-black px-4 py-2.5 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-indigo-100 outline-none"
+                          value={editingScheduleSurgery.report?.surgeryUrgency || 'ELECTIVE'}
+                          onChange={e => setEditingScheduleSurgery({
+                            ...editingScheduleSurgery,
+                            report: { ...editingScheduleSurgery.report, surgeryUrgency: e.target.value }
+                          })}
+                        >
+                          <option value="ELECTIVE">ELEKTIF</option>
+                          <option value="EMERGENCY">CYTO / EMERGENCY</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Status Operasi</label>
+                        <select 
+                          className="w-full bg-slate-50 border border-slate-100 font-black px-4 py-2.5 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-indigo-100 outline-none"
+                          value={editingScheduleSurgery.status}
+                          onChange={e => setEditingScheduleSurgery({ ...editingScheduleSurgery, status: e.target.value })}
+                        >
+                          <option value="SCHEDULED">SCHEDULED (DIJADWALKAN)</option>
+                          <option value="PERFORMED">PERFORMED (DILAKSANAKAN)</option>
+                          <option value="DELAYED">DELAYED (TERTUNDA)</option>
+                          <option value="CANCELLED">CANCELLED (BATAL)</option>
+                        </select>
+                      </div>
+                    </div>
+                    
+                    {(editingScheduleSurgery.status === 'DELAYED' || editingScheduleSurgery.status === 'CANCELLED') && (
+                      <div className="p-4 bg-amber-50 border border-amber-100 rounded-2xl space-y-3">
+                        <div>
+                          <label className="block text-[9px] font-black text-amber-800 uppercase tracking-wider mb-1.5">
+                            {editingScheduleSurgery.status === 'CANCELLED' ? 'Alasan Pembatalan' : 'Alasan Penundaan'}
+                          </label>
+                          <textarea 
+                            className="w-full bg-white border border-amber-200 font-medium p-3 rounded-xl text-xs focus:ring-2 focus:ring-amber-200 outline-none" 
+                            rows={2}
+                            placeholder={editingScheduleSurgery.status === 'CANCELLED' ? 'Tuliskan alasan pembatalan medis/non-medis...' : 'Tuliskan alasan penundaan medis/non-medis...'}
+                            value={editingScheduleSurgery.report?.surgeryDelayReason || ''}
+                            onChange={e => setEditingScheduleSurgery({
+                              ...editingScheduleSurgery,
+                              report: { ...editingScheduleSurgery.report, surgeryDelayReason: e.target.value }
+                            })}
+                          />
+                        </div>
+                        {editingScheduleSurgery.status !== 'CANCELLED' && (
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-[9px] font-black text-amber-800 uppercase tracking-wider mb-1.5">Tanggal Reschedule Baru</label>
+                              <input 
+                                type="date" 
+                                className="w-full bg-white border border-amber-200 font-bold px-3 py-2 rounded-lg text-xs outline-none" 
+                                value={editingScheduleSurgery.report?.surgeryNewDate || ''}
+                                onChange={e => setEditingScheduleSurgery({
+                                  ...editingScheduleSurgery,
+                                  report: { ...editingScheduleSurgery.report, surgeryNewDate: e.target.value }
+                                })}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[9px] font-black text-amber-800 uppercase tracking-wider mb-1.5">Jam Reschedule Baru</label>
+                              <input 
+                                type="time" 
+                                className="w-full bg-white border border-amber-200 font-bold px-3 py-2 rounded-lg text-xs outline-none" 
+                                value={editingScheduleSurgery.report?.surgeryNewTime || ''}
+                                onChange={e => setEditingScheduleSurgery({
+                                  ...editingScheduleSurgery,
+                                  report: { ...editingScheduleSurgery.report, surgeryNewTime: e.target.value }
+                                })}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-slate-100">
+                    <button 
+                      type="button"
+                      onClick={() => setEditingScheduleSurgery(null)}
+                      className="px-6 py-2.5 bg-slate-50 border hover:bg-slate-100 rounded-xl text-xs font-black uppercase text-slate-500"
+                    >
+                      Batal
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        const s = editingScheduleSurgery;
+                        const actualStatus = s.status === 'RESCHEDULED_ACTIVE' ? 'DELAYED' : s.status;
+                        handleUpdateDailyReport(
+                          s.id,
+                          'BATCH',
+                          {
+                            surgeryProcedure: s.procedure,
+                            surgeryOperator: s.operator,
+                            surgeryDate: s.date,
+                            surgeryTime: s.time,
+                            surgeryUrgency: s.report?.surgeryUrgency || 'ELECTIVE',
+                            surgeryStatus: actualStatus,
+                            surgeryDelayReason: (actualStatus === 'DELAYED' || actualStatus === 'CANCELLED') ? (s.report?.surgeryDelayReason || '') : '',
+                            surgeryNewDate: actualStatus === 'DELAYED' ? (s.report?.surgeryNewDate || '') : '',
+                            surgeryNewTime: actualStatus === 'DELAYED' ? (s.report?.surgeryNewTime || '') : '',
+                            surgeryAnesthesiaType: s.report?.surgeryAnesthesiaType || ''
+                          },
+                          s.report?.date || s.date
+                        );
+                        setEditingScheduleSurgery(null);
+                        notify('JADWAL OPERASI BERHASIL DIPERBARUI');
+                      }}
+                      className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-md shadow-indigo-150"
+                    >
+                      Simpan Perubahan
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      case 'service-schedule-old':
         return (
           <div className="bg-white/70 backdrop-blur-md rounded-[2.5rem] p-8 border shadow-sm animate-fade-in">
             <h3 className="text-xl font-black tracking-tight mb-8 flex items-center gap-3" style={{ color: appData.masterData.settings?.fontColor || '#1e293b' }}>
@@ -789,26 +3151,20 @@ const App: React.FC = () => {
             reports={appData.operationReports || []}
             patients={appData.patients || []}
             onSaveReport={handleAddOperationReport}
+            onUpdateReport={handleUpdateOperationReport}
+            onDeleteReport={handleDeleteOperationReport}
             currentUser={user}
+            masterData={appData.masterData}
           />
         );
 
       case 'finance-summary':
         return (
-          <div className="bg-white rounded-[2.5rem] p-8 border shadow-sm animate-fade-in">
-             <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-8">Rekap Finansial Layanan (Juta Rp)</h3>
-             <div className="h-[400px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={financeByMonth}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.1}/>
-                    <XAxis dataKey="month" axisLine={false} tickLine={false} fontSize={10} tick={{fill: '#94a3b8', fontWeight: 700}} />
-                    <YAxis axisLine={false} tickLine={false} fontSize={10} tick={{fill: '#94a3b8', fontWeight: 700}} />
-                    <Tooltip cursor={{fill: '#f8fafc'}} />
-                    <Bar dataKey="rev" fill="#4f46e5" radius={[4, 4, 0, 0]} barSize={40} />
-                  </BarChart>
-                </ResponsiveContainer>
-             </div>
-          </div>
+          <FinanceSummaryView 
+            financeRecords={appData.financeRecords || []}
+            patients={appData.patients || []}
+            masterData={appData.masterData}
+          />
         );
 
       case 'incident-investigation':
@@ -984,6 +3340,7 @@ const App: React.FC = () => {
           <ServiceMatrix 
             patients={appData.patients || []}
             dailyReports={appData.dailyReports || []}
+            patientLocks={patientLocks}
             masterData={appData.masterData}
             onAddPatient={() => setIsPatientModalOpen(true)}
             onUpdateReport={handleUpdateDailyReport}
@@ -994,13 +3351,29 @@ const App: React.FC = () => {
             onRemoveDoctorVisit={handleDeleteDoctorVisit}
             appData={appData}
             currentUser={user}
+            onPatientClick={(id) => setSelectedDetailPatientId(id)}
+            syncStatus={syncStatus}
+          />
+        );
+
+      case 'finance-reg-admin':
+        return (
+          <AdminRegistrasiModule 
+            patients={appData.patients || []}
+            masterData={appData.masterData}
+            currentUser={user}
+            onUpdatePatient={handleUpdatePatient}
+            onAddPatient={handleAddPatient}
+            onDeletePatient={handleDeletePatient}
+            onCreateEmptyPatient={handleCreateEmptyPatient}
+            onNavigate={setActiveMenu}
           />
         );
 
       case 'finance-visite':
         return (
           <DoctorVisitAdmin 
-            doctorVisits={appData.doctorVisits || []}
+            financeRecords={appData.financeRecords || []}
             patients={appData.patients || []}
             masterData={appData.masterData}
             currentUser={user}
@@ -1017,6 +3390,21 @@ const App: React.FC = () => {
             masterData={appData.masterData}
             patients={appData.patients || []}
             dailyReports={appData.dailyReports || []}
+            selectedDate={qualityFilterDate}
+            setSelectedDate={setQualityFilterDate}
+            onUpdateMasterData={handleUpdateMasterData}
+          />
+        );
+
+      case 'quality-print':
+        return (
+          <PrintQualityWorksheet
+            indicators={appData.masterData.qualityIndicators || []}
+            measurements={appData.qualityMeasurements || []}
+            patients={appData.patients || []}
+            dailyReports={appData.dailyReports || []}
+            selectedDate={qualityFilterDate}
+            setSelectedDate={setQualityFilterDate}
           />
         );
 
@@ -1028,11 +3416,25 @@ const App: React.FC = () => {
         return <QualityReports type="DEPENDENCY" patients={appData.patients} dailyReports={appData.dailyReports} masterData={appData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
       case 'quality-pathway':
         return <QualityReports type="PATHWAY" patients={appData.patients} dailyReports={appData.dailyReports} masterData={appData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
+      case 'quality-aps-mutu':
+        return <QualityReports type="APS_MUTU" patients={appData.patients} dailyReports={appData.dailyReports} masterData={appData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
       case 'quality-diagnosis-top':
         return <QualityReports type="DIAGNOSIS" patients={appData.patients} dailyReports={appData.dailyReports} masterData={appData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
+      case 'quality-operasi-elektif':
+        return <QualityReports type="OPERASI_ELEKTIF" patients={appData.patients} dailyReports={appData.dailyReports} masterData={appData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} onUpdateReport={handleUpdateDailyReport} />;
 
       case 'system-data':
-        return <DataManagement masterData={appData.masterData} onSave={handleUpdateMasterData} currentUser={user} />;
+        return (
+          <DataManagement 
+            masterData={appData.masterData} 
+            onSave={handleUpdateMasterData} 
+            currentUser={user} 
+            appData={appData}
+            onUpdateAppData={handleUpdateAppData}
+            onTriggerSync={handleTriggerSyncManual}
+            syncStatus={syncStatus}
+          />
+        );
       case 'system-inventory':
         return (
           <InventoryModule 
@@ -1047,7 +3449,10 @@ const App: React.FC = () => {
           records={financeRecords} 
           masterData={appData.masterData} 
           patients={appData.patients || []} 
+          doctorVisits={appData.doctorVisits || []}
           onAddRecord={handleAddFinance}
+          onDeleteRecord={handleDeleteFinance}
+          onImportRecords={handleImportFinance}
           currentUser={user}
         />;
       case 'incident-report':
@@ -1079,12 +3484,30 @@ const App: React.FC = () => {
         <p className="text-slate-400 text-xs font-medium max-w-xs leading-relaxed mb-8">
           Menghubungkan ke database cloud dan memuat data master... Mohon tunggu sebentar.
         </p>
-        <button 
-          onClick={() => setIsReady(true)}
-          className="px-6 py-2 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black text-slate-500 uppercase tracking-widest hover:bg-white/10 transition-all"
-        >
-          Lewati & Gunakan Data Lokal (Offline)
-        </button>
+        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          <button 
+            onClick={() => {
+              setUser({
+                username: 'recovery_guest',
+                name: 'Mode Pemulihan Read-Only',
+                role: 'SUPER_ADMIN',
+                position: 'Pengunjung',
+                unit: 'Ruang Bedah',
+                isRecovery: true
+              });
+              setIsReady(true);
+            }}
+            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-xl text-[10px] font-black text-white uppercase tracking-widest transition-all shadow-lg shadow-blue-900/40"
+          >
+            Masuk Mode Pemulihan (Read-Only)
+          </button>
+          <button 
+            onClick={() => setIsReady(true)}
+            className="px-6 py-3 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black text-slate-400 uppercase tracking-widest hover:bg-white/10 transition-all"
+          >
+            Lewati & Gunakan Data Lokal (Offline)
+          </button>
+        </div>
       </div>
     );
   }
@@ -1110,6 +3533,15 @@ const App: React.FC = () => {
         <PatientModal 
           masterData={appData.masterData}
           onClose={() => {
+            if (editingPatient) {
+              const pId = editingPatient.id;
+              const username = user?.username || 'Guest';
+              fetch(`/api/patients/${pId}/unlock`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username })
+              }).catch(() => {});
+            }
             setIsPatientModalOpen(false);
             setEditingPatient(null);
           }}
@@ -1119,6 +3551,21 @@ const App: React.FC = () => {
           initialData={editingPatient || undefined}
         />
       )}
+
+      {(() => {
+        if (!selectedDetailPatientId) return null;
+        const patient = appData.patients?.find(p => p.id === selectedDetailPatientId);
+        if (!patient) return null;
+        return (
+          <PatientDetailModal
+            patient={patient}
+            dailyReports={appData.dailyReports || []}
+            onClose={() => setSelectedDetailPatientId(null)}
+            onSave={handleUpdatePatient}
+            masterData={appData.masterData}
+          />
+        );
+      })()}
 
       {/* Custom Delete Confirmation Modal to prevent native confirm iframe block */}
       {deleteConfirmTarget && (

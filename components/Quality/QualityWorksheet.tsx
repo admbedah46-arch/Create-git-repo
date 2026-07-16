@@ -3,13 +3,14 @@ import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
-import { QualityIndicator, QualityMeasurement, MasterData, User as AppUser, Patient, DailyReportEntry } from '../../types';
+import { QualityIndicator, QualityMeasurement, MasterData, User as AppUser, Patient, DailyReportEntry, compareDatesSafe } from '../../types';
 import { Button } from '../Button';
 import { 
   ClipboardCheck, Target, TrendingUp, TrendingDown, 
   Calendar, Info, Save, CheckCircle2, AlertTriangle,
   History, Search, Filter, LayoutGrid, User, ShieldCheck,
-  Stethoscope, Zap, Plus, Trash2, Check, X, ClipboardList, Minus
+  Stethoscope, Zap, Plus, Trash2, Check, X, ClipboardList, Minus,
+  Printer, FileSpreadsheet
 } from 'lucide-react';
 
 interface QualityWorksheetProps {
@@ -20,6 +21,9 @@ interface QualityWorksheetProps {
   masterData: MasterData;
   patients: Patient[];
   dailyReports: DailyReportEntry[];
+  selectedDate?: string;
+  setSelectedDate?: (date: string) => void;
+  onUpdateMasterData?: (newMasterData: MasterData) => void;
 }
 
 // Detailed Audit Components
@@ -596,6 +600,433 @@ const ClinicalPathwayAuditForm: React.FC<{
   );
 };
 
+const OperasiElektifAuditForm: React.FC<{
+  data: any[];
+  onChange: (newData: any[]) => void;
+  patients: Patient[];
+  dailyReports: DailyReportEntry[];
+  selectedDate: string;
+}> = ({ data, onChange, patients, dailyReports, selectedDate }) => {
+  const addRow = () => {
+    onChange([...data, {
+      id: Date.now() + Math.random(),
+      date: selectedDate,
+      patientName: '',
+      noRM: '',
+      origin: 'POLI',
+      dpjp: '',
+      admissionDate: '',
+      planDate: selectedDate,
+      opDate: selectedDate,
+      diagnosis: '',
+      procedure: '',
+      status: 'PERFORMED',
+      delayReason: ''
+    }]);
+  };
+
+  const syncFromSchedules = () => {
+    const matchedSchedules: any[] = [];
+    dailyReports.forEach(r => {
+      const isTargetDate = r.surgeryDate === selectedDate || r.date === selectedDate;
+      if (isTargetDate && r.surgeryProcedure && r.surgeryProcedure.trim() !== '') {
+        const p = patients.find(pat => pat.id === r.patientId);
+        matchedSchedules.push({
+          patientId: r.patientId,
+          name: p?.name || 'Pasien',
+          noRM: p?.noRM || '',
+          origin: p?.origin || 'IGD',
+          dpjp: r.surgeryOperator || p?.dpjpList?.[0] || '',
+          admissionDate: p?.entryDate || '',
+          planDate: r.surgeryDate || r.date || selectedDate,
+          opDate: r.surgeryStatus === 'PERFORMED' ? (r.surgeryDate || r.date || selectedDate) : '',
+          diagnosis: r.diagnosis || p?.diagnosaUtama || '',
+          procedure: r.surgeryProcedure || p?.tindakanProsedur || '',
+          status: r.surgeryStatus || 'SCHEDULED',
+          delayReason: r.surgeryDelayReason || ''
+        });
+      }
+    });
+
+    const newData = [...data];
+    matchedSchedules.forEach(item => {
+      const exists = newData.some(d => (item.noRM && d.noRM === item.noRM) || d.patientName === item.name);
+      if (!exists) {
+        newData.push({
+          id: Date.now() + Math.random(),
+          date: item.planDate || selectedDate,
+          patientName: item.name,
+          noRM: item.noRM,
+          origin: item.origin,
+          dpjp: item.dpjp,
+          admissionDate: item.admissionDate,
+          planDate: item.planDate,
+          opDate: item.opDate,
+          diagnosis: item.diagnosis,
+          procedure: item.procedure,
+          status: item.status,
+          delayReason: item.delayReason
+        });
+      }
+    });
+
+    onChange(newData);
+  };
+
+  const removeRow = (id: number) => {
+    onChange(data.filter(d => d.id !== id));
+  };
+
+  const updateRow = (id: number, field: string, val: any) => {
+    onChange(data.map(d => d.id === id ? { ...d, [field]: val } : d));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center bg-blue-50/50 p-4 rounded-2xl border border-blue-100 mb-2">
+        <span className="text-[10px] font-black uppercase text-blue-600 tracking-wider">Metode Sinkronisasi Otomatis</span>
+        <Button onClick={syncFromSchedules} variant="secondary" className="px-6 py-2 rounded-xl font-black uppercase text-[10px] tracking-widest bg-[#144272] text-white hover:bg-opacity-90 shadow-xl flex items-center gap-2">
+          <Zap size={14}/> Tarik Data dari Jadwal Tindakan ({selectedDate})
+        </Button>
+      </div>
+
+      <div className="overflow-x-auto border rounded-[2rem] bg-slate-50/50 shadow-inner">
+        <table className="min-w-[1400px] text-left table-fixed">
+          <thead className="bg-[#144272] text-white text-[9px] uppercase font-black tracking-wider">
+            <tr>
+              <th className="p-4 pl-6 w-[50px]">No</th>
+              <th className="p-4 w-[110px]">Hari, Tgl</th>
+              <th className="p-4 w-[160px]">Nama Pasien</th>
+              <th className="p-4 w-[100px]">No. RM</th>
+              <th className="p-4 w-[110px]">Asal Masuk</th>
+              <th className="p-4 w-[160px]">DPJP (Operator)</th>
+              <th className="p-4 w-[110px]">Tgl MRS</th>
+              <th className="p-4 w-[110px]">Rencana OP</th>
+              <th className="p-4 w-[110px]">Tgl OP</th>
+              <th className="p-4 w-[180px]">Diagnosa</th>
+              <th className="p-4 w-[185px]">Nama Tindakan</th>
+              <th className="p-4 w-[150px]">Status</th>
+              <th className="p-4 w-[155px]">Alasan Penundaan</th>
+              <th className="p-4 text-center w-[60px]">Aksi</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 text-xs">
+            {data.map((row, index) => (
+              <tr key={row.id} className="bg-white hover:bg-slate-50 transition-colors">
+                <td className="p-3 pl-6 font-bold text-slate-400">{index + 1}</td>
+                <td className="p-3">
+                  <input
+                    type="text"
+                    className="bg-transparent border-none font-bold text-slate-700 focus:ring-0 p-0 w-full placeholder:text-slate-300 text-xs"
+                    value={row.date || selectedDate}
+                    onChange={e => updateRow(row.id, 'date', e.target.value)}
+                    placeholder="Hari, Tgl"
+                  />
+                </td>
+                <td className="p-3">
+                  <input
+                    className="bg-transparent border-none font-black text-slate-800 focus:ring-0 p-0 w-full placeholder:text-slate-300 text-xs"
+                    placeholder="Nama Pasien..."
+                    value={row.patientName}
+                    onChange={e => updateRow(row.id, 'patientName', e.target.value)}
+                  />
+                </td>
+                <td className="p-3">
+                  <input
+                    className="bg-transparent border-none font-bold text-slate-700 focus:ring-0 p-0 w-full placeholder:text-slate-300 text-xs"
+                    placeholder="RM..."
+                    value={row.noRM || ''}
+                    onChange={e => updateRow(row.id, 'noRM', e.target.value)}
+                  />
+                </td>
+                <td className="p-3">
+                  <select
+                    className="bg-transparent border-none font-semibold text-slate-700 focus:ring-0 p-0 w-full text-xs"
+                    value={row.origin || 'POLI'}
+                    onChange={e => updateRow(row.id, 'origin', e.target.value)}
+                  >
+                    <option value="IGD">IGD</option>
+                    <option value="POLI">POLI</option>
+                    <option value="RAWAT INAP">RAWAT INAP</option>
+                  </select>
+                </td>
+                <td className="p-3">
+                  <input
+                    className="bg-transparent border-none font-medium text-slate-600 focus:ring-0 p-0 w-full placeholder:text-slate-300 text-xs"
+                    placeholder="DPJP..."
+                    value={row.dpjp || row.operator || ''}
+                    onChange={e => updateRow(row.id, 'dpjp', e.target.value)}
+                  />
+                </td>
+                <td className="p-3">
+                  <input
+                    type="date"
+                    className="bg-transparent border-none font-medium text-slate-600 focus:ring-0 p-0 w-full text-xs"
+                    value={row.admissionDate || ''}
+                    onChange={e => updateRow(row.id, 'admissionDate', e.target.value)}
+                  />
+                </td>
+                <td className="p-3">
+                  <input
+                    type="date"
+                    className="bg-transparent border-none font-medium text-slate-600 focus:ring-0 p-0 w-full text-xs"
+                    value={row.planDate || selectedDate}
+                    onChange={e => updateRow(row.id, 'planDate', e.target.value)}
+                  />
+                </td>
+                <td className="p-3">
+                  <input
+                    type="date"
+                    className="bg-transparent border-none font-medium text-slate-600 focus:ring-0 p-0 w-full text-xs"
+                    value={row.opDate || ''}
+                    onChange={e => updateRow(row.id, 'opDate', e.target.value)}
+                  />
+                </td>
+                <td className="p-3">
+                  <textarea
+                    rows={1}
+                    className="bg-transparent border-none font-medium text-slate-600 focus:ring-0 p-0 w-full placeholder:text-slate-300 text-xs resize-none"
+                    placeholder="Diagnosa..."
+                    value={row.diagnosis || ''}
+                    onChange={e => updateRow(row.id, 'diagnosis', e.target.value)}
+                  />
+                </td>
+                <td className="p-3">
+                  <textarea
+                    rows={1}
+                    className="bg-transparent border-none font-medium text-slate-600 focus:ring-0 p-0 w-full placeholder:text-slate-300 text-xs resize-none"
+                    placeholder="Tindakan..."
+                    value={row.procedure || ''}
+                    onChange={e => updateRow(row.id, 'procedure', e.target.value)}
+                  />
+                </td>
+                <td className="p-3">
+                  <select
+                    className={`bg-slate-50 border p-1 rounded font-black text-[10px] uppercase tracking-tight w-full ${
+                      row.status === 'PERFORMED' ? 'bg-emerald-50 text-emerald-700 border-emerald-250' : 'bg-rose-50 text-rose-700 border-rose-250'
+                    }`}
+                    value={row.status || 'SCHEDULED'}
+                    onChange={e => {
+                      const nextStatus = e.target.value;
+                      const nextOpDate = nextStatus === 'PERFORMED' ? (row.opDate || selectedDate) : '';
+                      onChange(data.map(d => d.id === row.id ? { ...d, status: nextStatus, opDate: nextOpDate } : d));
+                    }}
+                  >
+                    <option value="PERFORMED">TERLAKSANA (PATUH)</option>
+                    <option value="DELAYED">DITUNDA (TIDAK PATUH)</option>
+                    <option value="CANCELLED">DIBATALKAN</option>
+                    <option value="SCHEDULED">DAPAT JADWAL</option>
+                  </select>
+                </td>
+                <td className="p-3">
+                  <input
+                    className="bg-slate-50 border px-1 py-1 rounded text-[10px] font-medium w-full"
+                    placeholder="Alasan penundaan..."
+                    value={row.delayReason || ''}
+                    disabled={row.status === 'PERFORMED'}
+                    onChange={e => updateRow(row.id, 'delayReason', e.target.value)}
+                  />
+                </td>
+                <td className="p-3 text-center">
+                  <button onClick={() => removeRow(row.id)} className="p-1 text-rose-300 hover:text-rose-600 bg-rose-50/0 hover:bg-rose-50 rounded-lg transition-all">
+                    <Trash2 size={14}/>
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {data.length === 0 && (
+          <div className="p-20 text-center text-slate-300 font-black uppercase tracking-widest italic opacity-40 flex flex-col items-center gap-4">
+            <AlertTriangle size={48} />
+            Belum ada rencana operasi elektif yang di-audit hari ini
+          </div>
+        )}
+      </div>
+      <Button onClick={addRow} variant="secondary" className="w-full py-5 border-2 border-dashed border-slate-200 text-slate-400 font-black uppercase tracking-widest hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-[2rem] transition-all">
+        <Plus size={20} className="mr-2"/> Tambah Pasien Operasi Baru
+      </Button>
+    </div>
+  );
+};
+
+const KetergantunganPasienAuditForm: React.FC<{
+  data: any[];
+  onChange: (newData: any[]) => void;
+  patients: Patient[];
+  dailyReports: DailyReportEntry[];
+  selectedDate: string;
+}> = ({ data, onChange, patients, dailyReports, selectedDate }) => {
+  const syncFromActivePatients = () => {
+    const active = patients.filter(p => !p.dischargeDate || p.dischargeDate >= selectedDate);
+    
+    const newData = [...data];
+    active.forEach(p => {
+      // Robust matching to avoid blank string matching issues
+      const existingIdx = newData.findIndex(d => {
+        const hasRm = p.noRM && p.noRM.trim() !== '';
+        if (hasRm) {
+          return d.patientName.includes(p.noRM);
+        }
+        return p.name && p.name.trim() !== '' && d.patientName.includes(p.name);
+      });
+      const r = dailyReports.find(rep => rep.patientId === p.id && rep.date === selectedDate);
+      
+      if (existingIdx !== -1) {
+        // Enforce update with the latest filled entries from the nursing daily report
+        newData[existingIdx] = {
+          ...newData[existingIdx],
+          morning: r?.morningDependency || newData[existingIdx].morning || '',
+          afternoon: r?.afternoonDependency || newData[existingIdx].afternoon || '',
+          night: r?.nightDependency || newData[existingIdx].night || '',
+          compliant: !!(r?.morningDependency || r?.afternoonDependency || r?.nightDependency || newData[existingIdx].compliant)
+        };
+      } else {
+        newData.push({
+          id: Date.now() + Math.random(),
+          patientName: `${p.name} (${p.noRM})`,
+          roomBed: `${p.ruangan || '-'} / ${p.nomorBed || '-'}`,
+          morning: r?.morningDependency || '',
+          afternoon: r?.afternoonDependency || '',
+          night: r?.nightDependency || '',
+          compliant: !!(r?.morningDependency || r?.afternoonDependency || r?.nightDependency)
+        });
+      }
+    });
+
+    onChange(newData);
+  };
+
+  const removeRow = (id: number) => {
+    onChange(data.filter(d => d.id !== id));
+  };
+
+  const updateRow = (id: number, field: string, val: any) => {
+    onChange(data.map(d => d.id === id ? { ...d, [field]: val } : d));
+  };
+
+  const addRow = () => {
+    onChange([...data, {
+      id: Date.now() + Math.random(),
+      patientName: '',
+      roomBed: '',
+      morning: '',
+      afternoon: '',
+      night: '',
+      compliant: false
+    }]);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 mb-2">
+        <span className="text-[10px] font-black uppercase text-emerald-700 tracking-wider">Metode Tarik Otomatis Laporan Shift</span>
+        <Button onClick={syncFromActivePatients} variant="secondary" className="px-6 py-2 rounded-xl font-black uppercase text-[10px] tracking-widest bg-emerald-600 text-white hover:bg-emerald-700 shadow-xl flex items-center gap-2">
+          <Zap size={14}/> Tarik Tingkat Ketergantungan Pasien Aktif ({selectedDate})
+        </Button>
+      </div>
+
+      <div className="overflow-x-auto border rounded-[2rem] bg-slate-50/50 shadow-inner">
+        <table className="w-full text-left">
+          <thead className="bg-[#144272] text-white text-[10px] uppercase font-black tracking-[0.2em]">
+            <tr>
+              <th className="p-6">Nama Pasien / RM</th>
+              <th className="p-6">Ruang / Bed</th>
+              <th className="p-6">Shift Pagi</th>
+              <th className="p-6">Shift Siang</th>
+              <th className="p-6">Shift Malam</th>
+              <th className="p-6 text-center">Status Pengisian</th>
+              <th className="p-6 text-center">Aksi</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {data.map((row) => {
+              const isFilled = !!(row.morning || row.afternoon || row.night);
+              return (
+                <tr key={row.id} className="bg-white hover:bg-slate-50 transition-colors">
+                  <td className="p-4 px-6">
+                    <input
+                      className="bg-transparent border-none font-black text-slate-800 focus:ring-0 p-0 w-full placeholder:text-slate-300 text-xs"
+                      placeholder="Nama/RM Pasien..."
+                      value={row.patientName}
+                      onChange={e => updateRow(row.id, 'patientName', e.target.value)}
+                    />
+                  </td>
+                  <td className="p-4 px-6">
+                    <input
+                      className="bg-transparent border-none font-extrabold text-indigo-600 focus:ring-0 p-0 w-full placeholder:text-slate-300 text-xs"
+                      placeholder="Ruangan/Bed..."
+                      value={row.roomBed}
+                      onChange={e => updateRow(row.id, 'roomBed', e.target.value)}
+                    />
+                  </td>
+                  <td className="p-4 px-6">
+                    <select
+                      className="bg-transparent border-none font-bold text-slate-600 focus:ring-0 p-0 w-full text-xs uppercase"
+                      value={row.morning || ''}
+                      onChange={e => updateRow(row.id, 'morning', e.target.value)}
+                    >
+                      <option value="">Belum diisi</option>
+                      <option value="MINIMAL">MINIMAL CARE</option>
+                      <option value="PARSIAL">PARSIAL CARE</option>
+                      <option value="TOTAL">TOTAL CARE</option>
+                    </select>
+                  </td>
+                  <td className="p-4 px-6">
+                    <select
+                      className="bg-transparent border-none font-bold text-slate-600 focus:ring-0 p-0 w-full text-xs uppercase"
+                      value={row.afternoon || ''}
+                      onChange={e => updateRow(row.id, 'afternoon', e.target.value)}
+                    >
+                      <option value="">Belum diisi</option>
+                      <option value="MINIMAL">MINIMAL CARE</option>
+                      <option value="PARSIAL">PARSIAL CARE</option>
+                      <option value="TOTAL">TOTAL CARE</option>
+                    </select>
+                  </td>
+                  <td className="p-4 px-6">
+                    <select
+                      className="bg-transparent border-none font-bold text-slate-600 focus:ring-0 p-0 w-full text-xs uppercase"
+                      value={row.night || ''}
+                      onChange={e => updateRow(row.id, 'night', e.target.value)}
+                    >
+                      <option value="">Belum diisi</option>
+                      <option value="MINIMAL">MINIMAL CARE</option>
+                      <option value="PARSIAL">PARSIAL CARE</option>
+                      <option value="TOTAL">TOTAL CARE</option>
+                    </select>
+                  </td>
+                  <td className="p-4 text-center">
+                    <span className={`px-3 py-1 rounded text-[8px] font-black uppercase ${
+                      isFilled ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                    }`}>
+                      {isFilled ? 'Lengkap (Terisi)' : 'Belum Lengkap'}
+                    </span>
+                  </td>
+                  <td className="p-4 text-center">
+                    <button onClick={() => removeRow(row.id)} className="p-2 text-rose-300 hover:text-rose-600 bg-rose-50/0 hover:bg-rose-50 rounded-xl transition-all">
+                      <Trash2 size={16}/>
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {data.length === 0 && (
+          <div className="p-20 text-center text-slate-300 font-black uppercase tracking-widest italic opacity-40 flex flex-col items-center gap-4">
+            <AlertTriangle size={48} />
+            Belum ada audit pengisian tingkat ketergantungan pasien hari ini
+          </div>
+        )}
+      </div>
+      <Button onClick={addRow} variant="secondary" className="w-full py-5 border-2 border-dashed border-slate-200 text-slate-400 font-black uppercase tracking-widest hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-[2rem] transition-all">
+        <Plus size={20} className="mr-2"/> Tambah Audit Pasien Baru
+      </Button>
+    </div>
+  );
+};
+
 const APSListForm: React.FC<{
   data: any[];
   onChange: (newData: any[]) => void;
@@ -750,13 +1181,113 @@ export const QualityWorksheet: React.FC<QualityWorksheetProps> = ({
   currentUser,
   masterData,
   patients,
-  dailyReports
+  dailyReports,
+  selectedDate: propsSelectedDate,
+  setSelectedDate: propsSetSelectedDate,
+  onUpdateMasterData
 }) => {
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [activeTab, setActiveTab] = useState<'ENTRY' | 'SUMMARY'>('ENTRY');
+  const [localSelectedDate, setLocalSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const selectedDate = propsSelectedDate || localSelectedDate;
+  const setSelectedDate = propsSetSelectedDate || setLocalSelectedDate;
+  
+  const [activeTab, setActiveTab] = useState<'ENTRY' | 'SUMMARY' | 'ANALYSIS'>('ENTRY');
   
   const [localValues, setLocalValues] = useState<Record<string, { num: number, den: number, auditData?: any, auditInfo?: any }>>({});
   const [expandedIndicator, setExpandedIndicator] = useState<string | null>(null);
+
+  // Month string state for evaluation, default to June 2026 as the active month
+  const [selectedMonth, setSelectedMonth] = useState('2026-06');
+  const [startDate, setStartDate] = useState('2026-06-01');
+  const [endDate, setEndDate] = useState('2026-06-30');
+  
+  // State for active loaded monthly analysis dictionary: indicatorId -> MonthlyQualityAnalysis
+  const [analysisStore, setAnalysisStore] = useState<Record<string, { problemAnalysis: string, actionPlan: string }>>(() => {
+    try {
+      const globalAnalysis = masterData?.settings?.qualityAnalysis;
+      if (globalAnalysis && Object.keys(globalAnalysis).length > 0) {
+        return globalAnalysis;
+      }
+      const saved = localStorage.getItem('simantap_quality_analysis');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
+  // Keep local analysis store in sync with real-time global settings updates
+  React.useEffect(() => {
+    const globalAnalysis = masterData?.settings?.qualityAnalysis;
+    if (globalAnalysis && Object.keys(globalAnalysis).length > 0) {
+      setAnalysisStore(globalAnalysis);
+    }
+  }, [masterData?.settings?.qualityAnalysis]);
+
+  // Active selected indicator for entering monthly analysis details
+  const [selectedIndicatorForAnalysis, setSelectedIndicatorForAnalysis] = useState<string | null>(null);
+
+  // Temporary edit states for problemAnalysis and actionPlan
+  const [tempProblemAnalysis, setTempProblemAnalysis] = useState('');
+  const [tempActionPlan, setTempActionPlan] = useState('');
+
+  // Handle saving the analysis
+  const handleSaveAnalysis = (indicatorId: string) => {
+    const key = `${selectedMonth}_${indicatorId}`;
+    const updatedStore = {
+      ...analysisStore,
+      [key]: {
+        problemAnalysis: tempProblemAnalysis,
+        actionPlan: tempActionPlan
+      }
+    };
+    setAnalysisStore(updatedStore);
+    localStorage.setItem('simantap_quality_analysis', JSON.stringify(updatedStore));
+
+    if (onUpdateMasterData) {
+      onUpdateMasterData({
+        ...masterData,
+        settings: {
+          ...(masterData.settings || {}),
+          qualityAnalysis: updatedStore,
+          settingsTimestamp: new Date().toISOString()
+        }
+      });
+    }
+  };
+
+  // Load the analysis whenever indicator or month changes
+  const loadAnalysisForIndicator = (indicatorId: string) => {
+    setSelectedIndicatorForAnalysis(indicatorId);
+    const key = `${selectedMonth}_${indicatorId}`;
+    const existing = analysisStore[key] || { problemAnalysis: '', actionPlan: '' };
+    setTempProblemAnalysis(existing.problemAnalysis || '');
+    setTempActionPlan(existing.actionPlan || '');
+  };
+
+  const monthlyMetrics = useMemo(() => {
+    return indicators.map(ind => {
+      // Find all measurements in the measurements table for this indicator whose date shares the selected month
+      const monthlyMeasurements = measurements.filter(m => 
+        m.indicatorId === ind.id && m.date.startsWith(selectedMonth)
+      );
+
+      const totalNum = monthlyMeasurements.reduce((acc, m) => acc + m.numeratorValue, 0);
+      const totalDen = monthlyMeasurements.reduce((acc, m) => acc + m.denominatorValue, 0);
+      const score = totalDen === 0 ? 0 : (totalNum / totalDen) * 100;
+      const status = score >= ind.target ? 'TERCAPAI' : 'BELUM TERCAPAI';
+
+      const key = `${selectedMonth}_${ind.id}`;
+      const analysisData = analysisStore[key] || { problemAnalysis: '', actionPlan: '' };
+
+      return {
+        ...ind,
+        totalNum,
+        totalDen,
+        score,
+        status,
+        hasAnalysis: !!(analysisData.problemAnalysis || analysisData.actionPlan)
+      };
+    });
+  }, [indicators, measurements, selectedMonth, analysisStore]);
 
   const scoringLogic = {
     'inm-1': (data: any[]) => {
@@ -814,6 +1345,35 @@ export const QualityWorksheet: React.FC<QualityWorksheetProps> = ({
        const den = data.length;
        const num = data.filter((d: any) => d.documented).length;
        return { num, den };
+    },
+    'pathway-1': (data: any[]) => {
+       const den = data.length;
+       if (den === 0) return { num: 0, den: 0 };
+       const num = data.filter((row: any) => {
+         if (!row.compliance || Object.keys(row.compliance).length === 0) return false;
+         return Object.values(row.compliance).every(v => v === true || v === 'true' || v === 'yes' || v === 1);
+       }).length;
+       return { num, den };
+    },
+    'aps-1': (data: any[]) => {
+       const targetMonth = selectedDate.substring(0, 7); // e.g. "2026-06"
+       const totalDischargedInMonth = patients.filter(p => p.dischargeDate && p.dischargeDate.startsWith(targetMonth)).length;
+       const den = totalDischargedInMonth || data.length || 0;
+       if (den === 0) return { num: 0, den: 0 };
+       const num = data.filter((d: any) => d.documented).length;
+       return { num, den };
+    },
+    'operasi-elektif-1': (data: any[]) => {
+       const den = data.length;
+       if (den === 0) return { num: 0, den: 0 };
+       const num = data.filter((d: any) => d.status === 'PERFORMED').length;
+       return { num, den };
+    },
+    'ketergantungan-pasien-1': (data: any[]) => {
+       const den = data.length;
+       if (den === 0) return { num: 0, den: 0 };
+       const num = data.filter((d: any) => !!(d.morning || d.afternoon || d.night)).length;
+       return { num, den };
     }
   };
 
@@ -850,7 +1410,8 @@ export const QualityWorksheet: React.FC<QualityWorksheetProps> = ({
     const doc = new jsPDF() as any;
     doc.text('LAPORAN CAPAIAN INDIKATOR MUTU', 14, 15);
     doc.setFontSize(10);
-    doc.text(`Dicetak pada: ${new Date().toLocaleString()}`, 14, 22);
+    doc.text(`Dicetak pada: ${new Date().toLocaleString()}`, 14, 21);
+    doc.text(`Rentang Laporan: ${startDate} s/d ${endDate}`, 14, 26);
 
     const tableData = filteredMeasurements.map(m => {
       const ind = indicators.find(i => i.id === m.indicatorId);
@@ -868,7 +1429,7 @@ export const QualityWorksheet: React.FC<QualityWorksheetProps> = ({
     doc.autoTable({
       head: [['Tanggal', 'Indikator', 'N/D', 'Hasil', 'Target', 'Capai']],
       body: tableData,
-      startY: 30,
+      startY: 32,
       theme: 'grid',
       headStyles: { fillStyle: '#144272', textColor: '#FFFFFF' }
     });
@@ -881,8 +1442,14 @@ export const QualityWorksheet: React.FC<QualityWorksheetProps> = ({
     if (currentUser && currentUser.role !== 'SUPER_ADMIN' && currentUser.role !== 'BIDANG') {
       list = list.filter(m => m.unit === currentUser.unit);
     }
+    if (startDate) {
+      list = list.filter(m => m.date >= startDate);
+    }
+    if (endDate) {
+      list = list.filter(m => m.date <= endDate);
+    }
     return list;
-  }, [measurements, currentUser]);
+  }, [measurements, currentUser, startDate, endDate]);
 
   const handleInputChange = (id: string, field: 'num' | 'den', val: string) => {
     const numVal = parseInt(val) || 0;
@@ -915,25 +1482,91 @@ export const QualityWorksheet: React.FC<QualityWorksheetProps> = ({
     }));
   };
 
+  const getDefaultAuditData = (indicatorId: string, dateStr: string) => {
+    if (indicatorId === 'ketergantungan-pasien-1') {
+      const active = patients.filter(p => {
+        const hasReportToday = dailyReports.some(rep => rep.patientId === p.id && rep.date === dateStr);
+        const isDischarged = p.status === 'DISCHARGED' || (p.statusDataPasien && (
+          p.statusDataPasien.toUpperCase().includes('BPL') ||
+          p.statusDataPasien.toUpperCase().includes('PULANG') ||
+          p.statusDataPasien.toUpperCase().includes('APS') ||
+          p.statusDataPasien.toUpperCase().includes('RUJUK') ||
+          p.statusDataPasien.toUpperCase().includes('PINDAH') ||
+          p.statusDataPasien.toUpperCase().includes('MENINGGAL')
+        ));
+        const isCurrentlyTreated = !isDischarged || p.statusDataPasien === "Masih Dirawat" || p.statusDataPasien === "AKTIF" || !p.statusDataPasien;
+        return isCurrentlyTreated || hasReportToday;
+      });
+      
+      return active.map(p => {
+        const r = dailyReports.find(rep => rep.patientId === p.id && rep.date === dateStr);
+        return {
+          id: Date.now() + Math.random(),
+          patientName: `${p.name} (${p.noRM})`,
+          roomBed: `${p.ruangan || '-'} / ${p.nomorBed || '-'}`,
+          morning: r?.morningDependency || '',
+          afternoon: r?.afternoonDependency || '',
+          night: r?.nightDependency || '',
+          compliant: !!(r?.morningDependency || r?.afternoonDependency || r?.nightDependency)
+        };
+      });
+    }
+
+    if (indicatorId === 'operasi-elektif-1') {
+      const matchedSchedules: any[] = [];
+      dailyReports.forEach(r => {
+        const isTargetDate = r.surgeryDate === dateStr || r.date === dateStr;
+        if (isTargetDate && r.surgeryProcedure && r.surgeryProcedure.trim() !== '') {
+          const p = patients.find(pat => pat.id === r.patientId);
+          matchedSchedules.push({
+            id: Date.now() + Math.random(),
+            date: r.surgeryDate || r.date || dateStr,
+            patientName: p?.name || 'Pasien',
+            noRM: p?.noRM || '',
+            origin: p?.origin || 'POLI',
+            dpjp: r.surgeryOperator || p?.dpjpList?.[0] || '',
+            admissionDate: p?.entryDate || '',
+            planDate: r.surgeryDate || r.date || dateStr,
+            opDate: r.surgeryStatus === 'PERFORMED' ? (r.surgeryDate || r.date || dateStr) : '',
+            diagnosis: r.diagnosis || p?.diagnosaUtama || '',
+            procedure: r.surgeryProcedure || p?.tindakanProsedur || '',
+            status: r.surgeryStatus || 'SCHEDULED',
+            delayReason: r.surgeryDelayReason || ''
+          });
+        }
+      });
+      return matchedSchedules;
+    }
+
+    return undefined;
+  };
+
   const getExistingMeasurement = (indicatorId: string) => {
     return filteredMeasurements.find(m => m.indicatorId === indicatorId && m.date === selectedDate);
   };
 
   const saveMeasurement = (indicator: QualityIndicator) => {
     const existing = getExistingMeasurement(indicator.id);
+    const rawAudit = existing?.auditData;
+    const defaultAudit = (!rawAudit || rawAudit.length === 0) ? getDefaultAuditData(indicator.id, selectedDate) : rawAudit;
+
     const values = localValues[indicator.id] || { 
       num: existing?.numeratorValue || 0, 
       den: existing?.denominatorValue || 0,
-      auditData: existing?.auditData,
+      auditData: defaultAudit,
       auditInfo: existing?.meta?.auditInfo
     };
+    
+    const calc = values.auditData && (scoringLogic as any)[indicator.id] 
+      ? (scoringLogic as any)[indicator.id](values.auditData) 
+      : { num: values.num, den: values.den };
     
     const measurement: QualityMeasurement = {
       id: existing?.id || `m-${Date.now()}`,
       indicatorId: indicator.id,
       date: selectedDate,
-      numeratorValue: values.num,
-      denominatorValue: values.den,
+      numeratorValue: calc.num,
+      denominatorValue: calc.den,
       recordedBy: currentUser?.name || 'User',
       unit: currentUser?.unit || '',
       auditData: values.auditData,
@@ -983,18 +1616,24 @@ export const QualityWorksheet: React.FC<QualityWorksheetProps> = ({
       </div>
 
       {/* Tabs */}
-      <div className="flex bg-white/70 backdrop-blur-md p-1 rounded-2xl border shadow-sm w-fit border-[#144272]/10">
+      <div className="flex bg-white/70 backdrop-blur-md p-1 rounded-2xl border shadow-sm w-fit border-[#144272]/10 animate-fade-in-down">
         <button 
           onClick={() => setActiveTab('ENTRY')}
-          className={`px-12 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'ENTRY' ? 'bg-[#144272] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
+          className={`px-8 sm:px-12 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'ENTRY' ? 'bg-[#144272] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
         >
           Form Entri Harian
         </button>
         <button 
           onClick={() => setActiveTab('SUMMARY')}
-          className={`px-12 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'SUMMARY' ? 'bg-[#144272] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
+          className={`px-8 sm:px-12 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'SUMMARY' ? 'bg-[#144272] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
         >
           Ringkasan Capaian
+        </button>
+        <button 
+          onClick={() => setActiveTab('ANALYSIS')}
+          className={`px-8 sm:px-12 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'ANALYSIS' ? 'bg-[#144272] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}
+        >
+          Kertas Kerja Analisis Bulanan
         </button>
       </div>
 
@@ -1002,10 +1641,37 @@ export const QualityWorksheet: React.FC<QualityWorksheetProps> = ({
         <div className="grid grid-cols-1 gap-8">
           {indicators.map(indicator => {
             const existing = getExistingMeasurement(indicator.id);
+            const rawAudit = existing?.auditData;
+            let defaultAudit = (!rawAudit || rawAudit.length === 0) ? getDefaultAuditData(indicator.id, selectedDate) : rawAudit;
+
+            // Auto-enrich empty auditData fields with live nurse report data
+            if (indicator.id === 'ketergantungan-pasien-1' && defaultAudit && defaultAudit.length > 0) {
+              defaultAudit = defaultAudit.map((d: any) => {
+                const p = patients.find(pat => {
+                  const hasRm = pat.noRM && pat.noRM.trim() !== '';
+                  if (hasRm) return d.patientName.includes(pat.noRM);
+                  return pat.name && pat.name.trim() !== '' && d.patientName.includes(pat.name);
+                });
+                if (p) {
+                  const r = dailyReports.find(rep => rep.patientId === p.id && rep.date === selectedDate);
+                  if (r) {
+                    return {
+                      ...d,
+                      morning: r.morningDependency || d.morning || '',
+                      afternoon: r.afternoonDependency || d.afternoon || '',
+                      night: r.nightDependency || d.night || '',
+                      compliant: !!(r.morningDependency || r.afternoonDependency || r.nightDependency || d.compliant)
+                    };
+                  }
+                }
+                return d;
+              });
+            }
+
             const values = localValues[indicator.id] || { 
               num: existing?.numeratorValue || 0, 
               den: existing?.denominatorValue || 0,
-              auditData: existing?.auditData,
+              auditData: defaultAudit,
               auditInfo: existing?.meta?.auditInfo
             };
 
@@ -1034,7 +1700,7 @@ export const QualityWorksheet: React.FC<QualityWorksheetProps> = ({
                         <span className="px-4 py-1.5 bg-blue-50 text-[9px] font-black text-blue-600 rounded-full border border-blue-100 uppercase tracking-widest">
                           {indicator.category}
                         </span>
-                        { (indicator.id === 'inm-1' || indicator.id === 'inm-2' || indicator.id === 'inm-3' || indicator.id === 'pathway-1' || indicator.id === 'aps-1') && (
+                        { (indicator.id === 'inm-1' || indicator.id === 'inm-2' || indicator.id === 'inm-3' || indicator.id === 'pathway-1' || indicator.id === 'aps-1' || indicator.id === 'operasi-elektif-1' || indicator.id === 'ketergantungan-pasien-1') && (
                           <span className="px-4 py-1.5 bg-amber-50 text-[9px] font-black text-amber-600 rounded-full border border-amber-100 uppercase tracking-widest flex items-center gap-1.5">
                             <Zap size={10}/> Audit Mode Available
                           </span>
@@ -1054,7 +1720,7 @@ export const QualityWorksheet: React.FC<QualityWorksheetProps> = ({
                         onClick={() => setExpandedIndicator(isExpanded ? null : indicator.id)}
                         className={`p-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all ${isExpanded ? 'bg-slate-800 text-white shadow-lg' : 'bg-white text-indigo-600 border border-indigo-200'}`}
                        >
-                         {isExpanded ? 'Tutup Detail' : (indicator.id === 'inm-1' || indicator.id === 'inm-2' || indicator.id === 'inm-3' || indicator.id === 'pathway-1' || indicator.id === 'aps-1' ? 'Buka Form Audit' : 'Edit Data')}
+                         {isExpanded ? 'Tutup Detail' : (['inm-1', 'inm-2', 'inm-3', 'pathway-1', 'aps-1', 'operasi-elektif-1', 'ketergantungan-pasien-1'].includes(indicator.id) ? 'Buka Form Audit' : 'Edit Data')}
                        </button>
                     </div>
                   </div>
@@ -1106,7 +1772,23 @@ export const QualityWorksheet: React.FC<QualityWorksheetProps> = ({
                           data={currentDraft.auditData || []} 
                           onChange={(next) => handleAuditChange(indicator.id, next)}
                         />
-                       ) : indicator.id === 'aps-1' ? (
+                       ) : indicator.id === 'operasi-elektif-1' ? (
+                        <OperasiElektifAuditForm
+                          data={currentDraft.auditData || []}
+                          onChange={(next) => handleAuditChange(indicator.id, next)}
+                          patients={patients}
+                          dailyReports={dailyReports}
+                          selectedDate={selectedDate}
+                        />
+                      ) : indicator.id === 'ketergantungan-pasien-1' ? (
+                        <KetergantunganPasienAuditForm
+                          data={currentDraft.auditData || []}
+                          onChange={(next) => handleAuditChange(indicator.id, next)}
+                          patients={patients}
+                          dailyReports={dailyReports}
+                          selectedDate={selectedDate}
+                        />
+                      ) : indicator.id === 'aps-1' ? (
                         <APSListForm 
                           data={currentDraft.auditData || []} 
                           onChange={(next) => handleAuditChange(indicator.id, next)}
@@ -1178,16 +1860,37 @@ export const QualityWorksheet: React.FC<QualityWorksheetProps> = ({
 
       {activeTab === 'SUMMARY' && (
         <div className="bg-white/70 backdrop-blur-md rounded-[2.5rem] border border-[#144272]/10 shadow-sm overflow-hidden animate-fade-in">
-          <div className="p-8 border-b border-[#144272]/10 flex flex-col md:flex-row justify-between items-center gap-6">
+          <div className="p-8 border-b border-[#144272]/10 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
             <div>
               <h4 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-3">
                 <History className="text-[#144272]"/> Analisis Capaian Mutu {currentUser?.unit}
               </h4>
               <p className="text-xs text-slate-400 font-bold mt-1 uppercase tracking-widest">Monitoring progres kepatuhan standar pelayanan</p>
             </div>
-            <div className="flex gap-3">
-              <Button onClick={handleExportExcel} variant="secondary" className="rounded-xl text-[10px] font-black border-[#144272]/10 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"><Filter size={14} className="mr-2"/> Export Excel</Button>
-              <Button onClick={handleExportPDF} variant="secondary" className="rounded-xl text-[10px] font-black border-[#144272]/10 bg-rose-50 text-rose-700 hover:bg-rose-100">Export PDF</Button>
+            
+            <div className="flex flex-wrap items-center gap-3 bg-slate-50 border p-3 rounded-2xl w-full lg:w-auto">
+              <div className="flex items-center gap-2">
+                <Calendar size={14} className="text-blue-500" />
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Rentang Tanggal:</span>
+              </div>
+              <input
+                type="date"
+                value={startDate}
+                onChange={e => setStartDate(e.target.value)}
+                className="bg-white border border-slate-200 text-xs font-bold rounded-xl px-3 py-1.5 outline-none focus:border-[#144272] cursor-pointer text-slate-700 font-sans"
+              />
+              <span className="text-[10px] font-black text-slate-400">s/d</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={e => setEndDate(e.target.value)}
+                className="bg-white border border-slate-200 text-xs font-bold rounded-xl px-3 py-1.5 outline-none focus:border-[#144272] cursor-pointer text-slate-700 font-sans"
+              />
+            </div>
+
+            <div className="flex gap-3 w-full lg:w-auto shrink-0 justify-end">
+              <Button onClick={handleExportExcel} variant="secondary" className="rounded-xl text-[10px] font-black border-[#144272]/10 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 flex items-center gap-2"><FileSpreadsheet size={14}/> Export Excel</Button>
+              <Button onClick={handleExportPDF} variant="secondary" className="rounded-xl text-[10px] font-black border-[#144272]/10 bg-rose-50 text-rose-700 hover:bg-rose-100 flex items-center gap-2"><Printer size={14}/> Export PDF</Button>
             </div>
           </div>
           <div className="overflow-x-auto">
@@ -1202,7 +1905,7 @@ export const QualityWorksheet: React.FC<QualityWorksheetProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredMeasurements.sort((a,b) => b.date.localeCompare(a.date)).map(m => {
+                {filteredMeasurements.sort((a,b) => compareDatesSafe(a.date, b.date, true)).map(m => {
                   const ind = indicators.find(i => i.id === m.indicatorId);
                   const result = calculatePercentage(m.numeratorValue, m.denominatorValue);
                   const isAchieved = result >= (ind?.target || 0);
@@ -1246,6 +1949,153 @@ export const QualityWorksheet: React.FC<QualityWorksheetProps> = ({
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {activeTab === 'ANALYSIS' && (
+        <div className="bg-white/70 backdrop-blur-md rounded-[2.5rem] border border-[#144272]/10 shadow-sm overflow-hidden animate-fade-in space-y-8 p-8 sm:p-12">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-[#144272]/10 pb-6">
+            <div>
+              <h4 className="text-2xl font-black text-[#144272] tracking-tight flex items-center gap-3">
+                <ClipboardList className="text-[#144272]"/> KERTAS KERJA ANALISIS MUTU BULANAN
+              </h4>
+              <p className="text-xs text-slate-400 font-bold mt-1 uppercase tracking-widest">Agregasi Otomatis Data Harian & Tindakan Korektif (PDSA)</p>
+            </div>
+            <div className="flex items-center gap-3 self-end sm:self-auto bg-slate-50 border border-slate-200/60 rounded-2xl px-4 py-2.5">
+              <label className="text-[10px] font-black text-[#144272] uppercase tracking-widest flex items-center gap-2"><Calendar size={12}/> Periode:</label>
+              <select
+                className="bg-transparent border-none text-xs font-black text-slate-700 focus:ring-0 outline-none p-0 cursor-pointer"
+                value={selectedMonth}
+                onChange={(e) => {
+                  setSelectedMonth(e.target.value);
+                  setSelectedIndicatorForAnalysis(null);
+                }}
+              >
+                <option value="2026-01">Januari 2026</option>
+                <option value="2026-02">Februari 2026</option>
+                <option value="2026-03">Maret 2026</option>
+                <option value="2026-04">April 2026</option>
+                <option value="2026-05">Mei 2026</option>
+                <option value="2026-06">Juni 2026</option>
+                <option value="2026-07">Juli 2026</option>
+                <option value="2026-08">Agustus 2026</option>
+                <option value="2026-09">September 2026</option>
+                <option value="2026-10">Oktober 2026</option>
+                <option value="2026-11">November 2026</option>
+                <option value="2026-12">Desember 2026</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto bg-white border border-[#144272]/10 rounded-3xl shadow-sm">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-[#144272]/5 text-[#144272] font-black uppercase tracking-[0.15em] border-b border-[#144272]/10">
+                <tr>
+                  <th className="p-6">INDIKATOR MUTU</th>
+                  <th className="p-6 text-center">NUMERATOR TOTAL</th>
+                  <th className="p-6 text-center">DENOMINATOR TOTAL</th>
+                  <th className="p-6 text-center">SKOR CAPAIAN (%)</th>
+                  <th className="p-6 text-center">TARGET %</th>
+                  <th className="p-6 text-center">STATUS</th>
+                  <th className="p-6 text-center">KERTAS KERJA</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                {monthlyMetrics.map(item => {
+                  const isSelected = selectedIndicatorForAnalysis === item.id;
+                  const isAchieved = item.score >= item.target;
+                  return (
+                    <tr 
+                      key={item.id} 
+                      className={`hover:bg-slate-50/80 transition-colors cursor-pointer group ${isSelected ? 'bg-indigo-50/30' : ''}`}
+                      onClick={() => loadAnalysisForIndicator(item.id)}
+                    >
+                      <td className="p-6">
+                        <div className="font-extrabold text-slate-800 uppercase leading-snug group-hover:text-indigo-600 transition-colors">{item.title}</div>
+                        <div className="text-[9px] text-slate-400 font-bold mt-1 tracking-wider uppercase">{item.category}</div>
+                      </td>
+                      <td className="p-6 text-center font-bold text-slate-600 text-sm">
+                        {item.totalNum}
+                      </td>
+                      <td className="p-6 text-center font-bold text-slate-600 text-sm">
+                        {item.totalDen}
+                      </td>
+                      <td className="p-6 text-center font-black text-slate-800">
+                        {item.totalDen > 0 ? `${item.score.toFixed(1)}%` : '-'}
+                      </td>
+                      <td className="p-6 text-center font-bold text-slate-400">
+                        {item.target}%
+                      </td>
+                      <td className="p-6 text-center">
+                        {item.totalDen > 0 ? (
+                          <span className={`px-4 py-1.5 rounded-2xl font-black text-[10px] uppercase shadow-sm ${isAchieved ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100'}`}>
+                            {item.status}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">TIDAK ADA DATA</span>
+                        )}
+                      </td>
+                      <td className="p-6 text-center">
+                        <span className={`px-4 py-1.5 rounded-xl font-black text-[10px] uppercase border ${item.hasAnalysis ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-400 border-slate-200/60'}`}>
+                          {item.hasAnalysis ? 'TERISI' : 'BELUM TERISI'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {selectedIndicatorForAnalysis && (() => {
+            const indicator = indicators.find(i => i.id === selectedIndicatorForAnalysis);
+            return (
+              <div className="border-t border-slate-100 pt-8 animate-fade-in space-y-6">
+                <div className="bg-slate-50 border border-slate-205 rounded-[2rem] p-8 space-y-6">
+                  <div>
+                    <span className="text-[9px] font-extrabold text-indigo-600 uppercase tracking-widest block mb-1">PENGISIAN KERTAS EVALUASI MUTU</span>
+                    <h4 className="text-lg font-black text-[#144272] uppercase leading-tight">{indicator?.title}</h4>
+                    <p className="text-[10px] text-slate-400 font-bold block mt-1 uppercase tracking-wider">Periode: {selectedMonth}</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Analisis Masalah (Penyebab Tren/Capaian Belum Tercapai)</label>
+                      <textarea
+                        rows={6}
+                        placeholder="Tuliskan analisis akar masalah, komplikasi tak terduga, atau deviasi target di sini..."
+                        className="w-full text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-2xl p-4 focus:ring-4 focus:ring-indigo-100 focus:border-indigo-400 focus:outline-none transition-all resize-none shadow-sm placeholder:text-slate-400"
+                        value={tempProblemAnalysis}
+                        onChange={(e) => setTempProblemAnalysis(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Action Plan / Tindakan Korektif (PDSA)</label>
+                      <textarea
+                        rows={6}
+                        placeholder="Tuliskan rencana tindakan perbaikan dengan format Plan-Do-Study-Act (PDSA) di sini..."
+                        className="w-full text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-2xl p-4 focus:ring-4 focus:ring-indigo-100 focus:border-indigo-400 focus:outline-none transition-all resize-none shadow-sm placeholder:text-slate-400"
+                        value={tempActionPlan}
+                        onChange={(e) => setTempActionPlan(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-3">
+                    <Button
+                      onClick={() => {
+                        handleSaveAnalysis(selectedIndicatorForAnalysis);
+                        alert('Kertas kerja analisis berhasil disimpan ke database lokal aplikasi!');
+                      }}
+                      className="rounded-2xl text-xs font-black shadow-lg bg-[#144272] hover:bg-[#205295] text-white flex items-center gap-2 py-3.5 px-8 transition-all hover:translate-y-[-1px] active:scale-95"
+                    >
+                      <Save size={16}/> SIMPAN KERTAS KERJA
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>

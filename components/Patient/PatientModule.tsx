@@ -35,6 +35,17 @@ export const PatientModule: React.FC<PatientModuleProps> = ({ appData, onEditPat
     [appData.patients, selectedPatientId]
   );
 
+  const patientStays = useMemo(() => {
+    if (!selectedPatient?.noRM) return [];
+    return (appData.patients || [])
+      .filter(p => p.noRM === selectedPatient.noRM)
+      .sort((a, b) => {
+        const dateA = new Date(`${a.entryDate}T${a.entryTime || '00:00'}`);
+        const dateB = new Date(`${b.entryDate}T${b.entryTime || '00:00'}`);
+        return dateA.getTime() - dateB.getTime();
+      });
+  }, [appData.patients, selectedPatient]);
+
   return (
     <div className="space-y-6 animate-fade-in pb-20">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -51,7 +62,7 @@ export const PatientModule: React.FC<PatientModuleProps> = ({ appData, onEditPat
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Patient List Section */}
-        <div className={`lg:col-span-${selectedPatientId ? '5' : '12'} transition-all duration-300`}>
+        <div className={`transition-all duration-300 ${selectedPatientId ? 'lg:col-span-5' : 'lg:col-span-12'}`}>
           <div className="bg-white/70 backdrop-blur-md rounded-[2.5rem] border shadow-sm overflow-hidden flex flex-col h-[700px]">
             <div className="p-6 border-b bg-slate-50/50">
               <div className="relative">
@@ -210,40 +221,43 @@ export const PatientModule: React.FC<PatientModuleProps> = ({ appData, onEditPat
                     <History size={16} className="text-indigo-500" /> Riwayat Aktivitas & Pergerakan
                   </div>
                   
-                  <div className="relative pl-6 border-l-2 border-slate-100 ml-3 space-y-8">
-                    {/* Log Admission */}
-                    <div className="relative">
-                      <div className="absolute -left-[31px] top-0 w-4 h-4 rounded-full bg-blue-500 border-4 border-white shadow-sm"></div>
-                      <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
-                        <div className="flex justify-between items-start mb-2">
-                           <span className="text-[10px] font-black text-blue-500 uppercase tracking-wider">Masuk Rawat Inap</span>
-                           <span className="text-[10px] font-bold text-slate-400">{selectedPatient.entryDate}</span>
-                        </div>
-                        <p className="text-xs font-bold text-slate-700">Pasien masuk melalui <span className="text-blue-600">{selectedPatient.origin}</span> menuju unit <span className="text-blue-600">{selectedPatient.unitTujuan}</span></p>
-                        <div className="mt-3 text-[10px] font-bold text-slate-400 bg-slate-50 p-2 rounded-xl border border-slate-100">
-                          Diagnosa: {selectedPatient.diagnosaUtama || 'Belum diisi'}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Log Discharge if applicable */}
-                    {selectedPatient.dischargeDate && (
-                      <div className="relative">
-                        <div className="absolute -left-[31px] top-0 w-4 h-4 rounded-full bg-emerald-500 border-4 border-white shadow-sm"></div>
-                        <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm">
-                          <div className="flex justify-between items-start mb-2">
-                             <span className="text-[10px] font-black text-emerald-500 uppercase tracking-wider">Keluar Rawat Inap</span>
-                             <span className="text-[10px] font-bold text-slate-400">{selectedPatient.dischargeDate}</span>
+                  <div className="relative pl-6 border-l-2 border-slate-100 ml-3 space-y-6">
+                    {patientStays.map((stay, stayIdx) => {
+                      const isActive = ["Masih Dirawat", "AKTIF"].includes(stay.statusDataPasien || '') || stay.status === 'ADMITTED';
+                      return (
+                        <div key={stay.id} className="relative">
+                          <div className={`absolute -left-[31px] top-1.5 w-4 h-4 rounded-full border-4 border-white shadow-sm ${
+                            isActive ? 'bg-emerald-500' : 'bg-slate-400'
+                          }`}></div>
+                          <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm hover:border-slate-200 transition-colors">
+                            <div className="flex justify-between items-start mb-2">
+                              <span className={`text-[10px] font-black uppercase tracking-wider ${
+                                isActive ? 'text-emerald-500' : 'text-slate-500'
+                              }`}>
+                                Periode {stayIdx + 1}: {stay.unitTujuan} {isActive ? '(Sedang Dirawat)' : '(Selesai Rawat)'}
+                              </span>
+                              <span className="text-[10px] font-bold text-slate-400">
+                                {stay.entryDate} {stay.entryTime ? `@ ${stay.entryTime}` : ''}
+                                {stay.dischargeDate ? ` s/d ${stay.dischargeDate} ${stay.dischargeTime ? `@ ${stay.dischargeTime}` : ''}` : ' s/d Sekarang'}
+                              </span>
+                            </div>
+                            <p className="text-xs font-bold text-slate-700 leading-normal">
+                              Kamar/Ruangan: <span className="text-indigo-600 font-extrabold">{stay.ruangan || '-'}</span> | Bed: <span className="text-indigo-600 font-extrabold">{stay.nomorBed || '-'}</span> | Kelas: <span className="text-slate-500">{stay.kelasRawat || '-'}</span>
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2 items-center justify-between">
+                              <div className="text-[10px] font-bold text-slate-400">
+                                Diagnosa: <span className="text-slate-600 font-extrabold">{stay.diagnosaUtama || '-'}</span>
+                              </div>
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                isActive ? 'bg-emerald-50 text-emerald-700 border border-emerald-250' : 'bg-slate-50 text-slate-600 border border-slate-200'
+                              }`}>
+                                Status: {stay.statusDataPasien || 'Masih Dirawat'}
+                              </span>
+                            </div>
                           </div>
-                          <p className="text-xs font-bold text-slate-700">Pasien dinyatakan <span className="text-emerald-600">{selectedPatient.statusDataPasien}</span></p>
-                          {selectedPatient.deathTime && (
-                           <div className="mt-2 text-[10px] font-black text-rose-600 bg-rose-50 px-3 py-1 rounded-full w-fit">
-                             MENINGGAL {selectedPatient.deathTime}
-                           </div>
-                          )}
                         </div>
-                      </div>
-                    )}
+                      );
+                    })}
                   </div>
                 </div>
 

@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, User as UserIcon, Calendar, MapPin, Bed as BedIcon, ClipboardList, Stethoscope, Wallet, Save, Activity, ShieldCheck, FileText, LayoutGrid, Clock, AlertCircle, ChevronDown, Search } from 'lucide-react';
+import { X, User as UserIcon, Calendar, MapPin, Bed as BedIcon, ClipboardList, Stethoscope, Wallet, Save, Activity, ShieldCheck, FileText, LayoutGrid, Clock, AlertCircle, ChevronDown, Search, Check } from 'lucide-react';
 import { Patient, MasterData, User } from '../../types';
 import { Button } from '../Button';
+import { SearchableSelect } from '../SearchableSelect';
 
 interface PatientModalProps {
   onClose: () => void;
@@ -14,6 +15,36 @@ interface PatientModalProps {
 }
 
 export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onDelete, masterData, currentUser, initialData }) => {
+  // Safe default helper functions
+  const getDefaultUnitTujuan = () => {
+    if (initialData?.unitTujuan) return initialData.unitTujuan;
+    if (currentUser?.unit && currentUser?.role !== 'SUPER_ADMIN' && currentUser?.role !== 'BIDANG') {
+      return currentUser.unit;
+    }
+    return '';
+  };
+
+  const getDefaultKelasRawat = () => {
+    if (initialData?.kelasRawat) return initialData.kelasRawat;
+    const unit = getDefaultUnitTujuan();
+    if (unit) {
+      const classes = masterData.unitToClasses[unit] || [];
+      return classes.length === 1 ? classes[0] : '';
+    }
+    return '';
+  };
+
+  const getDefaultRuangan = () => {
+    if (initialData?.ruangan) return initialData.ruangan;
+    const unit = getDefaultUnitTujuan();
+    const kelas = getDefaultKelasRawat();
+    if (unit && kelas) {
+      const rooms = masterData.classToRooms[`${unit} - ${kelas}`] || [];
+      return rooms.length === 1 ? rooms[0] : '';
+    }
+    return '';
+  };
+
   const [formData, setFormData] = useState<Omit<Patient, 'id'>>({
     noRegister: initialData?.noRegister || '',
     noRM: initialData?.noRM || '',
@@ -22,13 +53,20 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
     birthDate: initialData?.birthDate || '',
     address: initialData?.address || '',
     entryDate: initialData?.entryDate || new Date().toISOString().split('T')[0],
+    entryTime: initialData?.entryTime || (() => {
+      const d = new Date();
+      const h = String(d.getHours()).padStart(2, '0');
+      const m = String(d.getMinutes()).padStart(2, '0');
+      return `${h}:${m}`;
+    })(),
     origin: initialData?.origin || '',
-    unitTujuan: initialData?.unitTujuan || '',
-    kelasRawat: initialData?.kelasRawat || '',
-    ruangan: initialData?.ruangan || '',
+    unitTujuan: getDefaultUnitTujuan(),
+    kelasRawat: getDefaultKelasRawat(),
+    ruangan: getDefaultRuangan(),
     nomorBed: initialData?.nomorBed || '',
     statusDataPasien: initialData?.statusDataPasien || 'Masih Dirawat',
     diagnosaUtama: initialData?.diagnosaUtama || '',
+    diagnosaSekunder: initialData?.diagnosaSekunder || '',
     tindakanProsedur: initialData?.tindakanProsedur || '',
     dpjpList: initialData?.dpjpList || [],
     paymentMethod: initialData?.paymentMethod || [],
@@ -56,25 +94,6 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
 
   const [error, setError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-
-  useEffect(() => {
-    if (!initialData && currentUser?.unit && currentUser?.role !== 'SUPER_ADMIN' && currentUser?.role !== 'BIDANG') {
-      const val = currentUser.unit;
-      const classes = masterData.unitToClasses[val] || [];
-      const autoClass = classes.length === 1 ? classes[0] : '';
-      let autoRoom = '';
-      if (autoClass) {
-        const rooms = masterData.classToRooms[`${val} - ${autoClass}`] || [];
-        if (rooms.length === 1) autoRoom = rooms[0];
-      }
-      setFormData(prev => ({
-        ...prev,
-        unitTujuan: val,
-        kelasRawat: autoClass,
-        ruangan: autoRoom
-      }));
-    }
-  }, [currentUser, masterData, initialData]);
 
   // Derived state for dependent dropdowns
   const availableClasses = React.useMemo(() => {
@@ -108,23 +127,93 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
   const [nurseSearch, setNurseSearch] = useState('');
   const [isNurseDropdownOpen, setIsNurseDropdownOpen] = useState(false);
 
-  const sortedNurses = React.useMemo(() => {
-    let list = [...masterData.nurses];
-    if (currentUser?.name) {
-      list = [currentUser.name, ...list.filter(n => n !== currentUser.name)];
+  const [dpjpSearch, setDpjpSearch] = useState('');
+  const [isDpjpDropdownOpen, setIsDpjpDropdownOpen] = useState(false);
+
+  const [originSearch, setOriginSearch] = useState('');
+  const [isOriginDropdownOpen, setIsOriginDropdownOpen] = useState(false);
+
+  const dpjpRef = React.useRef<HTMLDivElement>(null);
+  const nurseRef = React.useRef<HTMLDivElement>(null);
+  const originRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dpjpRef.current && !dpjpRef.current.contains(event.target as Node)) {
+        setIsDpjpDropdownOpen(false);
+      }
+      if (nurseRef.current && !nurseRef.current.contains(event.target as Node)) {
+        setIsNurseDropdownOpen(false);
+      }
+      if (originRef.current && !originRef.current.contains(event.target as Node)) {
+        setIsOriginDropdownOpen(false);
+      }
     }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  const sortedOrigins = React.useMemo(() => {
+    let list = [...(masterData.refs?.asalMasuk || [])];
+    if (originSearch) {
+      list = list.filter(o => o.toLowerCase().includes(originSearch.toLowerCase()));
+    }
+    return list;
+  }, [masterData.refs?.asalMasuk, originSearch]);
+
+  const sortedDoctors = React.useMemo(() => {
+    let list = [...masterData.doctors];
+    if (dpjpSearch) {
+      list = list.filter(d => d.toLowerCase().includes(dpjpSearch.toLowerCase()));
+    }
+    return list;
+  }, [masterData.doctors, dpjpSearch]);
+
+  const sortedNurses = React.useMemo(() => {
+    // Sourced directly from users list with role 'PPJA' or position containing 'ppja' or 'primer'
+    let list = (masterData.users || [])
+      .filter((u: any) => {
+        const role = String(u.role || '').toLowerCase();
+        const pos = String(u.position || '').toLowerCase();
+        return role === 'ppja' || pos.includes('ppja') || pos.includes('primer');
+      })
+      .map((u: any) => u.name);
+
+    // Filter to ensure uniqueness
+    list = Array.from(new Set(list));
+
+    if (currentUser?.name) {
+      const isCurrentUserPPJA = String(currentUser.role || '').toLowerCase() === 'ppja' || 
+                                String(currentUser.position || '').toLowerCase().includes('ppja') || 
+                                String(currentUser.position || '').toLowerCase().includes('primer');
+      if (isCurrentUserPPJA) {
+        list = [currentUser.name, ...list.filter(n => n !== currentUser.name)];
+      }
+    }
+
     if (nurseSearch) {
       list = list.filter(n => n.toLowerCase().includes(nurseSearch.toLowerCase()));
     }
     return list;
-  }, [masterData.nurses, currentUser, nurseSearch]);
+  }, [masterData.users, currentUser, nurseSearch]);
 
   const handleToggleDPJP = (doctor: string) => {
     const current = formData.dpjpList || [];
-    if (current.includes(doctor)) {
-      setFormData({ ...formData, dpjpList: current.filter(d => d !== doctor) });
+    const trimmedDoc = doctor.trim();
+    const isSelected = current.map(d => d.toLowerCase().trim()).includes(trimmedDoc.toLowerCase());
+    
+    if (isSelected) {
+      setFormData({ 
+        ...formData, 
+        dpjpList: current.filter(d => d.trim().toLowerCase() !== trimmedDoc.toLowerCase()) 
+      });
     } else {
-      setFormData({ ...formData, dpjpList: [...current, doctor] });
+      setFormData({ 
+        ...formData, 
+        dpjpList: Array.from(new Set([...current, trimmedDoc])) 
+      });
     }
   };
 
@@ -147,7 +236,8 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
       gender: 'Jenis Kelamin',
       entryDate: 'Tanggal MRS',
       origin: 'Asal Masuk',
-      unitTujuan: 'Unit Tujuan'
+      unitTujuan: 'Unit Tujuan',
+      perawatPrimer: 'Perawat Primer'
     };
 
     for (const [field, label] of Object.entries(requiredFields)) {
@@ -160,7 +250,30 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
     const finalData = { ...formData };
     
     // Auto-update core fields if transferring room
-    if (isDischargeStatus(formData.statusDataPasien) && (formData.statusDataPasien.toUpperCase().includes('PINDAH') || formData.statusDataPasien.toUpperCase().includes('RUANGAN LAIN'))) {
+    const isPindah = formData.statusDataPasien && (
+      formData.statusDataPasien.toUpperCase().includes('PINDAH') || 
+      formData.statusDataPasien.toUpperCase().includes('RUANGAN LAIN')
+    );
+    if (isPindah) {
+      const isTransferringOut = initialData && initialData.unitTujuan === 'Ruang Bedah' && formData.transferUnit !== 'Ruang Bedah';
+      const isSameUnit = initialData && formData.transferUnit === initialData.unitTujuan;
+      
+      if (isSameUnit) {
+        finalData.statusDataPasien = "Masih Dirawat";
+        finalData.status = "ADMITTED";
+        finalData.dischargeDate = "";
+        finalData.dischargeTime = "";
+      } else if (isTransferringOut) {
+        finalData.statusDataPasien = "Dipindah ke Ruangan Lain";
+        finalData.status = "DISCHARGED";
+        if (!finalData.dischargeDate) {
+          finalData.dischargeDate = new Date().toISOString().split('T')[0];
+        }
+        if (!finalData.dischargeTime) {
+          finalData.dischargeTime = new Date().toTimeString().slice(0, 5);
+        }
+      }
+      
       if (formData.transferUnit) finalData.unitTujuan = formData.transferUnit;
       if (formData.transferClass) finalData.kelasRawat = formData.transferClass;
       if (formData.transferRoom) finalData.ruangan = formData.transferRoom;
@@ -180,10 +293,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
   const isDischargeStatus = (status: string) => {
     if (!status) return false;
     const s = status.toUpperCase();
-    return ['BPL', 'APS', 'DIRUJUK', 'DIPINDAH KE RUANGAN LAIN', 'MENINGGAL', 'PINDAH RUANGAN'].includes(s) || 
-           s.includes('APS') || 
-           s.includes('BPL') || 
-           s.includes('MENINGGAL') || 
+    return ['BPL', 'APS', 'DIRUJUK', 'DIPINDAH KE RUANGAN LAIN', 'MENINGGAL', 'PINDAH RUANGAN', 'BATAL'].some(item => s.includes(item)) || 
            s.includes('RUANGAN LAIN') ||
            s.includes('PINDAH');
   };
@@ -222,6 +332,65 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nama Lengkap Pasien</label>
                 <input required className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/20 uppercase" placeholder="Nama sesuai identitas..." value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})}/>
               </div>
+              <div className="md:col-span-6 space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  Perawat Primer (PPJA) <span className="text-rose-500 font-bold">*</span>
+                </label>
+                <div ref={nurseRef} className="relative">
+                  <div 
+                    onClick={() => setIsNurseDropdownOpen(!isNurseDropdownOpen)}
+                    className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold bg-white cursor-pointer flex justify-between items-center"
+                  >
+                    <span className="truncate">
+                      {formData.perawatPrimer || '-- Pilih Perawat Primer --'}
+                    </span>
+                    <ChevronDown size={16} className="text-slate-400"/>
+                  </div>
+
+                  {isNurseDropdownOpen && (
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-xl shadow-2xl z-[110] overflow-hidden flex flex-col max-h-64">
+                      <div className="p-3 border-b bg-slate-50">
+                        <div className="relative">
+                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                          <input 
+                            autoFocus
+                            type="text"
+                            placeholder="Cari nama perawat..."
+                            className="w-full pl-9 pr-3 py-2 rounded-lg border text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500"
+                            value={nurseSearch}
+                            onChange={e => setNurseSearch(e.target.value)}
+                            onClick={e => e.stopPropagation()}
+                          />
+                        </div>
+                      </div>
+                      <div className="overflow-y-auto custom-scrollbar bg-white">
+                        {sortedNurses.length > 0 ? sortedNurses.map(n => (
+                          <div 
+                            key={n}
+                            onClick={() => {
+                              setFormData({...formData, perawatPrimer: n});
+                              setIsNurseDropdownOpen(false);
+                              setNurseSearch('');
+                            }}
+                            className={`px-4 py-3 text-xs font-bold cursor-pointer transition-colors flex items-center justify-between ${
+                              formData.perawatPrimer === n 
+                              ? 'bg-blue-50 text-blue-600' 
+                              : 'hover:bg-slate-50 text-slate-600'
+                            }`}
+                          >
+                            <span>{n}</span>
+                            {n === currentUser?.name && (
+                              <span className="text-[8px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black">SAYA</span>
+                            )}
+                          </div>
+                        )) : (
+                          <div className="p-4 text-center text-[10px] font-bold text-slate-400 italic">Tidak ditemukan.</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
               <div className="md:col-span-3 space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Jenis Kelamin</label>
                 <div className="flex gap-2">
@@ -257,27 +426,100 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
             <div className="flex items-center gap-2 text-blue-600 font-black text-[11px] uppercase tracking-widest">
               <Calendar size={16}/> Kedatangan & Lokasi Rawat
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tanggal MRS</label>
                 <input type="date" required className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/20" value={formData.entryDate || ''} onChange={e => setFormData({...formData, entryDate: e.target.value})}/>
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Asal Masuk</label>
-                <select required className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none bg-white" value={formData.origin || ''} onChange={e => setFormData({...formData, origin: e.target.value})}>
-                  <option value="">-- Pilih Asal --</option>
-                  {masterData.refs.asalMasuk.map(a => <option key={a} value={a}>{a}</option>)}
-                </select>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Jam MRS (Sensus)</label>
+                <input type="time" required className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/20" value={formData.entryTime || ''} onChange={e => setFormData({...formData, entryTime: e.target.value})}/>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block font-sans">Asal Masuk</label>
+                <div ref={originRef} className="relative font-sans">
+                  <div 
+                    onClick={() => setIsOriginDropdownOpen(!isOriginDropdownOpen)}
+                    className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold bg-white cursor-pointer min-h-11 flex items-center justify-between transition-all hover:border-slate-350 focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    <span className={formData.origin ? 'text-slate-800' : 'text-slate-400'}>
+                      {formData.origin || '-- Pilih Asal --'}
+                    </span>
+                    <ChevronDown size={14} className="text-slate-400 shrink-0"/>
+                  </div>
+
+                  {isOriginDropdownOpen && (
+                    <div className="absolute top-full mt-1 left-0 right-0 bg-white border rounded-xl shadow-2xl z-[120] overflow-hidden flex flex-col max-h-64">
+                      <div className="p-2 border-b bg-slate-50">
+                        <div className="relative">
+                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                          <input 
+                            autoFocus
+                            type="text"
+                            placeholder="Cari asal masuk..."
+                            className="w-full pl-9 pr-3 py-1.5 rounded-lg border text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500"
+                            value={originSearch}
+                            onChange={e => setOriginSearch(e.target.value)}
+                            onClick={e => e.stopPropagation()}
+                          />
+                        </div>
+                      </div>
+                      <div className="overflow-y-auto custom-scrollbar">
+                        {sortedOrigins.length > 0 ? (
+                          sortedOrigins.map(o => {
+                            const isSelected = formData.origin === o;
+                            return (
+                              <div 
+                                key={o}
+                                onClick={() => {
+                                  setFormData({ ...formData, origin: o });
+                                  setIsOriginDropdownOpen(false);
+                                  setOriginSearch('');
+                                }}
+                                className={`px-4 py-2 text-xs font-bold cursor-pointer transition-colors flex items-center justify-between ${
+                                  isSelected 
+                                    ? 'bg-blue-50 text-blue-700 font-extrabold' 
+                                    : 'hover:bg-slate-50 text-slate-600'
+                                }`}
+                              >
+                                <span>{o}</span>
+                                {isSelected && <Check size={14} className="text-blue-500" />}
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="px-4 py-3 text-xs text-slate-400 italic text-center">
+                            Tidak ditemukan hasil
+                          </div>
+                        )}
+                        <div 
+                          onClick={() => {
+                            if (originSearch.trim()) {
+                              setFormData({ ...formData, origin: originSearch.trim() });
+                              setIsOriginDropdownOpen(false);
+                              setOriginSearch('');
+                            }
+                          }}
+                          className="px-4 py-2 text-xs font-black text-blue-600 hover:bg-blue-50 border-t cursor-pointer flex items-center gap-2"
+                        >
+                          {originSearch.trim() ? `+ Tambah "${originSearch.trim()}"` : '+ Ketik untuk Tambah Baru'}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Unit Tujuan</label>
-                <select 
-                  required 
+                <SearchableSelect
                   disabled={currentUser?.role !== 'SUPER_ADMIN' && currentUser?.role !== 'BIDANG'}
-                  className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none bg-white disabled:bg-slate-50 disabled:opacity-80" 
-                  value={formData.unitTujuan || ''} 
-                  onChange={e => {
-                    const val = e.target.value;
+                  placeholder="-- Pilih Unit --"
+                  options={masterData.units.filter(u => {
+                    if (currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'BIDANG') return true;
+                    return u === currentUser?.unit;
+                  })}
+                  value={formData.unitTujuan || ''}
+                  onChange={val => {
                     const classes = masterData.unitToClasses[val] || [];
                     const autoClass = classes.length === 1 ? classes[0] : '';
                     let autoRoom = '';
@@ -287,13 +529,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
                     }
                     setFormData({...formData, unitTujuan: val, kelasRawat: autoClass, ruangan: autoRoom, nomorBed: ''});
                   }}
-                >
-                  <option value="">-- Pilih Unit --</option>
-                  {masterData.units.filter(u => {
-                    if (currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'BIDANG') return true;
-                    return u === currentUser?.unit;
-                  }).map(u => <option key={u} value={u}>{u}</option>)}
-                </select>
+                />
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
@@ -318,20 +554,17 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
                   Ruangan {!formData.kelasRawat && <small className="text-blue-500 lowercase ml-1">(Pilih kelas dulu)</small>}
                 </label>
-                <select 
-                  disabled={!formData.kelasRawat} 
-                  className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none bg-white disabled:bg-slate-50 disabled:opacity-60" 
-                  value={formData.ruangan || ''} 
-                  onChange={e => {
-                    const val = e.target.value;
+                <SearchableSelect
+                  disabled={!formData.kelasRawat}
+                  options={availableRooms}
+                  value={formData.ruangan || ''}
+                  onChange={val => {
                     const beds = masterData.roomToBeds[val] || [];
                     const autoBed = beds.length === 1 ? beds[0] : '';
                     setFormData({...formData, ruangan: val, nomorBed: autoBed});
                   }}
-                >
-                  <option value="">-- Pilih Ruangan --</option>
-                  {availableRooms.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
+                  placeholder="-- Pilih Ruangan --"
+                />
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
@@ -350,7 +583,12 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
               <div className="md:col-span-2 space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status Data Pasien</label>
                 <select className={`w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none transition-all ${isDischargeStatus(formData.statusDataPasien) ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}`} value={formData.statusDataPasien || ''} onChange={e => setFormData({...formData, statusDataPasien: e.target.value, status: isDischargeStatus(e.target.value) ? 'DISCHARGED' : 'ADMITTED'})}>
-                  {masterData.refs.statusDataPasien.map(s => <option key={s} value={s}>{s}</option>)}
+                  {(() => {
+                    const list = masterData.refs?.statusDataPasien || [];
+                    const hasBatal = list.some(s => s.toLowerCase().includes('batal'));
+                    const finalOptions = hasBatal ? list : [...list, "Batal Rawat Inap"];
+                    return finalOptions.map(s => <option key={s} value={s}>{s}</option>);
+                  })()}
                 </select>
               </div>
 
@@ -448,10 +686,14 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
             <div className="flex items-center gap-2 text-emerald-600 font-black text-[11px] uppercase tracking-widest">
               <Stethoscope size={16}/> Data Medis & Diagnosa
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Diagnosa Medis (Utama)</label>
                 <textarea className="w-full border rounded-lg px-4 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 h-20" placeholder="Contoh: Appendicitis Acute..." value={formData.diagnosaUtama || ''} onChange={e => setFormData({...formData, diagnosaUtama: e.target.value})}/>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Diagnosa Sekunder</label>
+                <textarea className="w-full border rounded-lg px-4 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 h-20" placeholder="Contoh: Diabetes Mellitus T2..." value={formData.diagnosaSekunder || ''} onChange={e => setFormData({...formData, diagnosaSekunder: e.target.value})}/>
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tindakan / Prosedur</label>
@@ -460,14 +702,96 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
             </div>
             
             <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Dokter Penanggung Jawab Pelayanan (DPJP)</label>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 bg-slate-50 p-4 rounded-xl border border-slate-100 max-h-40 overflow-y-auto custom-scrollbar">
-                {masterData.doctors.map(doc => (
-                  <label key={doc} className={`flex items-center gap-2 cursor-pointer p-2 rounded-lg transition-all ${formData.dpjpList?.includes(doc) ? 'bg-white shadow-sm ring-1 ring-emerald-500/30' : 'hover:bg-white/50'}`}>
-                    <input type="checkbox" checked={formData.dpjpList?.includes(doc)} onChange={() => handleToggleDPJP(doc)} className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"/>
-                    <span className={`text-[10px] font-bold truncate ${formData.dpjpList?.includes(doc) ? 'text-emerald-700' : 'text-slate-500'}`}>{doc}</span>
-                  </label>
-                ))}
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">
+                Dokter Penanggung Jawab Pelayanan (DPJP)
+              </label>
+              <div ref={dpjpRef} className="relative font-sans">
+                {/* Selected DPJP Display / Toggle Dropdown Button */}
+                <div 
+                  onClick={() => setIsDpjpDropdownOpen(!isDpjpDropdownOpen)}
+                  className="w-full border rounded-xl p-3 bg-white cursor-pointer min-h-11 flex flex-wrap gap-1.5 items-center justify-between transition-all hover:border-slate-350 focus:ring-2 focus:ring-emerald-500/20"
+                >
+                  <div className="flex flex-wrap gap-1.5 items-center max-w-[90%]">
+                    {formData.dpjpList && formData.dpjpList.length > 0 ? (
+                      formData.dpjpList.map((doc, idx) => {
+                        const isDpjpUtama = idx === 0;
+                        return (
+                          <span 
+                            key={doc}
+                            className={`inline-flex items-center gap-1.5 ${isDpjpUtama ? 'bg-[#005B60]/10 text-[#005B60] border-[#005B60]/20' : 'bg-emerald-50 text-emerald-700 border-emerald-150'} font-extrabold text-[9px] uppercase tracking-wider px-2 py-1 rounded-lg border cursor-default`}
+                            onClick={(e) => {
+                              e.stopPropagation(); // Safe boundary: clicking tag space doesn't toggle
+                            }}
+                          >
+                            {doc} {isDpjpUtama && <span className="text-[7px] bg-[#005B60] text-white px-1 font-black rounded uppercase">UTAMA</span>}
+                            {!isDpjpUtama && (
+                              <span 
+                                className="hover:bg-emerald-200/50 rounded-full p-0.5 text-emerald-600 cursor-pointer transition-colors"
+                                onClick={(e) => {
+                                  e.stopPropagation(); // Only the click on the visual 'x' will do the removal toggle
+                                  handleToggleDPJP(doc);
+                                }}
+                              >
+                                <X size={8} className="stroke-[3px]"/>
+                              </span>
+                            )}
+                          </span>
+                        );
+                      })
+                    ) : (
+                      <span className="text-slate-400 text-xs font-bold font-sans">-- Pilih DPJP (Dapat memilih lebih dari 1) --</span>
+                    )}
+                  </div>
+                  <ChevronDown size={16} className="text-slate-400 shrink-0"/>
+                </div>
+
+                {/* Dropdown Menu block */}
+                {isDpjpDropdownOpen && (
+                  <div className="absolute bottom-full mb-2 left-0 right-0 bg-white border rounded-xl shadow-2xl z-[120] overflow-hidden flex flex-col max-h-64">
+                    <div className="p-3 border-b bg-slate-50">
+                      <div className="relative">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                        <input 
+                          autoFocus
+                          type="text"
+                          placeholder="Cari nama DPJP..."
+                          className="w-full pl-9 pr-3 py-2 rounded-lg border text-xs font-bold outline-none focus:ring-2 focus:ring-emerald-500"
+                          value={dpjpSearch}
+                          onChange={e => setDpjpSearch(e.target.value)}
+                          onClick={e => e.stopPropagation()}
+                        />
+                      </div>
+                    </div>
+                    <div className="overflow-y-auto custom-scrollbar">
+                      {sortedDoctors.length > 0 ? sortedDoctors.map(doc => {
+                        const isSelected = formData.dpjpList?.includes(doc);
+                        return (
+                          <div 
+                            key={doc}
+                            onClick={() => handleToggleDPJP(doc)}
+                            className={`px-4 py-3 text-xs font-bold cursor-pointer transition-colors flex items-center justify-between ${
+                              isSelected 
+                              ? 'bg-emerald-50 text-emerald-700' 
+                              : 'hover:bg-slate-50 text-slate-600'
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <input 
+                                type="checkbox" 
+                                checked={!!isSelected} 
+                                readOnly 
+                                className="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500 pointer-events-none"
+                              />
+                              <span>{doc}</span>
+                            </span>
+                          </div>
+                        );
+                      }) : (
+                        <div className="p-4 text-center text-[10px] font-bold text-slate-400 italic">Tidak ditemukan.</div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </section>
@@ -515,63 +839,6 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">No Laporan Polisi (LP)</label>
                 <input className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none" placeholder="No LP..." value={formData.noLP || ''} onChange={e => setFormData({...formData, noLP: e.target.value})}/>
               </div>
-              <div className="md:col-span-2 space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Perawat Primer (PPJA)</label>
-                <div className="relative">
-                  <div 
-                    onClick={() => setIsNurseDropdownOpen(!isNurseDropdownOpen)}
-                    className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold bg-white cursor-pointer flex justify-between items-center"
-                  >
-                    <span className="truncate">
-                      {formData.perawatPrimer || '-- Pilih Perawat Primer --'}
-                    </span>
-                    <ChevronDown size={16} className="text-slate-400"/>
-                  </div>
-
-                  {isNurseDropdownOpen && (
-                    <div className="absolute bottom-full left-0 right-0 mb-2 bg-white border rounded-xl shadow-2xl z-[110] overflow-hidden flex flex-col max-h-64">
-                      <div className="p-3 border-b bg-slate-50">
-                        <div className="relative">
-                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
-                          <input 
-                            autoFocus
-                            type="text"
-                            placeholder="Cari nama perawat..."
-                            className="w-full pl-9 pr-3 py-2 rounded-lg border text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500"
-                            value={nurseSearch}
-                            onChange={e => setNurseSearch(e.target.value)}
-                            onClick={e => e.stopPropagation()}
-                          />
-                        </div>
-                      </div>
-                      <div className="overflow-y-auto custom-scrollbar">
-                        {sortedNurses.length > 0 ? sortedNurses.map(n => (
-                          <div 
-                            key={n}
-                            onClick={() => {
-                              setFormData({...formData, perawatPrimer: n});
-                              setIsNurseDropdownOpen(false);
-                              setNurseSearch('');
-                            }}
-                            className={`px-4 py-3 text-xs font-bold cursor-pointer transition-colors flex items-center justify-between ${
-                              formData.perawatPrimer === n 
-                              ? 'bg-blue-50 text-blue-600' 
-                              : 'hover:bg-slate-50 text-slate-600'
-                            }`}
-                          >
-                            <span>{n}</span>
-                            {n === currentUser?.name && (
-                              <span className="text-[8px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black">SAYA</span>
-                            )}
-                          </div>
-                        )) : (
-                          <div className="p-4 text-center text-[10px] font-bold text-slate-400 italic">Tidak ditemukan.</div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
                <div className="md:col-span-3 space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Keterangan Tambahan / Catatan Khusus</label>
                 <textarea className="w-full border rounded-lg px-4 py-2.5 text-sm font-medium outline-none h-20" placeholder="Alergi obat, catatan risiko, dll..." value={formData.catatanKhusus || ''} onChange={e => setFormData({...formData, catatanKhusus: e.target.value})}/>
@@ -588,14 +855,6 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
               <div className="md:col-span-12 space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-rose-500">Riwayat Alergi</label>
                 <textarea className="w-full border border-rose-100 bg-rose-50/20 rounded-lg px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-rose-500/20 h-20" placeholder="Sebutkan alergi (obat, makanan, dsb) jika ada..." value={formData.allergyHistory || ''} onChange={e => setFormData({...formData, allergyHistory: e.target.value})}/>
-              </div>
-              <div className="md:col-span-6 space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nama Kontak Darurat</label>
-                <input className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="Nama wali/kerabat..." value={formData.emergencyContactName || ''} onChange={e => setFormData({...formData, emergencyContactName: e.target.value})}/>
-              </div>
-              <div className="md:col-span-6 space-y-1">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nomor HP Kontak Darurat</label>
-                <input className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="08xxxxxx" value={formData.emergencyContactPhone || ''} onChange={e => setFormData({...formData, emergencyContactPhone: e.target.value})}/>
               </div>
             </div>
           </section>

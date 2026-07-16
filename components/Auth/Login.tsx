@@ -58,9 +58,14 @@ export const Login: React.FC<LoginProps> = ({ onLogin, settings }) => {
 
   const loginWallpaperUrl = getDirectWallpaperUrl(settings?.loginWallpaperUrl);
 
+  const safeThemeColor = settings?.themeColor && settings.themeColor.trim() !== '' ? settings.themeColor : '#144272';
+  const safeFontColor = settings?.fontColor && settings.fontColor.trim() !== '' ? settings.fontColor : '#ffffff';
+  const safeAppName = settings?.appName && settings.appName.trim() !== '' ? settings.appName : 'SiMANTAP';
+  const safeAppSlogan = settings?.appSlogan && settings.appSlogan.trim() !== '' ? settings.appSlogan : 'Manajemen Laporan Terpadu & Akurat';
+
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 relative overflow-hidden" 
-         style={{ background: settings?.themeColor ? `linear-gradient(135deg, ${settings.themeColor}, #0f172a)` : undefined }}>
+         style={{ background: `linear-gradient(135deg, ${safeThemeColor}, #0f172a)` }}>
       
       {/* Background Wallpaper if any */}
       {loginWallpaperUrl && (
@@ -82,17 +87,17 @@ export const Login: React.FC<LoginProps> = ({ onLogin, settings }) => {
       <div className="w-full max-w-md animate-fade-in relative z-10">
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center mb-6 drop-shadow-2xl">
-            <BrandLogo size="lg" variant="dark" appName={settings?.appName} appSlogan={settings?.appSlogan} fontColor={settings?.fontColor} />
+            <BrandLogo size="lg" variant="dark" appName={safeAppName} appSlogan={safeAppSlogan} fontColor={safeFontColor} logoUrl={settings?.logoUrl} />
           </div>
           <h1 className="text-5xl font-black text-white tracking-tighter mb-2 italic drop-shadow-lg flex items-center justify-center gap-2">
-            {settings?.appName ? (
-              <span style={{ color: settings.fontColor || 'white' }}>{settings.appName}</span>
+            {safeAppName ? (
+              <span style={{ color: safeFontColor }}>{safeAppName}</span>
             ) : (
               <>Si<span className="text-[#8dc63f]">MANTAP</span></>
             )}
           </h1>
-          <p className="font-black uppercase tracking-[0.3em] text-[10px]" style={{ color: settings?.fontColor ? `${settings.fontColor}dd` : 'rgba(255,255,255,0.7)' }}>
-            {settings?.appSlogan || 'Manajemen Laporan Terpadu & Akurat'}
+          <p className="font-black uppercase tracking-[0.3em] text-[10px]" style={{ color: `${safeFontColor}dd` }}>
+            {safeAppSlogan}
           </p>
         </div>
 
@@ -162,6 +167,21 @@ export const Login: React.FC<LoginProps> = ({ onLogin, settings }) => {
                 <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Atau Gunakan</span>
                 <div className="flex-1 h-px bg-white/5"></div>
               </div>
+
+              <button
+                type="button"
+                onClick={() => onLogin({
+                  username: 'recovery_guest',
+                  name: 'Mode Pemulihan Read-Only',
+                  role: 'SUPER_ADMIN',
+                  position: 'Pengunjung',
+                  unit: 'Ruang Bedah',
+                  isRecovery: true
+                })}
+                className="w-full py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest border border-blue-500/40 text-blue-400 hover:bg-blue-500/10 transition-all text-center"
+              >
+                Masuk Mode Pemulihan (Read-Only)
+              </button>
 
               <button
                 type="button"

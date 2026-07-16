@@ -2,11 +2,11 @@
 import React from 'react';
 import { 
   ShieldCheck, Activity, Users, FileText, Calendar, 
-  AlertCircle, Menu, LogOut, ChevronRight, Settings, 
+  AlertCircle, AlertTriangle, Menu, LogOut, ChevronRight, Settings, 
   BarChart3, Home, Bed, LayoutGrid, ClipboardCheck,
   Stethoscope, Wallet, HeartPulse, UserCog, TrendingUp,
   UserCheck, Gauge, FilePieChart, ClipboardList, X, RefreshCw,
-  Search
+  Search, Copy, Check, Globe, Printer
 } from 'lucide-react';
 import { User, AppSettings } from '../types';
 import { BrandLogo } from './BrandLogo';
@@ -36,9 +36,54 @@ const getDirectWallpaperUrl = (url: string | undefined): string => {
   return url;
 };
 
+const getHeaderTitle = (menu: string) => {
+  switch (menu) {
+    case 'dashboard': return 'Dashboard Overview';
+    case 'adm-register': return '1. Registrasi Pasien';
+    case 'patients': return '1. Menu Pasien';
+    case 'monitoring-keluar-masuk': return '1. Monitoring Pasien Keluar Masuk';
+    case 'adm-census': return '1. Sensus Pasien';
+    case 'adm-data-bed': return '1. Monitoring Bed';
+    case 'service-nursing': return '2. Laporan Keperawatan';
+    case 'service-schedule': return '2. Jadwal Operasi';
+    case 'finance-billing': return '3. Laporan Visite & Keuangan';
+    case 'finance-visite': return '3. Laporan Kerja Visite';
+    case 'finance-summary': return '3. Rekap Finansial Layanan';
+    case 'finance-reg-admin': return '3. Registrasi Admin';
+    case 'quality-kpi': return '4. Kertas Kerja Mutu';
+    case 'quality-operasi-elektif': return '4. Kepatuhan Operasi Elektif';
+    case 'quality-print': return '4. Cetak Kertas Kerja';
+    case 'quality-asesmen-awal-medis': return '4. MUTU Asesmen Awal Medis';
+    case 'quality-dpjp-absensi': return '4. Absensi DPJP';
+    case 'quality-visite-compliance': return '4. Kepatuhan Visite';
+    case 'quality-dependency': return '4. Ketergantungan Pasien';
+    case 'quality-pathway': return '4. Clinical Pathway';
+    case 'quality-diagnosis-top': return '4. Top 10 Diagnosa';
+    case 'incident-report': return '5. Pelaporan Insiden';
+    case 'incident-investigation': return '5. Investigasi';
+    case 'incident-monthly': return '5. Daftar Insiden Bulanan';
+    case 'system-data': return '6. Master Data';
+    case 'system-inventory': return '6. Inventaris Alat';
+    default:
+      return menu.replace('-', ' ').toUpperCase();
+  }
+};
+
 export const Layout: React.FC<LayoutProps> = ({ user, onLogout, onNavigate, activeMenu, syncStatus = 'IDLE', onSync, lastSyncTime, settings, children }) => {
+  const safeThemeColor = settings?.themeColor && settings.themeColor.trim() !== '' ? settings.themeColor : '#144272';
+  const safeFontColor = settings?.fontColor && settings.fontColor.trim() !== '' ? settings.fontColor : '#ffffff';
+  const safeAppName = settings?.appName && settings.appName.trim() !== '' ? settings.appName : 'SiMANTAP';
+  const safeAppSlogan = settings?.appSlogan && settings.appSlogan.trim() !== '' ? settings.appSlogan : 'Manajemen Laporan Terpadu & Akurat';
+
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
   const [isMobile, setIsMobile] = React.useState(false);
+  const [copiedLink, setCopiedLink] = React.useState(false);
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText("https://ais-pre-5yx5np5byvmf4dw3uf7moi-256092545608.asia-southeast1.run.app");
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
   const resolvedAppWallpaperUrl = getDirectWallpaperUrl(settings?.appWallpaperUrl);
 
   // Auto-hide sidebar if setting is enabled and not mobile
@@ -68,7 +113,7 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, onNavigate, acti
   const financeRoles = ['PPJA', 'PIC', 'SEKRU', 'KARU', 'ADMIN_RUANGAN', 'BIDANG', 'SUPER_ADMIN'];
   const visiteRoles = ['PIC', 'SEKRU', 'KARU', 'ADMIN_RUANGAN', 'BIDANG', 'SUPER_ADMIN'];
   const censusRoles = ['PPJA', 'PIC', 'SEKRU', 'KARU', 'ADMIN_RUANGAN', 'BIDANG', 'SUPER_ADMIN'];
-  const systemRoles = ['SEKRU', 'KARU', 'BIDANG', 'SUPER_ADMIN']; 
+  const systemRoles = ['SEKRU', 'KARU', 'ADMIN_RUANGAN', 'BIDANG', 'SUPER_ADMIN']; 
   const inventoryRoles = ['SEKRU', 'KARU', 'ADMIN_RUANGAN', 'BIDANG', 'SUPER_ADMIN'];
 
   const harianRoles = allRoles;
@@ -88,26 +133,27 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, onNavigate, acti
       items: [
         { id: 'adm-register', label: 'Registrasi Pasien', icon: <ChevronRight size={14}/>, roles: harianRoles },
         { id: 'patients', label: 'Menu Pasien', icon: <Users size={16}/>, roles: pjanaRoles },
+        { id: 'monitoring-keluar-masuk', label: 'Monitoring Keluar Masuk', icon: <Activity size={16}/>, roles: pjanaRoles },
         { id: 'adm-census', label: 'Sensus Pasien', icon: <BarChart3 size={16}/>, roles: censusRoles },
         { id: 'adm-data-bed', label: 'Monitoring Bed', icon: <Bed size={16}/>, roles: bedRoles }
       ]
     },
     {
-      title: '2. Pelayanan Bedah',
+      title: '2. Laporan Pelayanan',
       icon: <Activity size={18}/>,
       items: [
-        { id: 'service-schedule', label: 'Jadwal Operasi', icon: <Calendar size={16}/>, roles: serviceRoles },
-        { id: 'service-report', label: 'Laporan Operasi', icon: <FileText size={16}/>, roles: reportRoles },
-        { id: 'service-nursing', label: 'Laporan Keperawatan', icon: <ClipboardCheck size={16}/>, roles: nursingRoles }
+        { id: 'service-nursing', label: 'Laporan Keperawatan', icon: <ClipboardCheck size={16}/>, roles: nursingRoles },
+        { id: 'service-schedule', label: 'Jadwal Operasi', icon: <Calendar size={16}/>, roles: serviceRoles }
       ]
     },
     {
-      title: '3. Keuangan & Visite',
+      title: '3. LAPORAN ADMIN',
       icon: <Wallet size={18}/>,
       items: [
-        { id: 'finance-billing', label: 'Billing Pasien', icon: <FileText size={16}/>, roles: financeRoles },
-        { id: 'finance-visite', label: 'Laporan Visite', icon: <Stethoscope size={16}/>, roles: visiteRoles },
-        { id: 'finance-summary', label: 'Rekap Finansial', icon: <BarChart3 size={16}/>, roles: financeRoles }
+        { id: 'finance-reg-admin', label: 'Registrasi Admin', icon: <Users size={16}/>, roles: financeRoles },
+        { id: 'finance-billing', label: 'Laporan Visite & Keuangan', icon: <FileText size={16}/>, roles: financeRoles },
+        { id: 'finance-visite', label: 'Laporan Kerja Visite', icon: <Stethoscope size={16}/>, roles: visiteRoles },
+        { id: 'finance-summary', label: 'Rekap Finansial Layanan', icon: <BarChart3 size={16}/>, roles: financeRoles }
       ]
     },
     {
@@ -115,10 +161,14 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, onNavigate, acti
       icon: <HeartPulse size={18}/>,
       items: [
         { id: 'quality-kpi', label: 'Kertas Kerja Mutu', icon: <ClipboardCheck size={16}/>, roles: qualityRoles },
+        { id: 'quality-operasi-elektif', label: 'Operasi Elektif', icon: <ClipboardCheck size={16}/>, roles: qualityRoles },
+        { id: 'quality-print', label: 'Cetak Kertas Kerja', icon: <Printer size={16}/>, roles: qualityRoles },
+        { id: 'quality-asesmen-awal-medis', label: 'MUTU Asesmen Awal Medis', icon: <ClipboardCheck size={16}/>, roles: qualityRoles },
         { id: 'quality-dpjp-absensi', label: 'Absensi DPJP', icon: <UserCheck size={16}/>, roles: qualityRoles },
         { id: 'quality-visite-compliance', label: 'Kepatuhan Visite', icon: <Gauge size={16}/>, roles: qualityRoles },
         { id: 'quality-dependency', label: 'Ketergantungan Pasien', icon: <BarChart3 size={16}/>, roles: qualityRoles },
         { id: 'quality-pathway', label: 'Clinical Pathway', icon: <ClipboardList size={16}/>, roles: qualityRoles },
+        { id: 'quality-aps-mutu', label: 'Mutu Pasien APS', icon: <AlertTriangle size={16}/>, roles: qualityRoles },
         { id: 'quality-diagnosis-top', label: 'Top 10 Diagnosa', icon: <FilePieChart size={16}/>, roles: qualityRoles }
       ]
     },
@@ -147,7 +197,7 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, onNavigate, acti
   })).filter(group => group.items.length > 0);
 
   return (
-    <div className={`flex h-screen text-slate-900 font-sans overflow-hidden app-bg-gradient ${resolvedAppWallpaperUrl ? 'bg-transparent' : 'bg-slate-50'}`} style={{ backgroundColor: settings?.themeColor ? `${settings.themeColor}10` : undefined }}>
+    <div className={`flex h-screen text-slate-900 font-sans overflow-hidden app-bg-gradient ${resolvedAppWallpaperUrl ? 'bg-transparent' : 'bg-slate-50'}`} style={{ backgroundColor: `${safeThemeColor}10` }}>
       {/* Background Wallpaper if any */}
       {resolvedAppWallpaperUrl && (
         <div 
@@ -179,23 +229,21 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, onNavigate, acti
           ${resolvedAppWallpaperUrl ? 'backdrop-blur-2xl border-r border-white/10' : ''}
         `}
         style={{ 
-          background: settings?.themeColor 
-            ? `linear-gradient(to bottom, ${settings.themeColor}${resolvedAppWallpaperUrl ? 'e6' : ''}, ${settings.themeColor}${resolvedAppWallpaperUrl ? 'cc' : ''})` 
-            : resolvedAppWallpaperUrl ? 'rgba(20, 66, 114, 0.85)' : 'linear-gradient(to bottom, #144272, #1e4b8f)',
-          color: settings?.fontColor || 'white'
+          background: `linear-gradient(to bottom, ${safeThemeColor}${resolvedAppWallpaperUrl ? 'e6' : ''}, ${safeThemeColor}${resolvedAppWallpaperUrl ? 'cc' : ''})`,
+          color: safeFontColor
         }}
         onMouseEnter={() => { if (settings?.isSidebarAutohide && !isMobile) setIsSidebarOpen(true); }}
         onMouseLeave={() => { if (settings?.isSidebarAutohide && !isMobile) setIsSidebarOpen(false); }}
       >
         <div className="p-4 h-24 border-b border-white/10 flex items-center justify-between overflow-hidden">
           <div className={`transition-all duration-300 ${!isSidebarOpen && !isMobile ? 'opacity-0 w-0 scale-50' : 'opacity-100 w-full scale-100'}`}>
-            <BrandLogo size="sm" appName={settings?.appName} appSlogan={settings?.appSlogan} fontColor={settings?.fontColor} />
+            <BrandLogo size="sm" appName={safeAppName} appSlogan={safeAppSlogan} fontColor={safeFontColor} logoUrl={settings?.logoUrl} />
           </div>
           <div className={`${isSidebarOpen || isMobile ? 'hidden' : 'block'} ml-auto`}>
              <button 
                onClick={() => setIsSidebarOpen(true)}
                className="p-3 bg-white/10 rounded-xl text-white hover:bg-white/20 transition-all"
-               style={{ color: settings?.fontColor || 'white' }}
+               style={{ color: safeFontColor }}
              >
                 <ChevronRight size={20}/>
              </button>
@@ -215,9 +263,9 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, onNavigate, acti
               if (isMobile) setIsSidebarOpen(false);
             }} 
             className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-all ${activeMenu === 'dashboard' ? 'bg-white/15 backdrop-blur-md shadow-xl ring-1 ring-white/10' : 'hover:bg-white/5'}`}
-            style={{ color: activeMenu === 'dashboard' ? (settings?.fontColor || 'white') : undefined }}
+            style={{ color: activeMenu === 'dashboard' ? safeFontColor : undefined }}
           >
-            <Home size={22} className={activeMenu === 'dashboard' ? '' : 'opacity-40'} style={{ color: settings?.fontColor || 'white' }}/>
+            <Home size={22} className={activeMenu === 'dashboard' ? '' : 'opacity-40'} style={{ color: safeFontColor }}/>
             <span className={`font-black text-xs uppercase tracking-widest ${!isSidebarOpen && !isMobile && 'hidden'}`}>Dashboard Overview</span>
           </button>
 
@@ -225,7 +273,7 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, onNavigate, acti
             <div key={group.title} className="space-y-1">
               <div 
                 className={`px-3 text-[10px] font-black uppercase tracking-[0.2em] mb-3 flex items-center gap-2 ${!isSidebarOpen && !isMobile && 'justify-center'}`}
-                style={{ color: settings?.fontColor ? `${settings.fontColor}80` : 'rgba(255,255,255,0.4)' }}
+                style={{ color: `${safeFontColor}80` }}
               >
                 <span className={`${!isSidebarOpen && !isMobile && 'hidden'}`}>{group.title}</span>
                 {!isSidebarOpen && !isMobile && <div className="h-px bg-white/10 w-full"></div>}
@@ -238,7 +286,7 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, onNavigate, acti
                     if (isMobile) setIsSidebarOpen(false);
                   }}
                   className={`w-full flex items-center gap-3 p-3.5 rounded-2xl text-[11px] font-bold uppercase tracking-widest transition-all group ${activeMenu === item.id ? 'bg-white/25 backdrop-blur-md shadow-inner ring-1 ring-white/20' : 'opacity-60 hover:bg-white/5 hover:opacity-100'}`}
-                  style={{ color: settings?.fontColor || 'white' }}
+                  style={{ color: safeFontColor }}
                 >
                   <div className={`shrink-0 ${activeMenu === item.id ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'}`}>{item.icon}</div>
                   <span className={`flex-1 text-left truncate ${!isSidebarOpen && !isMobile && 'hidden'} ${activeMenu === item.id ? 'font-black' : ''}`}>{item.label}</span>
@@ -254,13 +302,13 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, onNavigate, acti
                 {user?.name.charAt(0)}
               </div>
               <div className={`flex-1 min-w-0 ${!isSidebarOpen && !isMobile && 'hidden'}`}>
-                <div className="text-xs font-black truncate" style={{ color: settings?.fontColor || 'white' }}>{user?.name}</div>
-                <div className="text-[10px] font-bold uppercase tracking-widest truncate opacity-50" style={{ color: settings?.fontColor || 'white' }}>{user?.role}</div>
+                <div className="text-xs font-black truncate" style={{ color: safeFontColor }}>{user?.name}</div>
+                <div className="text-[10px] font-bold uppercase tracking-widest truncate opacity-50" style={{ color: safeFontColor }}>{user?.role}</div>
               </div>
               <button 
                 onClick={onLogout} 
                 className={`p-2 transition-colors opacity-50 hover:opacity-100 hover:text-red-400 ${!isSidebarOpen && !isMobile && 'hidden'}`}
-                style={{ color: settings?.fontColor || 'white' }}
+                style={{ color: safeFontColor }}
               >
                 <LogOut size={18}/>
               </button>
@@ -280,11 +328,34 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, onNavigate, acti
                </button>
              )}
              <div className="hidden sm:block w-1.5 h-6 bg-[#3b82f6] rounded-full"></div>
-             <h2 className="font-black uppercase tracking-widest text-[10px] sm:text-base truncate max-w-[150px] sm:max-w-none transition-colors" style={{ color: settings?.themeColor || '#144272' }}>
-                {activeMenu.replace('-', ' ').replace('adm', '1. Admin').replace('service', '2. Pelayanan').replace('finance', '3. Keu').replace('quality', '4. Mutu').replace('incident', '5. Insiden').replace('system', '6. Sistem')}
+             <h2 className="font-black uppercase tracking-widest text-[10px] sm:text-base truncate max-w-[150px] sm:max-w-none transition-colors" style={{ color: safeThemeColor }}>
+                {getHeaderTitle(activeMenu)}
               </h2>
           </div>
           <div className="flex items-center gap-2 sm:gap-6">
+            {/* Shareable / Public Link Badge */}
+            <div className="hidden md:flex items-center gap-2 bg-blue-50/70 hover:bg-blue-50 border border-blue-100 rounded-xl px-3 py-1.5 transition-all shadow-sm group/link">
+              <Globe size={13} className="text-blue-500 shrink-0 animate-pulse" />
+              <div className="flex flex-col text-left">
+                <span className="text-[7.5px] font-black text-blue-400 uppercase tracking-widest leading-none">Akses Tanpa Login Google</span>
+                <a 
+                  href="https://ais-pre-5yx5np5byvmf4dw3uf7moi-256092545608.asia-southeast1.run.app" 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  className="text-[9.5px] font-mono text-blue-600 hover:underline select-all truncate max-w-[150px] font-bold mt-0.5"
+                  title="Klik untuk membuka link akses publik"
+                >
+                  https://ais-pre-5yx5np5byvmf4dw3uf7moi-256092545608.asia-southeast1.run.app
+                </a>
+              </div>
+              <button 
+                onClick={handleCopyLink}
+                className={`ml-1 p-1.5 rounded-lg transition-all text-slate-300 hover:text-blue-600 ${copiedLink ? 'bg-emerald-50 text-emerald-600' : 'hover:bg-blue-100/50'}`}
+                title="Salin Link Akses"
+              >
+                {copiedLink ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} className="text-blue-500" />}
+              </button>
+            </div>
             <div className="flex items-center gap-2">
               {onSync && (
                 <div className="flex items-center gap-3 bg-white/40 backdrop-blur-sm px-4 py-2 rounded-2xl border border-white/20 shadow-sm group">
@@ -311,15 +382,15 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, onNavigate, acti
               )}
             </div>
             <div className="hidden md:flex flex-col items-end">
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest" style={{ color: settings?.fontColor || undefined }}>
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest" style={{ color: safeFontColor }}>
                 {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
               </span>
-              <span className="text-[9px] font-bold text-slate-300 uppercase tracking-[0.3em]" style={{ color: settings?.fontColor ? `${settings.fontColor}88` : undefined }}>
+              <span className="text-[9px] font-bold text-slate-300 uppercase tracking-[0.3em]" style={{ color: `${safeFontColor}88` }}>
                 Masa Depan 2026
               </span>
             </div>
             <div className="hidden sm:block w-px h-6 bg-slate-200"></div>
-            <button className="relative p-2 text-slate-400 hover:text-blue-600 transition-colors" style={{ color: settings?.fontColor || undefined }}>
+            <button className="relative p-2 text-slate-400 hover:text-blue-600 transition-colors" style={{ color: safeFontColor }}>
                <AlertCircle size={20}/>
                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
             </button>

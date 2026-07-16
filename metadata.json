@@ -3,5 +3,6 @@
   "description": "APLIKASI Manajemen Laporan Terpadu \u0026 Akurat - Operating Theatre Management System covering Administration, Clinical Services, Finance, Quality KPIs, Incidents, and System Management.",
   "requestFramePermissions": [
     "camera"
-  ]
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
