@@ -311,6 +311,8 @@ export const loadFromFirestore = async (): Promise<AppData | null> => {
   }
 };
 
+export const fetchInitialStateFromFirestore = loadFromFirestore;
+
 const handleQuotaExceeded = () => {
   if (!isQuotaExceeded) {
     console.warn('[Firestore Sync] Firestore daily write/read quota reached. Switched to 100% safe Local IndexedDB & Broadcast Sync Mode.');

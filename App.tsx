@@ -30,7 +30,7 @@ import { Button } from './components/Button';
 import { SearchableSelect } from './components/SearchableSelect';
 import { getDB, saveDB, uploadDataBackground, mergeData, getApiUrl, saveApiUrl, syncData, uploadData, registerDeletedId, getDeletedIds, getIsCurrentlyUploading, resilientParse, normalizeDatesInDb, triggerOfflineQueueUpload, getLocalSnapshotFromDB, requestPersistentStorage, generatePermanentUUID, getLatestTimestamp, mergeRecordProperties, TAB_ID, setPendingUploadInDB, hasAppDataChanged } from './db';
 import { testFirestoreConnection } from './firebase';
-import { initFirestoreRealtimeSync, subscribeDataChange, subscribeConnectionStatus, pushToFirestore, loadFromFirestore } from './firestoreSync';
+import { initFirestoreRealtimeSync, subscribeDataChange, subscribeConnectionStatus, pushToFirestore, loadFromFirestore, fetchInitialStateFromFirestore } from './firestoreSync';
 import { INITIAL_DATA } from './constants';
 import { AppData, User, FinanceRecord, IncidentReport, Patient, DailyReportEntry, QualityMeasurement, DependencyLevel, Instrument, OperationReport, DoctorVisitRecord, RoomBooking, getRoomBedStyles, getPaymentMethodStyles, getShiftFromTime } from './types';
 import { 
@@ -186,9 +186,9 @@ const App: React.FC = () => {
       }
     });
 
-    // 3. Force read & reconcile all chunks on initial load from Firestore
+    // 3. Force read & reconcile all chunks on initial load from Firestore (auto-reconciliation)
     setSyncStatus('SYNCING');
-    loadFromFirestore().then((resData) => {
+    fetchInitialStateFromFirestore().then((resData) => {
       if (resData && hasAppDataChanged(resData)) {
         setAppData(resData);
         setLastSyncTime(new Date());

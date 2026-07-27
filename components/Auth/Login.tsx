@@ -28,7 +28,6 @@ export const Login: React.FC<LoginProps> = ({ onLogin, settings }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [confirmReset, setConfirmReset] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,13 +144,13 @@ export const Login: React.FC<LoginProps> = ({ onLogin, settings }) => {
               </div>
             )}
 
-            <div className="space-y-3">
+            <div>
               <Button
                 disabled={loading}
                 className="w-full py-4 rounded-2xl font-black text-xs uppercase tracking-widest bg-gradient-to-r from-[#3b82f6] to-[#2563eb] hover:from-[#2563eb] hover:to-[#3b82f6] text-white shadow-xl shadow-blue-900/40 h-14 ring-1 ring-white/20 transition-all active:scale-95"
               >
                 {loading ? (
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-center gap-2">
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                     Otentikasi...
                   </div>
@@ -161,52 +160,6 @@ export const Login: React.FC<LoginProps> = ({ onLogin, settings }) => {
                   </div>
                 )}
               </Button>
-              
-              <div className="flex items-center gap-2">
-                <div className="flex-1 h-px bg-white/5"></div>
-                <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Atau Gunakan</span>
-                <div className="flex-1 h-px bg-white/5"></div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => onLogin({
-                  username: 'recovery_guest',
-                  name: 'Mode Pemulihan Read-Only',
-                  role: 'SUPER_ADMIN',
-                  position: 'Pengunjung',
-                  unit: 'Ruang Bedah',
-                  isRecovery: true
-                })}
-                className="w-full py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest border border-blue-500/40 text-blue-400 hover:bg-blue-500/10 transition-all text-center"
-              >
-                Masuk Mode Pemulihan (Read-Only)
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setUsername('demo');
-                  setPassword('demo123');
-                }}
-                className="w-full py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest border border-white/10 text-slate-400 hover:bg-white/5 transition-all text-center"
-              >
-                Isi Demo Kredensial
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (confirmReset) {
-                    localStorage.clear();
-                    window.location.reload();
-                  } else {
-                    setConfirmReset(true);
-                  }
-                }}
-                className={`w-full py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest border transition-all text-center ${confirmReset ? 'bg-red-600 border-red-600 text-white' : 'border-red-500/20 text-red-400 hover:bg-red-500/5'}`}
-              >
-                {confirmReset ? 'KLIK LAGI UNTUK KONFIRMASI RESET' : 'Reset & Perbaiki Aplikasi'}
-              </button>
             </div>
           </form>
         </div>
