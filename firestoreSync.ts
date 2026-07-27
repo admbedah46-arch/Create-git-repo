@@ -22,15 +22,36 @@ const ARRAY_COLLECTIONS: (keyof AppData)[] = [
 
 const CHUNK_SIZE = 100;
 
+const loadPushedHashes = (): Record<string, string> => {
+  try {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('surgihub_last_pushed_hashes') || sessionStorage.getItem('surgihub_last_pushed_hashes');
+      if (stored) return JSON.parse(stored);
+    }
+  } catch (e) {}
+  return {};
+};
+
+const savePushedHashes = (hashes: Record<string, string>) => {
+  try {
+    if (typeof window !== 'undefined') {
+      const str = JSON.stringify(hashes);
+      localStorage.setItem('surgihub_last_pushed_hashes', str);
+      sessionStorage.setItem('surgihub_last_pushed_hashes', str);
+    }
+  } catch (e) {}
+};
+
 const checkInitialQuotaExceeded = (): boolean => {
   try {
-    if (typeof sessionStorage !== 'undefined') {
-      const val = sessionStorage.getItem('simantap_firestore_quota_exceeded');
+    if (typeof window !== 'undefined') {
+      const val = localStorage.getItem('simantap_firestore_quota_exceeded') || sessionStorage.getItem('simantap_firestore_quota_exceeded');
       if (val) {
         const timestamp = parseInt(val, 10);
         if (Date.now() - timestamp < 12 * 3600 * 1000) {
           return true;
         } else {
+          localStorage.removeItem('simantap_firestore_quota_exceeded');
           sessionStorage.removeItem('simantap_firestore_quota_exceeded');
         }
       }
@@ -47,7 +68,10 @@ const isResourceOrQuotaError = (err: any): boolean => {
     str.includes('quota') ||
     str.includes('exhausted') ||
     str.includes('overloading') ||
-    str.includes('write stream')
+    str.includes('write stream') ||
+    str.includes('limit exceeded') ||
+    str.includes('free daily write') ||
+    str.includes('359469612868')
   );
 };
 
@@ -67,7 +91,7 @@ let pushDebounceTimer: any = null;
 let isWriting = false;
 
 // Store stringified hashes of last pushed chunks to prevent redundant Firestore writes
-const lastPushedHashes: Record<string, string> = {};
+const lastPushedHashes: Record<string, string> = loadPushedHashes();
 let previousChunkCounts: Record<string, number> = {};
 
 type DataCallback = (data: AppData) => void;
@@ -322,8 +346,10 @@ const handleQuotaExceeded = () => {
     console.warn('[Firestore Sync] Firestore daily write/read quota or write stream limit reached. Switched to 100% safe Local IndexedDB & Broadcast Sync Mode.');
     isQuotaExceeded = true;
     try {
-      if (typeof sessionStorage !== 'undefined') {
-        sessionStorage.setItem('simantap_firestore_quota_exceeded', Date.now().toString());
+      if (typeof window !== 'undefined') {
+        const nowStr = Date.now().toString();
+        localStorage.setItem('simantap_firestore_quota_exceeded', nowStr);
+        sessionStorage.setItem('simantap_firestore_quota_exceeded', nowStr);
       }
     } catch (e) {}
 
@@ -360,7 +386,7 @@ export const pushToFirestore = (data: AppData): Promise<void> => {
     pushDebounceTimer = setTimeout(async () => {
       await processPushQueue();
       resolve();
-    }, 1200); // 1200ms debounce to prevent exhausting write streams
+    }, 2000); // 2000ms debounce to prevent exhausting write streams
   });
 };
 
@@ -452,6 +478,7 @@ const processPushQueue = async () => {
     });
 
     previousChunkCounts = newChunkCounts;
+    savePushedHashes(lastPushedHashes);
 
     if (writeOperations.length > 0) {
       await Promise.all(writeOperations);

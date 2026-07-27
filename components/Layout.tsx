@@ -20,6 +20,7 @@ interface LayoutProps {
   activeMenu: string;
   syncStatus?: 'IDLE' | 'SYNCING' | 'SUCCESS' | 'ERROR';
   isFirestoreOnline?: boolean;
+  isQuotaExceeded?: boolean;
   onSync?: () => void;
   lastSyncTime?: Date | null;
   settings?: AppSettings;
@@ -73,7 +74,7 @@ const getHeaderTitle = (menu: string) => {
   }
 };
 
-export const Layout: React.FC<LayoutProps> = ({ user, rolePermissions, onLogout, onNavigate, activeMenu, syncStatus = 'IDLE', isFirestoreOnline = true, onSync, lastSyncTime, settings, children }) => {
+export const Layout: React.FC<LayoutProps> = ({ user, rolePermissions, onLogout, onNavigate, activeMenu, syncStatus = 'IDLE', isFirestoreOnline = true, isQuotaExceeded = false, onSync, lastSyncTime, settings, children }) => {
   const safeThemeColor = settings?.themeColor && settings.themeColor.trim() !== '' ? settings.themeColor : '#144272';
   const safeFontColor = settings?.fontColor && settings.fontColor.trim() !== '' ? settings.fontColor : '#ffffff';
   const safeAppName = settings?.appName && settings.appName.trim() !== '' ? settings.appName : 'SiMANTAP';
@@ -83,8 +84,14 @@ export const Layout: React.FC<LayoutProps> = ({ user, rolePermissions, onLogout,
   const [isMobile, setIsMobile] = React.useState(false);
   const [copiedLink, setCopiedLink] = React.useState(false);
 
+  const publicUrl = typeof window !== 'undefined' && window.location.origin && !window.location.origin.includes('localhost') 
+    ? window.location.origin 
+    : "https://simantapbedah.vercel.app";
+
   const handleCopyLink = () => {
-    navigator.clipboard.writeText("https://ais-pre-5yx5np5byvmf4dw3uf7moi-256092545608.asia-southeast1.run.app");
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(publicUrl);
+    }
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
   };
@@ -355,13 +362,13 @@ export const Layout: React.FC<LayoutProps> = ({ user, rolePermissions, onLogout,
               <div className="flex flex-col text-left">
                 <span className="text-[7.5px] font-black text-blue-400 uppercase tracking-widest leading-none">Akses Tanpa Login Google</span>
                 <a 
-                  href="https://ais-pre-5yx5np5byvmf4dw3uf7moi-256092545608.asia-southeast1.run.app" 
+                  href={publicUrl} 
                   target="_blank" 
                   rel="noreferrer" 
-                  className="text-[9.5px] font-mono text-blue-600 hover:underline select-all truncate max-w-[150px] font-bold mt-0.5"
+                  className="text-[9.5px] font-mono text-blue-600 hover:underline select-all truncate max-w-[180px] font-bold mt-0.5"
                   title="Klik untuk membuka link akses publik"
                 >
-                  https://ais-pre-5yx5np5byvmf4dw3uf7moi-256092545608.asia-southeast1.run.app
+                  {publicUrl}
                 </a>
               </div>
               <button 
@@ -412,6 +419,25 @@ export const Layout: React.FC<LayoutProps> = ({ user, rolePermissions, onLogout,
             </button>
           </div>
         </header>
+
+        {isQuotaExceeded && (
+          <div className="bg-amber-500/10 border-b border-amber-500/20 px-4 sm:px-8 py-2.5 text-amber-800 text-xs font-medium flex flex-wrap items-center justify-between gap-3 z-40 animate-fade-in shadow-inner">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span className="truncate">
+                <strong className="font-bold">Mode Lokal & Sync Google Sheets Aktif:</strong> Kuota harian Firestore (Free Tier) telah tercapai. Data Anda 100% tersimpan aman di Penyimpanan Lokal (IndexedDB) & Server.
+              </span>
+            </div>
+            <a
+              href="https://console.firebase.google.com/project/gen-lang-client-0234581338/firestore/databases/ai-studio-simantapbedah-c6a38a36-4082-4d85-9040-78110b8f6ff4/data?openUpgradeDialog=true"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold rounded-lg transition-colors shrink-0 shadow-sm"
+            >
+              Cek / Upgrade Kuota Firebase
+            </a>
+          </div>
+        )}
 
         <div className={`flex-1 overflow-y-auto p-4 sm:p-8 relative z-10 ${resolvedAppWallpaperUrl ? 'bg-white/10' : 'bg-slate-50/30'}`}>
           <div className="w-full animate-fade-in pb-20 relative z-10">

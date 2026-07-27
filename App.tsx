@@ -123,18 +123,7 @@ const DEFAULT_SUPER_USER: User = {
 };
 
 const App: React.FC = () => {
-  const [user, rawSetUser] = useState<User | null>(() => {
-    try {
-      const savedUser = localStorage.getItem('surgihub_user') || sessionStorage.getItem('surgihub_user');
-      if (savedUser) {
-        const parsed = JSON.parse(savedUser);
-        if (parsed && parsed.username) return parsed;
-      }
-    } catch (e) {
-      // Ignore storage errors and fallback to default super user
-    }
-    return DEFAULT_SUPER_USER;
-  });
+  const [user, rawSetUser] = useState<User | null>(null);
 
   const setUser = (newUser: User | null) => {
     rawSetUser(newUser);
@@ -193,6 +182,14 @@ const App: React.FC = () => {
   const [selectedDetailPatientId, setSelectedDetailPatientId] = useState<string | null>(null);
   const [patientLocks, setPatientLocks] = useState<{ [patientId: string]: { username: string; lockedAt: number } }>({});
   const [isFirestoreOnline, setIsFirestoreOnline] = useState<boolean>(true);
+  const [isQuotaExceeded, setIsQuotaExceeded] = useState<boolean>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        return !!(localStorage.getItem('simantap_firestore_quota_exceeded') || sessionStorage.getItem('simantap_firestore_quota_exceeded'));
+      }
+    } catch (e) {}
+    return false;
+  });
 
   // Subscribe to Realtime Firestore Delta Updates across all devices
   useEffect(() => {
@@ -200,8 +197,11 @@ const App: React.FC = () => {
     checkAndResetCacheOnVersionChange();
 
     // 1. Subscribe to connection status updates
-    const unsubConn = subscribeConnectionStatus((online) => {
+    const unsubConn = subscribeConnectionStatus((online, quotaExceeded) => {
       setIsFirestoreOnline(online);
+      if (quotaExceeded !== undefined) {
+        setIsQuotaExceeded(quotaExceeded);
+      }
     });
 
     // 2. Subscribe to real-time data changes broadcast from Firestore
@@ -341,17 +341,7 @@ const App: React.FC = () => {
 
   // INITIAL DATA FETCH
   useEffect(() => {
-    try {
-      const savedUser = localStorage.getItem('surgihub_user') || sessionStorage.getItem('surgihub_user');
-      if (savedUser) {
-        const parsed = JSON.parse(savedUser);
-        if (parsed && (!user || user.username !== parsed.username)) {
-          setUser(parsed);
-        }
-      }
-    } catch (e) {
-      console.warn('Silent session restore error:', e);
-    }
+    // Auto-login bypass disabled: enforce Homescreen Login on first open across all domains
     
     const initData = async () => {
       // 0. Request Persistent Browser Storage permission (Chrome/Edge Anti-Eviction)
@@ -3982,7 +3972,7 @@ const App: React.FC = () => {
   }
 
   if (!user) {
-    return <Login onLogin={handleLogin} settings={safeAppData.masterData.settings} />;
+    return <Login onLogin={handleLogin} settings={safeAppData.masterData.settings} users={safeAppData.masterData.users} />;
   }
 
   const allSurgicalOperations = [
@@ -4022,6 +4012,7 @@ const App: React.FC = () => {
       activeMenu={activeMenu}
       syncStatus={syncStatus}
       isFirestoreOnline={isFirestoreOnline}
+      isQuotaExceeded={isQuotaExceeded}
       onSync={handleSync}
       lastSyncTime={lastSyncTime}
       settings={safeAppData.masterData.settings}

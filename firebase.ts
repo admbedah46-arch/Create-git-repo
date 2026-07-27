@@ -83,11 +83,18 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 
 export async function testFirestoreConnection() {
   try {
+    const isQuotaExceeded = typeof window !== 'undefined' && 
+      (localStorage.getItem('simantap_firestore_quota_exceeded') || sessionStorage.getItem('simantap_firestore_quota_exceeded'));
+    if (isQuotaExceeded) {
+      console.log('[Firestore] Quota exceeded flag set. Operating in offline Local IndexedDB mode.');
+      return;
+    }
     await getDocFromServer(doc(db, 'appData', 'connection-test'));
     console.log('[Firestore] Successfully verified connection to Cloud Firestore.');
   } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.log('[Firestore] Network offline or initializing Firestore connection.');
+    const msg = String(error || '').toLowerCase();
+    if (msg.includes('offline') || msg.includes('quota') || msg.includes('resource-exhausted')) {
+      console.log('[Firestore] Network offline or quota limit reached; operating in local mode.');
     } else {
       console.warn('[Firestore] Connection test notice:', error);
     }

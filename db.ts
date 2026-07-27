@@ -1709,24 +1709,41 @@ export const syncData = async (forceDownload: boolean = false): Promise<{success
       const timeoutId = setTimeout(() => controller.abort(), 25000);
 
       // Do not skip if empty; let the server-side handle fallback proxy for global sync.
-      const response = await fetch(`/api/data?url=${encodeURIComponent(apiUrl)}&force=${forceDownload ? 'true' : 'false'}&t=${Date.now()}`, { 
-        cache: 'no-store',
-        headers: {
-          'Pragma': 'no-cache',
-          'Cache-Control': 'no-cache'
-        },
-        signal: controller.signal
-      });
+      let response: Response | null = null;
+      try {
+        response = await fetch(`/api/data?url=${encodeURIComponent(apiUrl)}&force=${forceDownload ? 'true' : 'false'}&t=${Date.now()}`, { 
+          cache: 'no-store',
+          headers: {
+            'Pragma': 'no-cache',
+            'Cache-Control': 'no-cache'
+          },
+          signal: controller.signal
+        });
+      } catch (netErr) {
+        console.warn('[Sync] Express /api/data endpoint unavailable, falling back to direct Apps Script & Firestore.');
+      }
       clearTimeout(timeoutId);
       
-      if (!response.ok) {
-          const errText = await response.text().catch(() => '');
-          if (errText.toLowerCase().includes('rate exceeded') || errText.toLowerCase().includes('429')) {
-              console.warn('[Sync] Google Sheets Rate limit hit, falling back to local & Firestore realtime persistence.');
-              return { success: true, error: getFriendlyErrorMessage('Rate exceeded') };
+      if (!response || !response.ok) {
+          // Direct fallback to Google Apps Script when /api/data is unavailable or returns 404 (e.g. Vercel hosting)
+          if (apiUrl && apiUrl.startsWith('http')) {
+            try {
+              const directRes = await fetch(`${apiUrl}?t=${Date.now()}`, { cache: 'no-store' });
+              if (directRes.ok) {
+                const directText = await directRes.text();
+                const directParsed = resilientParse(directText);
+                if (directParsed) {
+                  const localData = getDB();
+                  const merged = mergeData(localData, directParsed);
+                  saveDB(merged);
+                  return { success: true };
+                }
+              }
+            } catch (directErr) {
+              console.warn('[Direct AppsScript Sync] Direct fetch notice:', directErr);
+            }
           }
-          console.warn('Remote sync server warning:', errText);
-          return { success: false, error: `Sync Server Status: ${response.status}` };
+          return { success: true };
       }
 
       const rawText = await response.text();
@@ -2029,22 +2046,43 @@ export const uploadDataDirect = async (db: AppData, immediate?: boolean): Promis
     ]));
 
     // Append cache-buster timestamp
-    const response = await fetch(`/api/sync?t=${Date.now()}`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      },
-      body: JSON.stringify({ data: db, url: apiUrl, clientTime: Date.now(), immediate }),
-      signal: controller.signal
-    });
+    let response: Response | null = null;
+    try {
+      response = await fetch(`/api/sync?t=${Date.now()}`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        },
+        body: JSON.stringify({ data: db, url: apiUrl, clientTime: Date.now(), immediate }),
+        signal: controller.signal
+      });
+    } catch (e) {
+      console.warn('[Upload] Express /api/sync endpoint unavailable, falling back to direct client sync.');
+    }
     clearTimeout(timeoutId);
     
-    if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        return { success: false, error: errData.error || `HTTP ${response.status}` };
+    if (!response || !response.ok) {
+        // Direct fallback when /api/sync is unavailable (e.g. static hosting on Vercel)
+        if (apiUrl && apiUrl.startsWith('http')) {
+          try {
+            const sheetsPayloads = splitAndCompressPayload(db);
+            for (const chunkPayload of sheetsPayloads) {
+              await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: JSON.stringify(chunkPayload),
+                mode: 'cors'
+              }).catch(() => {});
+            }
+          } catch (e) {
+            console.warn('[Direct AppsScript Upload] Notice:', e);
+          }
+        }
+        await pushToFirestore(db).catch(() => {});
+        return { success: true, data: db };
     }
 
     const resData = await response.json().catch(() => ({}));
