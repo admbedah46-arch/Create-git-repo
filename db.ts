@@ -1483,7 +1483,7 @@ export const broadcastLocalTabSync = (data: AppData, delta?: SyncDelta) => {
   }
 };
 
-export const saveDB = (data: AppData, skipBroadcast: boolean = false, delta?: SyncDelta): void => {
+export const saveDB = (data: AppData, skipBroadcast: boolean = false, delta?: SyncDelta, skipFirestorePush: boolean = false): void => {
   data.timestamp = new Date().toISOString();
 
   const cleanData = cleanAndDeduplicate(data);
@@ -1568,7 +1568,10 @@ export const saveDB = (data: AppData, skipBroadcast: boolean = false, delta?: Sy
   // Broadcast instant tab-to-tab sync
   if (!skipBroadcast) {
     broadcastLocalTabSync(cleanData, delta);
-    // Push real-time update to Firebase Firestore
+  }
+
+  // Push real-time update to Firebase Firestore unless specifically instructed to skip (e.g. from incoming snapshot)
+  if (!skipFirestorePush) {
     pushToFirestore(cleanData).catch((err) =>
       console.warn('[Firestore Sync] Non-blocking push error:', err)
     );

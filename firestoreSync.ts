@@ -130,8 +130,8 @@ const processSnapshotDocs = (docs: any[]) => {
   const localData = getDB();
   const mergedData = mergeData(localData, reconstructedData as AppData);
 
-  // Save locally to IndexedDB & RAM without triggering duplicate loop
-  saveDB(mergedData, true);
+  // Save locally to IndexedDB & RAM without triggering duplicate push loop
+  saveDB(mergedData, true, undefined, true);
 
   // Notify UI listeners ONLY if data actually changed
   if (hasAppDataChanged(mergedData)) {
@@ -186,17 +186,10 @@ export const initFirestoreRealtimeSync = (): (() => void) => {
         if (snapshotDebounceTimer) clearTimeout(snapshotDebounceTimer);
         snapshotDebounceTimer = setTimeout(() => {
           if (latestSnapshotDocs) {
-            if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-              window.requestIdleCallback(() => {
-                if (latestSnapshotDocs) processSnapshotDocs(latestSnapshotDocs);
-                latestSnapshotDocs = null;
-              });
-            } else {
-              processSnapshotDocs(latestSnapshotDocs);
-              latestSnapshotDocs = null;
-            }
+            processSnapshotDocs(latestSnapshotDocs);
+            latestSnapshotDocs = null;
           }
-        }, 300);
+        }, 50);
       }
     },
     (error: any) => {
@@ -361,7 +354,7 @@ export const pushToFirestore = (data: AppData): Promise<void> => {
     pushDebounceTimer = setTimeout(async () => {
       await processPushQueue();
       resolve();
-    }, 1000); // 1s debounce to conserve quota and prevent UI stutter
+    }, 100); // 100ms debounce for rapid sub-second realtime cross-domain sync
   });
 };
 
