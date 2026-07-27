@@ -39,6 +39,18 @@ const checkInitialQuotaExceeded = (): boolean => {
   return false;
 };
 
+const isResourceOrQuotaError = (err: any): boolean => {
+  if (!err) return false;
+  const str = (String(err?.code || '') + ' ' + String(err?.message || '') + ' ' + String(err || '')).toLowerCase();
+  return (
+    str.includes('resource-exhausted') ||
+    str.includes('quota') ||
+    str.includes('exhausted') ||
+    str.includes('overloading') ||
+    str.includes('write stream')
+  );
+};
+
 let unsubscribeChunksListener: (() => void) | null = null;
 let unsubscribeLegacyListener: (() => void) | null = null;
 let isConnected = false;
@@ -105,13 +117,14 @@ let latestSnapshotDocs: any[] | null = null;
 let lastProcessedSnapshotHash = '';
 
 const processSnapshotDocs = (docs: any[]) => {
-  const currentHash = JSON.stringify(docs);
-  if (currentHash === lastProcessedSnapshotHash) {
-    return;
-  }
-
   const metaDoc = docs.find((d) => d.type === 'meta');
   if (!metaDoc) return;
+
+  // Fast lightweight version check to prevent expensive stringification
+  const docVersionHash = `${metaDoc.timestamp || metaDoc.updatedAt || ''}_${docs.length}`;
+  if (docVersionHash === lastProcessedSnapshotHash) {
+    return;
+  }
 
   const reconstructedData: any = {
     masterData: metaDoc.masterData,
@@ -136,13 +149,12 @@ const processSnapshotDocs = (docs: any[]) => {
   const localData = getDB();
   const mergedData = mergeData(localData, reconstructedData as AppData);
 
+  lastProcessedSnapshotHash = docVersionHash;
+
   // Deep equality check: ONLY save and notify UI if actual content data changed
   if (hasAppDataChanged(mergedData)) {
-    lastProcessedSnapshotHash = currentHash;
     saveDB(mergedData, true, undefined, true);
     notifyDataCallbacks(mergedData);
-  } else {
-    lastProcessedSnapshotHash = currentHash;
   }
 };
 
@@ -195,7 +207,7 @@ export const initFirestoreRealtimeSync = (): (() => void) => {
     },
     (error: any) => {
       console.warn('[Firestore Sync] Chunks snapshot error:', error);
-      if (error?.code === 'resource-exhausted' || error?.message?.includes('quota')) {
+      if (isResourceOrQuotaError(error)) {
         handleQuotaExceeded();
       } else {
         notifyConnectionCallbacks(false);
@@ -222,7 +234,7 @@ export const initFirestoreRealtimeSync = (): (() => void) => {
       }
     },
     (err: any) => {
-      if (err?.code === 'resource-exhausted' || err?.message?.includes('quota')) {
+      if (isResourceOrQuotaError(err)) {
         handleQuotaExceeded();
       } else {
         console.warn('[Firestore Sync] Legacy snapshot warning:', err);
@@ -294,7 +306,7 @@ export const loadFromFirestore = async (): Promise<AppData | null> => {
     notifyConnectionCallbacks(true);
     return mergedData;
   } catch (err: any) {
-    if (err?.code === 'resource-exhausted' || err?.message?.includes('quota')) {
+    if (isResourceOrQuotaError(err)) {
       handleQuotaExceeded();
     } else {
       console.warn('[Firestore Sync] loadFromFirestore error:', err);
@@ -307,7 +319,7 @@ export const fetchInitialStateFromFirestore = loadFromFirestore;
 
 const handleQuotaExceeded = () => {
   if (!isQuotaExceeded) {
-    console.warn('[Firestore Sync] Firestore daily write/read quota reached. Switched to 100% safe Local IndexedDB & Broadcast Sync Mode.');
+    console.warn('[Firestore Sync] Firestore daily write/read quota or write stream limit reached. Switched to 100% safe Local IndexedDB & Broadcast Sync Mode.');
     isQuotaExceeded = true;
     try {
       if (typeof sessionStorage !== 'undefined') {
@@ -324,7 +336,7 @@ const handleQuotaExceeded = () => {
       unsubscribeLegacyListener = null;
     }
 
-    // Disable Firestore network connectivity to silence retry loops
+    // Disable Firestore network connectivity to silence retry loops & write stream buffer exhaustion
     disableNetwork(db).catch(() => {});
     notifyConnectionCallbacks(false);
   }
@@ -348,7 +360,7 @@ export const pushToFirestore = (data: AppData): Promise<void> => {
     pushDebounceTimer = setTimeout(async () => {
       await processPushQueue();
       resolve();
-    }, 100); // 100ms debounce for rapid sub-second realtime cross-domain sync
+    }, 1200); // 1200ms debounce to prevent exhausting write streams
   });
 };
 
@@ -360,7 +372,6 @@ const processPushQueue = async () => {
 
   try {
     const cleanData = cleanAndDeduplicate(currentData);
-    cleanData.timestamp = new Date().toISOString();
 
     const writeOperations: Promise<void>[] = [];
     const newChunkCounts: Record<string, number> = {};
@@ -374,23 +385,24 @@ const processPushQueue = async () => {
       newChunkCounts[colKey] = chunkCount;
     });
 
-    // 2. Check if 'meta' chunk actually changed
-    const metaPayload = {
+    // 2. Hash check for meta WITHOUT timestamp so unchanged data doesn't trigger setDoc on every push
+    const metaPayloadForHash = {
       type: 'meta',
       masterData: cleanData.masterData,
       deletedIds: cleanData.deletedIds || [],
-      timestamp: cleanData.timestamp,
       chunkManifest: manifest
     };
-    const metaHash = JSON.stringify(metaPayload);
+    const metaHash = JSON.stringify(metaPayloadForHash);
 
     if (lastPushedHashes['meta'] !== metaHash) {
+      const nowIso = new Date().toISOString();
       const metaRef = doc(db, 'appData_chunks', 'meta');
       writeOperations.push(
         setDoc(
           metaRef,
           {
-            ...metaPayload,
+            ...metaPayloadForHash,
+            timestamp: nowIso,
             updatedAt: serverTimestamp()
           },
           { merge: true }
@@ -448,7 +460,7 @@ const processPushQueue = async () => {
 
     notifyConnectionCallbacks(true);
   } catch (err: any) {
-    if (err?.code === 'resource-exhausted' || err?.message?.includes('quota')) {
+    if (isResourceOrQuotaError(err)) {
       handleQuotaExceeded();
     } else {
       console.warn('[Firestore Sync] Push to Firestore chunks failed:', err);
@@ -483,7 +495,7 @@ export const pushItemToFirestoreCollection = async (
       { merge: true }
     );
   } catch (err: any) {
-    if (err?.code === 'resource-exhausted' || err?.message?.includes('quota')) {
+    if (isResourceOrQuotaError(err)) {
       handleQuotaExceeded();
     } else {
       console.warn(`[Firestore Sync] Failed to update ${collectionName}/${itemId}:`, err);

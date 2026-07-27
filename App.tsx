@@ -575,68 +575,53 @@ const App: React.FC = () => {
           setSyncStatus('IDLE');
         }
         const loadHeavyTablesInChunks = async (url: string) => {
-          const tables = ['patients', 'dailyReports', 'financeRecords'];
-          const CHUNK_SIZE = 250;
+          const tables: (keyof AppData)[] = ['patients', 'dailyReports', 'financeRecords'];
+          const CHUNK_SIZE = 500;
+          let anyDataChanged = false;
+          const currentDb = getDB();
+          const activeDeletedIds = getDeletedIds();
 
           for (const table of tables) {
             let page = 1;
             let hasMore = true;
-            console.log(`[Chunk Loading] Starting async background pipeline for table: ${table}`);
+            let newItemsCount = 0;
+            const existingList = (currentDb[table] as any[]) || [];
+            
+            const existingMap = new Map<string, any>();
+            existingList.forEach((item: any) => {
+              if (!item) return;
+              const key = item.id || (item.patientId && item.date ? `${item.patientId}_${item.date}` : null) || (item.patientId ? String(item.patientId) : null);
+              if (key) existingMap.set(key, item);
+            });
 
             while (hasMore) {
               try {
                 const res = await fetch(`/api/data?url=${encodeURIComponent(url)}&chunkTable=${table}&chunkPage=${page}&chunkSize=${CHUNK_SIZE}&t=${Date.now()}`);
                 if (res.ok) {
                   const json = await res.json();
-                  if (json && Array.isArray(json.data)) {
+                  if (json && Array.isArray(json.data) && json.data.length > 0) {
                     const chunk = json.data;
-                    console.log(`[Chunk Loading] Received ${table} Page ${page}: ${chunk.length} items of ${json.total}`);
                     
-                    if (chunk.length > 0) {
-                      const currentDb = getDB();
-                      const normalizedDb = normalizeDatesInDb(currentDb);
-                      const existingList = normalizedDb[table] || [];
+                    chunk.forEach((item: any) => {
+                      if (!item) return;
+                      const key = item.id || (item.patientId && item.date ? `${item.patientId}_${item.date}` : null) || (item.patientId ? String(item.patientId) : null);
                       
-                      const existingMap = new Map();
-                      existingList.forEach((item: any) => {
-                        const key = item.id || (item.patientId + '_' + item.date) || JSON.stringify(item);
+                      if (item.isDeleted || item.deleted) return;
+                      if (key && activeDeletedIds.includes(key)) return;
+                      if (item.id && activeDeletedIds.includes(String(item.id))) return;
+
+                      const existing = key ? existingMap.get(key) : null;
+                      if (existing) {
+                        existingMap.set(key!, mergeRecordProperties(existing, item));
+                      } else if (key) {
                         existingMap.set(key, item);
-                      });
-                      
-                      const tempObj = { [table]: chunk };
-                      normalizeDatesInDb(tempObj);
-                      const normalizedChunk = tempObj[table];
-
-                      const activeDeletedIds = getDeletedIds();
-                      normalizedChunk.forEach((item: any) => {
-                        if (!item) return;
-                        const key = item.id || (item.patientId ? `${item.patientId}_${item.date}` : null) || JSON.stringify(item);
-                        
-                        // Check soft deletions
-                        if (item.isDeleted || item.deleted) return;
-                        if (key && activeDeletedIds.includes(key)) return;
-                        if (item.id && activeDeletedIds.includes(String(item.id))) return;
-                        if (item.patientId && activeDeletedIds.includes(String(item.patientId))) return;
-                        if (item.indicatorId && activeDeletedIds.includes(String(item.indicatorId))) return;
-
-                        const existing = existingMap.get(key);
-                        if (existing) {
-                          existingMap.set(key, mergeRecordProperties(existing, item));
-                        } else {
-                          existingMap.set(key, item);
-                        }
-                      });
-                      
-                      normalizedDb[table] = Array.from(existingMap.values());
-                      saveDB(normalizedDb);
-                      setAppData({ ...normalizedDb });
-                    }
+                        newItemsCount++;
+                      }
+                    });
                     
                     hasMore = json.hasMore && chunk.length > 0;
                     page++;
-                    
-                    // Small yield to let browser process UI frames smoothly
-                    await new Promise(resolve => setTimeout(resolve, 30));
+                    await new Promise(resolve => setTimeout(resolve, 50));
                   } else {
                     hasMore = false;
                   }
@@ -644,10 +629,21 @@ const App: React.FC = () => {
                   hasMore = false;
                 }
               } catch (err) {
-                console.warn(`[Chunk Loading] Failed to fetch chunk for ${table} Page ${page}:`, err);
+                console.warn(`[Chunk Loading] Error on ${table} page ${page}:`, err);
                 hasMore = false;
               }
             }
+
+            if (newItemsCount > 0) {
+              (currentDb[table] as any[]) = Array.from(existingMap.values());
+              anyDataChanged = true;
+            }
+          }
+
+          if (anyDataChanged) {
+            console.log('[Chunk Loading] Data changes accumulated. Updating local state...');
+            saveDB(currentDb, false, undefined, true);
+            setAppData({ ...currentDb });
           }
           console.log('[Chunk Loading] Completed all background table pipelines successfully!');
         };

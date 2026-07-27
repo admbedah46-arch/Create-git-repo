@@ -332,23 +332,23 @@ export const Layout: React.FC<LayoutProps> = ({ user, rolePermissions, onLogout,
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col overflow-hidden relative w-full z-10">
+      <main className="flex-1 flex flex-col overflow-hidden relative w-full z-10 min-w-0">
         <header className="h-16 bg-white/80 backdrop-blur-md border-b flex items-center justify-between px-4 lg:px-8 z-10">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
              {isMobile && (
                <button 
                 onClick={() => setIsSidebarOpen(true)}
-                className="p-2 -ml-2 text-slate-600 hover:bg-slate-100 rounded-lg lg:hidden"
+                className="p-2 -ml-2 text-slate-600 hover:bg-slate-100 rounded-lg lg:hidden shrink-0"
                >
                  <Menu size={20}/>
                </button>
              )}
-             <div className="hidden sm:block w-1.5 h-6 bg-[#3b82f6] rounded-full"></div>
-             <h2 className="font-black uppercase tracking-widest text-[10px] sm:text-base truncate max-w-[150px] sm:max-w-none transition-colors" style={{ color: safeThemeColor }}>
+             <div className="hidden sm:block w-1.5 h-6 bg-[#3b82f6] rounded-full shrink-0"></div>
+             <h2 className="font-black uppercase tracking-widest text-[10px] sm:text-base truncate transition-colors" style={{ color: safeThemeColor }}>
                 {getHeaderTitle(activeMenu)}
               </h2>
           </div>
-          <div className="flex items-center gap-2 sm:gap-6">
+          <div className="flex items-center gap-2 sm:gap-6 shrink-0">
             {/* Shareable / Public Link Badge */}
             <div className="hidden md:flex items-center gap-2 bg-blue-50/70 hover:bg-blue-50 border border-blue-100 rounded-xl px-3 py-1.5 transition-all shadow-sm group/link">
               <Globe size={13} className="text-blue-500 shrink-0 animate-pulse" />
@@ -398,15 +398,15 @@ export const Layout: React.FC<LayoutProps> = ({ user, rolePermissions, onLogout,
               )}
             </div>
             <div className="hidden md:flex flex-col items-end">
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest" style={{ color: safeFontColor }}>
+              <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
                 {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
               </span>
-              <span className="text-[9px] font-bold text-slate-300 uppercase tracking-[0.3em]" style={{ color: `${safeFontColor}88` }}>
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.3em]">
                 Masa Depan 2026
               </span>
             </div>
             <div className="hidden sm:block w-px h-6 bg-slate-200"></div>
-            <button className="relative p-2 text-slate-400 hover:text-blue-600 transition-colors" style={{ color: safeFontColor }}>
+            <button className="relative p-2 text-slate-500 hover:text-blue-600 transition-colors">
                <AlertCircle size={20}/>
                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
             </button>
