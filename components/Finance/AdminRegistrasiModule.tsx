@@ -6,7 +6,7 @@ import {
   ChevronDown, HeartHandshake, Eye, Calendar, RefreshCcw, HelpCircle,
   AlertTriangle, Activity, CheckCircle, FileText, Printer, X
 } from 'lucide-react';
-import { Patient, MasterData, User as AppUser } from '../../types';
+import { Patient, MasterData, User as AppUser, parseToStandardDateString } from '../../types';
 import { Button } from '../Button';
 import { SearchableSelect } from '../SearchableSelect';
 import { PatientLetterModal } from './PatientLetterModal';
@@ -1225,9 +1225,7 @@ export const AdminRegistrasiModule: React.FC<AdminRegistrasiModuleProps> = ({
   const [selectedKrsDateFilter, setSelectedKrsDateFilter] = useState('');
   const [selectedKrsEndDateFilter, setSelectedKrsEndDateFilter] = useState('');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('Semua Status');
-  const [selectedUnitFilter, setSelectedUnitFilter] = useState(
-    currentUser?.unit === "Ruang Bedah" ? "Ruang Bedah" : "Semua Unit"
-  );
+  const [selectedUnitFilter, setSelectedUnitFilter] = useState('Semua Unit');
   const [showOnlyActive, setShowOnlyActive] = useState(false);
   const [showOnlyMpp, setShowOnlyMpp] = useState(false);
 
@@ -1275,19 +1273,21 @@ export const AdminRegistrasiModule: React.FC<AdminRegistrasiModuleProps> = ({
       const matchesDPJP = selectedDPJPFilter === 'Semua DPJP' || p.dpjpList?.includes(selectedDPJPFilter);
       
       let matchesDateRange = true;
+      const stdEntryDate = parseToStandardDateString(p.entryDate);
       if (selectedDateFilter) {
-        matchesDateRange = matchesDateRange && (p.entryDate || '') >= selectedDateFilter;
+        matchesDateRange = matchesDateRange && stdEntryDate >= selectedDateFilter;
       }
       if (selectedEndDateFilter) {
-        matchesDateRange = matchesDateRange && (p.entryDate || '') <= selectedEndDateFilter;
+        matchesDateRange = matchesDateRange && stdEntryDate <= selectedEndDateFilter;
       }
 
       let matchesKrsDateRange = true;
+      const stdDischargeDate = parseToStandardDateString(p.dischargeDate);
       if (selectedKrsDateFilter) {
-        matchesKrsDateRange = matchesKrsDateRange && (p.dischargeDate || '') >= selectedKrsDateFilter;
+        matchesKrsDateRange = matchesKrsDateRange && stdDischargeDate >= selectedKrsDateFilter;
       }
       if (selectedKrsEndDateFilter) {
-        matchesKrsDateRange = matchesKrsDateRange && (p.dischargeDate || '') <= selectedKrsEndDateFilter;
+        matchesKrsDateRange = matchesKrsDateRange && stdDischargeDate <= selectedKrsEndDateFilter;
       }
 
       const key = (p.noRM || '').trim().toUpperCase();
@@ -2108,6 +2108,9 @@ export const AdminRegistrasiModule: React.FC<AdminRegistrasiModuleProps> = ({
               <option value={20}>20 Baris</option>
               <option value={50}>50 Baris</option>
               <option value={100}>100 Baris</option>
+              <option value={200}>200 Baris</option>
+              <option value={500}>500 Baris</option>
+              <option value={1000}>Semua (1000+ Baris)</option>
             </select>
             <span className="text-[10px] font-black uppercase text-slate-500 tracking-wide">
               Menampilkan {filteredPatients.length === 0 ? 0 : (currentPage - 1) * pageSize + 1} - {Math.min(filteredPatients.length, currentPage * pageSize)} dari {filteredPatients.length} data

@@ -21,6 +21,7 @@
     "dotenv": "^17.4.2",
     "esbuild": "^0.28.0",
     "express": "^5.2.1",
+    "firebase": "^12.16.0",
     "google-auth-library": "^10.6.2",
     "google-spreadsheet": "^5.2.0",
     "jspdf": "^4.2.1",

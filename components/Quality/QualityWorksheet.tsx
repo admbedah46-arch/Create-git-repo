@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
-import { QualityIndicator, QualityMeasurement, MasterData, User as AppUser, Patient, DailyReportEntry, compareDatesSafe } from '../../types';
+import { QualityIndicator, QualityMeasurement, MasterData, User as AppUser, Patient, DailyReportEntry, compareDatesSafe, parseToStandardDateString } from '../../types';
 import { Button } from '../Button';
 import { 
   ClipboardCheck, Target, TrendingUp, TrendingDown, 
@@ -858,7 +858,7 @@ const KetergantunganPasienAuditForm: React.FC<{
   selectedDate: string;
 }> = ({ data, onChange, patients, dailyReports, selectedDate }) => {
   const syncFromActivePatients = () => {
-    const active = patients.filter(p => !p.dischargeDate || p.dischargeDate >= selectedDate);
+    const active = patients.filter(p => !p.dischargeDate || parseToStandardDateString(p.dischargeDate) >= selectedDate);
     
     const newData = [...data];
     active.forEach(p => {

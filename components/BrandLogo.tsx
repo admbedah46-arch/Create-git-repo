@@ -24,7 +24,11 @@ export const BrandLogo: React.FC<{
       <div className={`${currentSize.h} aspect-square relative flex items-center justify-center shrink-0`}>
         {logoUrl ? (
           <img 
-            src={logoUrl} 
+            src={logoUrl.includes('drive.google.com') ? (() => {
+              const fileIdMatch = logoUrl.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || 
+                                  logoUrl.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+              return fileIdMatch ? `https://lh3.googleusercontent.com/d/${fileIdMatch[1]}` : logoUrl;
+            })() : logoUrl} 
             alt="App Logo" 
             className="w-full h-full object-contain drop-shadow-lg rounded-lg"
             referrerPolicy="no-referrer"

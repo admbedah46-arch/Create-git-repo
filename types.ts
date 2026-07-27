@@ -36,6 +36,9 @@ export interface QualityIndicator {
 export interface QualityMeasurement {
   id: string;
   lastModified?: string;
+  updatedAt?: string;
+  isDeleted?: boolean;
+  deletedAt?: string;
   indicatorId: string;
   date: string;
   numeratorValue: number;
@@ -51,6 +54,9 @@ export interface DailyReportEntry {
   patientId: string;
   date: string;
   lastModified?: string;
+  updatedAt?: string;
+  isDeleted?: boolean;
+  deletedAt?: string;
   morningReport?: string;
   afternoonReport?: string;
   nightReport?: string;
@@ -103,6 +109,7 @@ export interface DoctorVisitRecord {
 export interface Instrument {
   id: string;
   lastModified?: string;
+  updatedAt?: string;
   code: string;
   name: string;
   category: string;
@@ -115,6 +122,7 @@ export interface Instrument {
 export interface OperationReport {
   id: string;
   lastModified?: string;
+  updatedAt?: string;
   patientId: string;
   patientName: string;
   noRM: string;
@@ -132,6 +140,41 @@ export interface OperationReport {
   recordedBy: string;
   createdAt: string;
   unit: string;
+}
+
+export interface RoomBooking {
+  id: string;
+  patientName: string;
+  noRM: string;
+  bookingDate: string; // YYYY-MM-DD
+  bookingTime?: string;
+  plannedRoom: string; // Room / Care Unit planned
+  patientStatus: string; // "Di Rumah" or "IGD", "HD", "Poliklinik", "Rawat Inap"
+  originDetail?: string; // Specific clinic/room name if originating from polyclinic/ward
+  notes?: string;
+  status: 'PENDING' | 'CHECKED_IN' | 'CANCELLED';
+  createdAt: string;
+  createdBy?: string;
+  createdByName?: string;
+  createdByUsername?: string;
+  updatedAt?: string;
+  checkedInAt?: string;
+  checkedInBy?: string;
+  lastModified?: string;
+  cancellationReason?: string;
+}
+
+export interface RolePermission {
+  role: UserRole;
+  allowedMenus: string[]; // List of allowed menu IDs, e.g. ['adm-register', 'adm-booking', ...]
+  actions: {
+    canCreate: boolean;
+    canEdit: boolean;
+    canDelete: boolean;
+    canPrintPdf: boolean;
+    canExportExcel: boolean;
+    canPostBilling: boolean;
+  };
 }
 
 export interface MasterData {
@@ -153,6 +196,7 @@ export interface MasterData {
   instrumentCategories?: string[];
   settings?: AppSettings;
   restrictedDrugs?: { drugName: string; maxDays: number; }[];
+  rolePermissions?: Record<string, RolePermission>;
   refs: {
     positions: string[];
     ksmList: string[];
@@ -179,6 +223,7 @@ export interface AppData {
   qualityMeasurements?: QualityMeasurement[];
   instruments?: Instrument[];
   operationReports?: OperationReport[];
+  roomBookings?: RoomBooking[];
   deletedIds?: string[];
 }
 
@@ -194,6 +239,7 @@ export interface Patient {
   entryDate: string;
   entryTime?: string;
   origin: string;
+  originUnit?: string;
   unitTujuan: string;
   kelasRawat: string;
   ruangan: string;
@@ -374,6 +420,8 @@ export interface AppSettings {
   fontColor?: string;
   settingsTimestamp?: string;
   logoUrl?: string;
+  logoLetterLeftUrl?: string;
+  logoLetterRightUrl?: string;
 }
 
 export const getDpjpStyles = (name: string): { bg: string; text: string; border: string } => {
@@ -611,7 +659,7 @@ export const parseToStandardDateString = (dateStr: any): string => {
     }
 
     // If it's a number (Excel date or timestamp)
-    const num = Number(clean);
+    const num = Math.floor(Number(clean));
     if (!isNaN(num) && num > 0) {
       if (num > 100000000000) {
         const dObj = new Date(num);

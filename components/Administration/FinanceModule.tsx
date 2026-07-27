@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useRef } from 'react';
-import { FinanceRecord, DoctorChargeEntry, MasterData, Patient, User as AppUser, DoctorVisitRecord, compareDatesSafe } from '../../types';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
+import { FinanceRecord, DoctorChargeEntry, MasterData, Patient, User as AppUser, DoctorVisitRecord, compareDatesSafe, parseToStandardDateString } from '../../types';
 import { Button } from '../Button';
 import { STANDAR_ICD10 } from '../Finance/AdminRegistrasiModule';
 import { SearchableSelect } from '../SearchableSelect';
@@ -107,34 +107,88 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
     { doctorName: '', count: 1, role: 'DPJP_UTAMA' }
   ]);
 
-  // Drag and Drop State
+  // Drag and Drop State & Queue Filtering Helpers
   const [loadedDraftPatientId, setLoadedDraftPatientId] = useState<string | null>(null);
+
+  // Helper to verify if patient discharge status matches one of the 5 active status categories
+  const isMatchDischargeStatus = useCallback((p: Patient): boolean => {
+    if (!p) return false;
+    const caraKeluar = (p as any).caraKeluar;
+    const statusStr = [
+      p.statusDataPasien,
+      caraKeluar,
+      p.status
+    ].filter(Boolean).join(' ').toUpperCase().trim();
+
+    if (statusStr.includes('BATAL')) return false;
+
+    const keywords = [
+      'BPL', 'PULANG', 'SEMBUH', 'BEROBAT JALAN',
+      'APS', 'ATAS PERMINTAAN SENDIRI', 'PULANG PAKSA',
+      'MENINGGAL', 'WAFAT',
+      'RUJUK', 'DIRUJUK',
+      'PINDAH', 'TRANSFER', 'DIPINDAH'
+    ];
+
+    return keywords.some(kw => statusStr.includes(kw)) || p.status === 'DISCHARGED';
+  }, []);
+
+  // Helper to verify if a patient is ALREADY ENTERED / POSTED in finance records for a given discharge date
+  const isPatientPostedOrEntered = useCallback((p: Patient, filterDate: string, financeRecords: FinanceRecord[]): boolean => {
+    if (!p) return false;
+    if ((p as any).isDeleted || (p as any).deleted) return true;
+    if ((p as any).isPosted === true || (p as any).statusBilling === 'DONE') return true;
+
+    const pRM = (p.noRM || '').trim().toUpperCase();
+    const pName = (p.name || '').trim().toUpperCase();
+
+    return (financeRecords || []).some(r => {
+      if (!r || (r as any).isDeleted || (r as any).deleted) return false;
+
+      // Check date match
+      const recordDateMatch = r.date === filterDate || r.dischargeDate === filterDate;
+      if (!recordDateMatch) return false;
+
+      // Check identity match
+      const idMatch = !!(r.patientId && r.patientId === p.id);
+      const rmMatch = !!(pRM && r.noRM && r.noRM.trim().toUpperCase() === pRM);
+      const nameMatch = !!(pName && r.patientName && r.patientName.trim().toUpperCase() === pName);
+
+      return idMatch || rmMatch || nameMatch;
+    });
+  }, []);
+
   const eligibleDraftPatients = useMemo(() => {
     if (!patientDischargeFilterDate) return [];
-    return patients.filter(p => {
-      // Must match dischargeDate strictly
+
+    // Filter candidate patients according to strict rules
+    const candidates = patients.filter(p => {
+      if (!p || (p as any).isDeleted || (p as any).deleted) return false;
+
+      // Rule 2: Date match (dischargeDate strictly equals selected filter date)
       const matchesDischargeDate = p.dischargeDate === patientDischargeFilterDate;
       if (!matchesDischargeDate) return false;
 
-      // Deep discharge status match
-      const st = (p.statusDataPasien || '').toUpperCase().trim();
-      const keywords = [
-        "BPL", "PULANG", "SEMBUH", 
-        "APS", "ATAS PERMINTAAN SENDIRI", 
-        "MENINGGAL", "WAFAT", 
-        "RUJUK", 
-        "TRANSFER", "PINDAH"
-      ];
-      const isDischargedOrStatus = keywords.some(kw => st.includes(kw)) || p.status === 'DISCHARGED';
-      if (!isDischargedOrStatus) return false;
+      // Rule 2: Discharge status match (covers 5 active status categories)
+      if (!isMatchDischargeStatus(p)) return false;
 
-      // Must NOT be already entered in finance records on that date
-      const alreadyAdded = (records || []).some(
-        r => r.patientId === p.id && r.date === patientDischargeFilterDate
-      );
-      return !alreadyAdded;
+      // Rule 3: Entry / Posting check (Exclude if already entered/posted)
+      if (isPatientPostedOrEntered(p, patientDischargeFilterDate, records)) return false;
+
+      return true;
     });
-  }, [patients, records, patientDischargeFilterDate]);
+
+    // Rule 1: Deduplication by unique patient_id / no_rm
+    const dedupMap = new Map<string, Patient>();
+    candidates.forEach(p => {
+      const key = (p.noRM && p.noRM.trim()) ? p.noRM.trim().toUpperCase() : p.id;
+      if (!dedupMap.has(key)) {
+        dedupMap.set(key, p);
+      }
+    });
+
+    return Array.from(dedupMap.values());
+  }, [patients, records, patientDischargeFilterDate, isMatchDischargeStatus, isPatientPostedOrEntered]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -164,6 +218,31 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
     caraBayar: 'BPJS',
     statusDataPasien: 'BPL'
   });
+
+  const patientSelectOptions = useMemo(() => {
+    const list = [...eligibleDraftPatients];
+
+    // Ensure currently selected draft patient (if any) remains in options so form displays label properly
+    if (newRecord.patientId) {
+      const currentPat = patients.find(p => p.id === newRecord.patientId);
+      if (currentPat) {
+        const curKey = (currentPat.noRM && currentPat.noRM.trim()) ? currentPat.noRM.trim().toUpperCase() : currentPat.id;
+        const exists = list.some(p => {
+          const k = (p.noRM && p.noRM.trim()) ? p.noRM.trim().toUpperCase() : p.id;
+          return k === curKey || p.id === currentPat.id;
+        });
+
+        if (!exists) {
+          list.unshift(currentPat);
+        }
+      }
+    }
+
+    return list.map(p => ({
+      value: p.id,
+      label: `${p.noRM || '-'} - ${p.name.toUpperCase()} [${p.ruangan || 'Tanpa Ruangan'}] (${p.statusDataPasien || p.status || 'Keluar'}) ${p.dischargeDate ? `| Pulang: ${p.dischargeDate}` : ''}`
+    }));
+  }, [eligibleDraftPatients, newRecord.patientId, patients]);
 
   const isMethodSelected = (method: string) => {
     const selected = newRecord.caraBayar ? newRecord.caraBayar.split(',').map(m => m.trim()) : [];
@@ -424,7 +503,9 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
           dpjp: firstUtama,
           ksm: deducedKsm,
           numVisites: validDoctorCharges.reduce((sum, c) => sum + c.count, 0),
-          doctorCharges: validDoctorCharges
+          doctorCharges: validDoctorCharges,
+          isPosted: true,
+          statusBilling: 'DONE'
         } as FinanceRecord;
         onAddRecord(finalRecord);
       });
@@ -441,7 +522,9 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
         dpjp: firstUtama,
         ksm: deducedKsm,
         numVisites: validDoctorCharges.reduce((sum, c) => sum + c.count, 0),
-        doctorCharges: validDoctorCharges
+        doctorCharges: validDoctorCharges,
+        isPosted: true,
+        statusBilling: 'DONE'
       } as FinanceRecord;
       onAddRecord(finalRecord);
     }
@@ -488,8 +571,8 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
       const matchesDoctor = selectedDoctor === 'Semua Dokter' || r.dpjp === selectedDoctor;
       const matchesDate = (() => {
         if (!startDate && !endDate) return true;
-        const dVal = r.date || '';
-        const dcVal = r.dischargeDate || '';
+        const dVal = parseToStandardDateString(r.date || '');
+        const dcVal = parseToStandardDateString(r.dischargeDate || '');
         const isDInRange = dVal && (!startDate || dVal >= startDate) && (!endDate || dVal <= endDate);
         const isDCInRange = dcVal && (!startDate || dcVal >= startDate) && (!endDate || dcVal <= endDate);
         return !!(isDInRange || isDCInRange);
@@ -2351,40 +2434,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
                 <label className="block text-[10px] font-black text-slate-500 uppercase mb-1.5 tracking-widest">Pilih Pasien Pulang</label>
                 <SearchableSelect
                   placeholder="-- PILIH PASIEN (ANTREAN PASIEN KELUAR AKTIF) --"
-                  options={patients
-                    .filter(p => {
-                      if (newRecord.id && p.id === newRecord.patientId) return true;
-
-                      // a. Rule Tanggal Berjalan: must match the selected date strictly.
-                      if (!patientDischargeFilterDate) return false;
-                      const matchesDischargeDate = p.dischargeDate === patientDischargeFilterDate;
-                      if (!matchesDischargeDate) return false;
-
-                      // Deep discharge status match matching the 5 requested status categories (BPL, APS, Meninggal, Rujuk, Pindah Ke Ruangan Lain)
-                      const st = (p.statusDataPasien || '').toUpperCase().trim();
-                      const keywords = [
-                        "BPL", "PULANG", "SEMBUH", 
-                        "APS", "ATAS PERMINTAAN SENDIRI", 
-                        "MENINGGAL", "WAFAT", 
-                        "RUJUK", 
-                        "TRANSFER", "PINDAH"
-                      ];
-                      const isDischargedOrStatus = keywords.some(kw => st.includes(kw)) || p.status === 'DISCHARGED';
-                      if (!isDischargedOrStatus) return false;
-
-                      // b. Rule Selesai Entry: if a billing/visite record on that date is already entered, exclude it.
-                      const alreadyAdded = (records || []).some(
-                        r => r.patientId === p.id && r.date === patientDischargeFilterDate
-                      );
-                      if (alreadyAdded) return false;
-
-                      return true;
-                    })
-                    .map(p => ({
-                      value: p.id,
-                      label: `${p.noRM} - ${p.name.toUpperCase()} [${p.ruangan || 'Tanpa Ruangan'}] (${p.statusDataPasien || p.status}) ${p.dischargeDate ? `| Pulang: ${p.dischargeDate}` : ''}`
-                    }))
-                  }
+                  options={patientSelectOptions}
                   value={newRecord.patientId || ''}
                   onChange={val => handlePatientChange(val)}
                 />

@@ -80,6 +80,16 @@ const formatPhotoStyleDate = (dateStr: string | undefined): string => {
   return `${day} - ${month} - ${year}`;
 };
 
+// Dynamic Font Sizing for long doctor names to guarantee 1 single line without wrapping
+const getDynamicDoctorFontSize = (name: string | undefined): string => {
+  const len = (name || '').trim().length;
+  if (len > 55) return '10px';
+  if (len > 45) return '11px';
+  if (len > 38) return '12px';
+  if (len > 30) return '13px';
+  return '14px';
+};
+
 interface DocumentContentProps {
   jenisSurat: 'opname' | 'rujuan' | 'lain';
   noSurat: string;
@@ -94,6 +104,8 @@ interface DocumentContentProps {
   isiKeterangan: string;
   patient: Patient;
   logoUrl?: string;
+  logoLetterLeftUrl?: string;
+  logoLetterRightUrl?: string;
 }
 
 const DocumentContent: React.FC<DocumentContentProps> = ({
@@ -109,13 +121,32 @@ const DocumentContent: React.FC<DocumentContentProps> = ({
   perihal,
   isiKeterangan,
   patient,
-  logoUrl
+  logoUrl,
+  logoLetterLeftUrl,
+  logoLetterRightUrl
 }) => {
-  const [logoSrc, setLogoSrc] = useState(logoUrl || RSUD_SOEDJONO_BASE64);
+  const getNormalizedLogoUrl = (url?: string) => {
+    if (!url) return '';
+    if (url.includes('drive.google.com')) {
+      const fileIdMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || 
+                          url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+      if (fileIdMatch) {
+        return `https://lh3.googleusercontent.com/d/${fileIdMatch[1]}`;
+      }
+    }
+    return url;
+  };
+
+  const [leftLogoSrc, setLeftLogoSrc] = useState(getNormalizedLogoUrl(logoLetterLeftUrl) || LOMBOK_TIMUR_BASE64);
+  const [logoSrc, setLogoSrc] = useState(getNormalizedLogoUrl(logoLetterRightUrl || logoUrl) || RSUD_SOEDJONO_BASE64);
 
   useEffect(() => {
-    setLogoSrc(logoUrl || RSUD_SOEDJONO_BASE64);
-  }, [logoUrl]);
+    setLeftLogoSrc(getNormalizedLogoUrl(logoLetterLeftUrl) || LOMBOK_TIMUR_BASE64);
+  }, [logoLetterLeftUrl]);
+
+  useEffect(() => {
+    setLogoSrc(getNormalizedLogoUrl(logoLetterRightUrl || logoUrl) || RSUD_SOEDJONO_BASE64);
+  }, [logoLetterRightUrl, logoUrl]);
 
   return (
     <div className="flex-1 flex flex-col w-full text-black">
@@ -124,7 +155,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({
         <tbody>
           <tr>
             <td style={{ width: '80px', textAlign: 'left', verticalAlign: 'middle', padding: 0, border: 'none' }}>
-              <img src={LOMBOK_TIMUR_BASE64} alt="Logo Lombok Timur" style={{ width: '75px', height: 'auto', display: 'block' }} />
+              <img src={leftLogoSrc} alt="Logo Lombok Timur" style={{ width: '75px', height: 'auto', display: 'block' }} />
             </td>
             <td style={{ textAlign: 'center', verticalAlign: 'middle', padding: '0 10px', border: 'none' }}>
               <h2 className="text-[14px] font-bold tracking-wider text-black uppercase leading-tight" style={{ margin: 0, padding: 0, fontFamily: 'Arial, Helvetica, sans-serif' }}>
@@ -215,7 +246,7 @@ const DocumentContent: React.FC<DocumentContentProps> = ({
 
           {/* Signee Footer */}
           <div className="mt-8 pt-4 flex justify-end font-sans text-black">
-            <div className="text-center w-[320px]">
+            <div className="text-center w-auto min-w-[280px] max-w-[400px] signature-block doctor-signature">
               <p className="text-[13px]" style={{ margin: 0 }}>
                 Selong, &nbsp; <span className="font-bold">{formatPhotoStyleDate(tanggalCetak)}</span>
               </p>
@@ -226,10 +257,20 @@ const DocumentContent: React.FC<DocumentContentProps> = ({
                 Dokter Pemeriksa
               </p>
               <div className="h-16"></div>
-              <p className="font-bold underline text-[14px] leading-tight" style={{ margin: 0, textDecoration: 'underline' }}>
+              <p 
+                className="font-bold underline leading-tight doctor-name-signee" 
+                style={{ 
+                  margin: 0, 
+                  textDecoration: 'underline',
+                  whiteSpace: 'nowrap',
+                  overflow: 'visible',
+                  wordBreak: 'keep-all',
+                  fontSize: getDynamicDoctorFontSize(dokterSignee)
+                }}
+              >
                 {dokterSignee || "......................................................"}
               </p>
-              <p className="text-[11px] font-bold mt-0.5" style={{ margin: '2px 0 0 0' }}>
+              <p className="text-[11px] font-bold mt-0.5" style={{ margin: '2px 0 0 0', whiteSpace: 'nowrap' }}>
                 NIP. {nipDokter || "......................................................"}
               </p>
             </div>
@@ -309,17 +350,27 @@ const DocumentContent: React.FC<DocumentContentProps> = ({
 
           {/* Signee Footer */}
           <div className="mt-8 pt-4 flex justify-end font-sans text-black">
-            <div className="text-center w-[300px]">
+            <div className="text-center w-auto min-w-[280px] max-w-[400px] signature-block doctor-signature">
               <p className="text-[13px]" style={{ margin: 0 }}>
                 Selong, &nbsp; <span className="font-bold">{formatPhotoStyleDate(tanggalCetak)}</span>
               </p>
               <p className="text-[13px] mt-1" style={{ margin: '4px 0 0 0' }}>Hormat Kami,</p>
               <p className="text-[13px] font-bold mt-0.5" style={{ margin: 0 }}>Dokter Pemeriksa / DPJP Utama</p>
               <div className="h-16"></div>
-              <p className="font-bold underline text-[14px] leading-tight" style={{ margin: 0, textDecoration: 'underline' }}>
+              <p 
+                className="font-bold underline leading-tight doctor-name-signee" 
+                style={{ 
+                  margin: 0, 
+                  textDecoration: 'underline',
+                  whiteSpace: 'nowrap',
+                  overflow: 'visible',
+                  wordBreak: 'keep-all',
+                  fontSize: getDynamicDoctorFontSize(dokterSignee)
+                }}
+              >
                 {dokterSignee || "......................................................"}
               </p>
-              <p className="text-[11px] font-bold mt-0.5" style={{ margin: '2px 0 0 0' }}>
+              <p className="text-[11px] font-bold mt-0.5" style={{ margin: '2px 0 0 0', whiteSpace: 'nowrap' }}>
                 NIP. {nipDokter || "......................................................"}
               </p>
             </div>
@@ -383,16 +434,26 @@ const DocumentContent: React.FC<DocumentContentProps> = ({
 
           {/* Signee Footer */}
           <div className="mt-8 pt-4 flex justify-end font-sans text-black">
-            <div className="text-center w-[300px]">
+            <div className="text-center w-auto min-w-[280px] max-w-[400px] signature-block doctor-signature">
               <p className="text-[13px]" style={{ margin: 0 }}>
                 Selong, &nbsp; <span className="font-bold">{formatPhotoStyleDate(tanggalCetak)}</span>
               </p>
               <p className="text-[13px] mt-1" style={{ margin: '4px 0 0 0' }}>Dokter Pemeriksa,</p>
               <div className="h-16"></div>
-              <p className="font-bold underline text-[14px] leading-tight" style={{ margin: 0, textDecoration: 'underline' }}>
+              <p 
+                className="font-bold underline leading-tight doctor-name-signee" 
+                style={{ 
+                  margin: 0, 
+                  textDecoration: 'underline',
+                  whiteSpace: 'nowrap',
+                  overflow: 'visible',
+                  wordBreak: 'keep-all',
+                  fontSize: getDynamicDoctorFontSize(dokterSignee)
+                }}
+              >
                 {dokterSignee || "......................................................"}
               </p>
-              <p className="text-[11px] font-bold mt-0.5" style={{ margin: '2px 0 0 0' }}>
+              <p className="text-[11px] font-bold mt-0.5" style={{ margin: '2px 0 0 0', whiteSpace: 'nowrap' }}>
                 NIP. {nipDokter || "......................................................"}
               </p>
             </div>
@@ -420,8 +481,24 @@ const generatePrintHTML = (
   formatPhotoStyleDate: (date: string | undefined) => string,
   formatIndonesianDate: (date: string | undefined) => string,
   getAgeFromBirthDate: (date: string | undefined) => string,
-  logoUrl?: string
+  logoUrl?: string,
+  logoLetterLeftUrl?: string,
+  logoLetterRightUrl?: string
 ): string => {
+  const getNormalizedLogoUrl = (url?: string) => {
+    if (!url) return '';
+    if (url.includes('drive.google.com')) {
+      const fileIdMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || 
+                          url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+      if (fileIdMatch) {
+        return `https://lh3.googleusercontent.com/d/${fileIdMatch[1]}`;
+      }
+    }
+    return url;
+  };
+  const leftLogoSrc = getNormalizedLogoUrl(logoLetterLeftUrl) || LOMBOK_TIMUR_BASE64;
+  const rightLogoSrc = getNormalizedLogoUrl(logoLetterRightUrl || logoUrl) || RSUD_SOEDJONO_BASE64;
+
   const patientName = patient?.name || '-';
   const patientBirthDate = patient?.birthDate || '';
   const patientNoRM = patient?.noRM || '-';
@@ -660,31 +737,36 @@ const generatePrintHTML = (
           justify-content: flex-end;
           font-family: Arial, Helvetica, sans-serif;
         }
-        .signee-box {
+        .signee-box, .signature-block, .doctor-signature {
           text-align: center;
-          width: 320px;
+          width: auto;
+          min-width: 280px;
+          max-width: 400px;
           font-size: 13px;
         }
-        .signee-name {
+        .signee-name, .doctor-name-signee {
           font-weight: bold;
           text-decoration: underline;
-          font-size: 14px;
           margin: 0;
+          white-space: nowrap !important;
+          overflow: visible !important;
+          word-break: keep-all !important;
         }
         .signee-nip {
           font-size: 11px;
           font-weight: bold;
           margin: 3px 0 0 0;
+          white-space: nowrap !important;
         }
       </style>
     </head>
     <body>
       <div id="page-container">
         <!-- Kop Surat Hospital (HTML Table Layout) -->
-        <table class="kop-table">
+         <table class="kop-table">
           <tr>
             <td style="width: 80px; text-align: left; vertical-align: middle;">
-              <img src="${LOMBOK_TIMUR_BASE64}" alt="Logo Lombok Timur" style="width: 75px; height: auto; display: block;" />
+              <img src="${leftLogoSrc}" onerror="this.onerror=null; this.src='${LOMBOK_TIMUR_BASE64}';" alt="Logo Lombok Timur" style="width: 75px; height: auto; display: block;" />
             </td>
             <td style="text-align: center; vertical-align: middle; padding: 0 10px;">
               <h2 style="font-family: Arial, Helvetica, sans-serif; font-size: 15px; font-weight: bold; margin: 0; padding: 0; text-transform: uppercase; line-height: 1.2; color: #000000; letter-spacing: 0.5px;">
@@ -701,7 +783,7 @@ const generatePrintHTML = (
               </p>
             </td>
             <td style="width: 80px; text-align: right; vertical-align: middle;">
-              <img src="${logoUrl || RSUD_SOEDJONO_BASE64}" onerror="this.onerror=null; this.src='${RSUD_SOEDJONO_BASE64}';" alt="Logo RSUD" style="width: 72px; height: auto; display: block; margin-left: auto;" />
+              <img src="${rightLogoSrc}" onerror="this.onerror=null; this.src='${RSUD_SOEDJONO_BASE64}';" alt="Logo RSUD" style="width: 72px; height: auto; display: block; margin-left: auto;" />
             </td>
           </tr>
         </table>
@@ -723,8 +805,8 @@ const generatePrintHTML = (
             
             <div style="height: 60px;"></div> <!-- Clear signature spacer with absolutely no helper text like (Tanda Tangan) -->
             
-            <p class="signee-name">${dokterSignee || '......................................................'}</p>
-            <p class="signee-nip">NIP. ${nipDokter || '......................................................'}</p>
+            <p class="signee-name doctor-name-signee" style="white-space: nowrap !important; overflow: visible !important; word-break: keep-all !important; font-size: ${getDynamicDoctorFontSize(dokterSignee)};">${dokterSignee || '......................................................'}</p>
+            <p class="signee-nip" style="white-space: nowrap !important;">NIP. ${nipDokter || '......................................................'}</p>
           </div>
         </div>
       </div>
@@ -907,7 +989,9 @@ export const PatientLetterModalInner: React.FC<PatientLetterModalProps> = ({
         formatPhotoStyleDate,
         formatIndonesianDate,
         getAgeFromBirthDate,
-        masterData?.settings?.logoUrl
+        masterData?.settings?.logoUrl,
+        masterData?.settings?.logoLetterLeftUrl,
+        masterData?.settings?.logoLetterRightUrl
       );
 
       const printWindow = window.open('', '_blank');
@@ -974,6 +1058,17 @@ export const PatientLetterModalInner: React.FC<PatientLetterModalProps> = ({
             font-size: 14px !important;
             line-height: 1.6 !important;
             font-family: 'Times New Roman', Times, serif !important;
+          }
+          .signature-block, .doctor-signature, .signee-box {
+            text-align: center !important;
+            width: auto !important;
+            min-width: 280px !important;
+            max-width: 400px !important;
+          }
+          .doctor-name-signee, .signee-name {
+            white-space: nowrap !important;
+            overflow: visible !important;
+            word-break: keep-all !important;
           }
           /* Print optimization resets */
           * {
@@ -1303,6 +1398,8 @@ export const PatientLetterModalInner: React.FC<PatientLetterModalProps> = ({
                 isiKeterangan={isiKeterangan}
                 patient={patient}
                 logoUrl={masterData?.settings?.logoUrl}
+                logoLetterLeftUrl={masterData?.settings?.logoLetterLeftUrl}
+                logoLetterRightUrl={masterData?.settings?.logoLetterRightUrl}
               />
             </div>
           </div>
@@ -1337,6 +1434,8 @@ export const PatientLetterModalInner: React.FC<PatientLetterModalProps> = ({
           isiKeterangan={isiKeterangan}
           patient={patient}
           logoUrl={masterData?.settings?.logoUrl}
+          logoLetterLeftUrl={masterData?.settings?.logoLetterLeftUrl}
+          logoLetterRightUrl={masterData?.settings?.logoLetterRightUrl}
         />
       </div>
     </div>

@@ -346,12 +346,7 @@ function doPost(e) {
     var val1Str = val1.toString().trim();
     var isRow1Json = val1Str.indexOf("{") === 0 || val1Str.indexOf("[") === 0;
     
-    if (isRow1Json || val1 === "") {
-      sheet.getRange(1, 1).setValue(updatedRawData);
-    } else {
-      sheet.getRange(1, 1).setValue("JSON_DATA");
-      sheet.getRange(2, 1).setValue(updatedRawData);
-    }
+    writeLargeDataToSheet(sheet, isRow1Json || val1 === "", updatedRawData);
     
     return ContentService.createTextOutput(JSON.stringify({ 
       success: true, 
@@ -365,6 +360,33 @@ function doPost(e) {
       success: false, 
       error: err.message 
     })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function writeLargeDataToSheet(sheet, isRow1Json, dataStr) {
+  try {
+    sheet.clearContents();
+  } catch (clearErr) {
+    try {
+      sheet.getRange(1, 1, Math.max(sheet.getLastRow(), 100), 1).clearContent();
+    } catch (colClearErr) {}
+  }
+  
+  var chunkSize = 40000;
+  var chunks = [];
+  for (var i = 0; i < dataStr.length; i += chunkSize) {
+    chunks.push(dataStr.substring(i, i + chunkSize));
+  }
+  
+  var startRow = 2;
+  if (isRow1Json) {
+    startRow = 1;
+  } else {
+    sheet.getRange(1, 1).setValue("JSON_DATA");
+  }
+  
+  for (var j = 0; j < chunks.length; j++) {
+    sheet.getRange(startRow + j, 1).setValue(chunks[j]);
   }
 }
 

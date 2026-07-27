@@ -198,11 +198,28 @@ export const AsesmenAwalMedisWorksheet: React.FC<AsesmenAwalMedisWorksheetProps>
   // Sync and save states
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Find or initialize quality measurement audit for this date
+  // Find or initialize quality measurement audit for this date (merging all duplicate entries if any)
   const currentMeasurement = useMemo(() => {
     const list = appData.qualityMeasurements || [];
-    const found = list.find(m => m.indicatorId === 'mutu-asesmen-awal-medis' && m.date === selectedDate);
-    return found || null;
+    const targetDateStd = parseToStandardDateString(selectedDate);
+    const matches = list.filter(
+      m => m.indicatorId === 'mutu-asesmen-awal-medis' && parseToStandardDateString(m.date) === targetDateStd
+    );
+    if (matches.length === 0) return null;
+
+    const mergedAuditData: Record<string, AuditRecord> = {};
+    matches.forEach(m => {
+      if (m.auditData && typeof m.auditData === 'object') {
+        Object.assign(mergedAuditData, m.auditData);
+      }
+    });
+
+    const latest = matches[matches.length - 1];
+    return {
+      ...latest,
+      date: targetDateStd,
+      auditData: mergedAuditData
+    };
   }, [appData.qualityMeasurements, selectedDate]);
 
   // Loaded auditData state per patient { [patientId]: AuditRecord }
@@ -246,7 +263,7 @@ export const AsesmenAwalMedisWorksheet: React.FC<AsesmenAwalMedisWorksheetProps>
     const targetDateStr = parseToStandardDateString(selectedDate);
     list = list.filter(p => p && parseToStandardDateString(p.entryDate) === targetDateStr);
 
-    // 3. Filter Eksklusi (Data Duplikat): Pasien yang sudah disimpan data asesmennya untuk tanggal ini (ada di localAuditData dan nilainya valid) TIDAK BOLEH muncul kembali
+    // 3. Filter Eksklusi (Pasien Sudah Diposting/Diaudit): Pasien yang sudah disimpan data asesmennya untuk tanggal ini TIDAK BOLEH muncul kembali di antrean
     const auditedIds = new Set<string>(
       Object.keys(localAuditData || {}).filter(key => localAuditData[key] !== undefined && localAuditData[key] !== null)
     );
@@ -334,16 +351,24 @@ export const AsesmenAwalMedisWorksheet: React.FC<AsesmenAwalMedisWorksheetProps>
 
   // Handle Save Audit (Optimistic UI & Background Async Sync)
   const handleSaveAudit = (patient: Patient, values: Record<string, 'Ya' | 'Tidak' | 'Tidak Perlu'>) => {
-    const targetDate = parseToStandardDateString(patient.entryDate) || selectedDate;
+    const targetDate = parseToStandardDateString(patient.entryDate) || parseToStandardDateString(selectedDate);
+    const targetDateStd = parseToStandardDateString(targetDate);
 
     // Retrieve global list
     const existingMeasurements = appData.qualityMeasurements || [];
-    const foundMeasurement = existingMeasurements.find(
-      m => m.indicatorId === 'mutu-asesmen-awal-medis' && parseToStandardDateString(m.date) === targetDate
+    const matchingMeasurements = existingMeasurements.filter(
+      m => m.indicatorId === 'mutu-asesmen-awal-medis' && parseToStandardDateString(m.date) === targetDateStd
     );
 
-    const currentAuditData = foundMeasurement ? { ...(foundMeasurement.auditData || {}) } : {};
-    
+    // Merge auditData across all matching measurements for this date + current local state
+    const currentAuditData: Record<string, AuditRecord> = {};
+    matchingMeasurements.forEach(m => {
+      if (m.auditData && typeof m.auditData === 'object') {
+        Object.assign(currentAuditData, m.auditData);
+      }
+    });
+    Object.assign(currentAuditData, localAuditDataRef.current);
+
     // Inject/Update the patient's record
     currentAuditData[patient.id] = {
       anamnesis: values.anamnesis,
@@ -355,43 +380,38 @@ export const AsesmenAwalMedisWorksheet: React.FC<AsesmenAwalMedisWorksheetProps>
     };
 
     // Recalculate stats for targetDate
-    let datePatients = appData.patients || [];
-    const deletedSet = new Set<string>(appData.deletedIds || []);
-    datePatients = datePatients.filter(p => p && p.id && !deletedSet.has(p.id));
-    datePatients = datePatients.filter(p => getMainUnit(p.ruangan) === selectedRoom || getMainUnit(p.unitTujuan) === selectedRoom);
-    datePatients = datePatients.filter(p => p && parseToStandardDateString(p.entryDate) === targetDate);
+    const auditedPatientIds = Object.keys(currentAuditData).filter(
+      id => currentAuditData[id] !== undefined && currentAuditData[id] !== null
+    );
 
     let totalNumerator = 0;
-    let totalDenominator = 0;
+    let totalDenominator = auditedPatientIds.length;
 
-    datePatients.forEach(p => {
-      const rec = currentAuditData[p.id];
-      if (rec) {
-        totalDenominator += 1;
-        if (isCompliant(rec)) {
-          totalNumerator += 1;
-        }
+    auditedPatientIds.forEach(id => {
+      if (isCompliant(currentAuditData[id])) {
+        totalNumerator += 1;
       }
     });
 
+    const primaryFound = matchingMeasurements[0];
+
     const newMeasurement: QualityMeasurement = {
-      id: foundMeasurement?.id || `MEAS_MUTU_ASESMEN_${targetDate}_${Date.now()}`,
+      id: primaryFound?.id || `MEAS_MUTU_ASESMEN_${targetDateStd}_${Date.now()}`,
       indicatorId: 'mutu-asesmen-awal-medis',
-      date: targetDate,
+      date: targetDateStd,
       numeratorValue: totalNumerator,
       denominatorValue: totalDenominator || 1,
       recordedBy: currentUser?.name || 'Assessor',
-      notes: `Audit Kepatuhan Asesmen Awal Medis per ${targetDate}`,
+      notes: `Audit Kepatuhan Asesmen Awal Medis per ${targetDateStd}`,
       auditData: currentAuditData,
       lastModified: new Date().toISOString()
     };
 
-    let updatedList: QualityMeasurement[];
-    if (existingMeasurements.some(m => m.id === newMeasurement.id)) {
-      updatedList = existingMeasurements.map(m => m.id === newMeasurement.id ? newMeasurement : m);
-    } else {
-      updatedList = [newMeasurement, ...existingMeasurements];
-    }
+    // Replace all duplicate measurement entries for this indicator + date with single consolidated newMeasurement
+    const nonMatching = existingMeasurements.filter(
+      m => !(m.indicatorId === 'mutu-asesmen-awal-medis' && parseToStandardDateString(m.date) === targetDateStd)
+    );
+    const updatedList = [newMeasurement, ...nonMatching];
 
     // --- OPTIMISTIC UPDATE ---
     // Update local table view instantly
@@ -399,9 +419,9 @@ export const AsesmenAwalMedisWorksheet: React.FC<AsesmenAwalMedisWorksheetProps>
 
     // --- INSTANT AUTO-REDIRECT ---
     // Instantly close editor, update selection date, and show success toast
-    setSelectedDate(targetDate);
+    setSelectedDate(targetDateStd);
     setActiveEditPatient(null);
-    setNotification(`Data audit asesmen untuk ${patient.name} berhasil disimpan (Sinkronisasi Latar Belakang).`);
+    setNotification(`Data audit asesmen untuk ${patient.name} berhasil disimpan.`);
     setTimeout(() => setNotification(null), 3000);
 
     // --- BACKGROUND ASYNC PROCESS ---
@@ -425,46 +445,52 @@ export const AsesmenAwalMedisWorksheet: React.FC<AsesmenAwalMedisWorksheetProps>
 
     const targetDateStd = parseToStandardDateString(targetDate);
     const existingMeasurements = appData.qualityMeasurements || [];
-    const foundMeasurement = existingMeasurements.find(
+    const matchingMeasurements = existingMeasurements.filter(
       m => m.indicatorId === 'mutu-asesmen-awal-medis' && parseToStandardDateString(m.date) === targetDateStd
     );
 
-    if (!foundMeasurement) {
-      return;
-    }
+    const currentAuditData: Record<string, AuditRecord> = {};
+    matchingMeasurements.forEach(m => {
+      if (m.auditData && typeof m.auditData === 'object') {
+        Object.assign(currentAuditData, m.auditData);
+      }
+    });
+    Object.assign(currentAuditData, localAuditDataRef.current);
 
-    const currentAuditData = { ...(foundMeasurement.auditData || {}) };
     delete currentAuditData[patientId];
 
-    // Recalculate
-    let datePatients = appData.patients || [];
-    const deletedSet = new Set<string>(appData.deletedIds || []);
-    datePatients = datePatients.filter(p => p && p.id && !deletedSet.has(p.id));
-    datePatients = datePatients.filter(p => getMainUnit(p.ruangan) === selectedRoom || getMainUnit(p.unitTujuan) === selectedRoom);
-    datePatients = datePatients.filter(p => p && parseToStandardDateString(p.entryDate) === targetDateStd);
+    // Recalculate stats
+    const auditedPatientIds = Object.keys(currentAuditData).filter(
+      id => currentAuditData[id] !== undefined && currentAuditData[id] !== null
+    );
 
     let totalNumerator = 0;
-    let totalDenominator = 0;
+    let totalDenominator = auditedPatientIds.length;
 
-    datePatients.forEach(p => {
-      const rec = currentAuditData[p.id];
-      if (rec) {
-        totalDenominator += 1;
-        if (isCompliant(rec)) {
-          totalNumerator += 1;
-        }
+    auditedPatientIds.forEach(id => {
+      if (isCompliant(currentAuditData[id])) {
+        totalNumerator += 1;
       }
     });
 
+    const primaryFound = matchingMeasurements[0];
+
     const newMeasurement: QualityMeasurement = {
-      ...foundMeasurement,
+      id: primaryFound?.id || `MEAS_MUTU_ASESMEN_${targetDateStd}_${Date.now()}`,
+      indicatorId: 'mutu-asesmen-awal-medis',
+      date: targetDateStd,
       numeratorValue: totalNumerator,
       denominatorValue: totalDenominator || 1,
+      recordedBy: currentUser?.name || 'Assessor',
+      notes: `Audit Kepatuhan Asesmen Awal Medis per ${targetDateStd}`,
       auditData: currentAuditData,
       lastModified: new Date().toISOString()
     };
 
-    const updatedList = existingMeasurements.map(m => m.id === newMeasurement.id ? newMeasurement : m);
+    const nonMatching = existingMeasurements.filter(
+      m => !(m.indicatorId === 'mutu-asesmen-awal-medis' && parseToStandardDateString(m.date) === targetDateStd)
+    );
+    const updatedList = [newMeasurement, ...nonMatching];
 
     // --- OPTIMISTIC UPDATE ---
     // Instantly update the local state so the patient disappears from the table immediately

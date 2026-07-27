@@ -8,15 +8,18 @@ import {
   UserCheck, Gauge, FilePieChart, ClipboardList, X, RefreshCw,
   Search, Copy, Check, Globe, Printer
 } from 'lucide-react';
-import { User, AppSettings } from '../types';
+import { User, AppSettings, RolePermission } from '../types';
+import { DEFAULT_ROLE_PERMISSIONS } from '../constants';
 import { BrandLogo } from './BrandLogo';
 
 interface LayoutProps {
   user: User | null;
+  rolePermissions?: Record<string, RolePermission>;
   onLogout: () => void;
   onNavigate: (menu: string) => void;
   activeMenu: string;
   syncStatus?: 'IDLE' | 'SYNCING' | 'SUCCESS' | 'ERROR';
+  isFirestoreOnline?: boolean;
   onSync?: () => void;
   lastSyncTime?: Date | null;
   settings?: AppSettings;
@@ -40,6 +43,7 @@ const getHeaderTitle = (menu: string) => {
   switch (menu) {
     case 'dashboard': return 'Dashboard Overview';
     case 'adm-register': return '1. Registrasi Pasien';
+    case 'adm-booking': return '1. Booking Ruangan Pasien';
     case 'patients': return '1. Menu Pasien';
     case 'monitoring-keluar-masuk': return '1. Monitoring Pasien Keluar Masuk';
     case 'adm-census': return '1. Sensus Pasien';
@@ -69,7 +73,7 @@ const getHeaderTitle = (menu: string) => {
   }
 };
 
-export const Layout: React.FC<LayoutProps> = ({ user, onLogout, onNavigate, activeMenu, syncStatus = 'IDLE', onSync, lastSyncTime, settings, children }) => {
+export const Layout: React.FC<LayoutProps> = ({ user, rolePermissions, onLogout, onNavigate, activeMenu, syncStatus = 'IDLE', isFirestoreOnline = true, onSync, lastSyncTime, settings, children }) => {
   const safeThemeColor = settings?.themeColor && settings.themeColor.trim() !== '' ? settings.themeColor : '#144272';
   const safeFontColor = settings?.fontColor && settings.fontColor.trim() !== '' ? settings.fontColor : '#ffffff';
   const safeAppName = settings?.appName && settings.appName.trim() !== '' ? settings.appName : 'SiMANTAP';
@@ -132,6 +136,7 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, onNavigate, acti
       icon: <Users size={18}/>,
       items: [
         { id: 'adm-register', label: 'Registrasi Pasien', icon: <ChevronRight size={14}/>, roles: harianRoles },
+        { id: 'adm-booking', label: 'Booking Ruangan', icon: <Calendar size={16}/>, roles: harianRoles },
         { id: 'patients', label: 'Menu Pasien', icon: <Users size={16}/>, roles: pjanaRoles },
         { id: 'monitoring-keluar-masuk', label: 'Monitoring Keluar Masuk', icon: <Activity size={16}/>, roles: pjanaRoles },
         { id: 'adm-census', label: 'Sensus Pasien', icon: <BarChart3 size={16}/>, roles: censusRoles },
@@ -193,7 +198,18 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, onNavigate, acti
 
   const filteredGroups = menuGroups.map(group => ({
     ...group,
-    items: group.items.filter(item => user && item.roles.includes(user.role))
+    items: group.items.filter(item => {
+      if (!user) return false;
+      
+      const effectivePermissions = (rolePermissions && rolePermissions[user.role]) 
+        || (DEFAULT_ROLE_PERMISSIONS && (DEFAULT_ROLE_PERMISSIONS as any)[user.role]);
+
+      if (effectivePermissions && Array.isArray(effectivePermissions.allowedMenus)) {
+        return effectivePermissions.allowedMenus.includes(item.id);
+      }
+
+      return item.roles.includes(user.role);
+    })
   })).filter(group => group.items.length > 0);
 
   return (
@@ -358,25 +374,25 @@ export const Layout: React.FC<LayoutProps> = ({ user, onLogout, onNavigate, acti
             </div>
             <div className="flex items-center gap-2">
               {onSync && (
-                <div className="flex items-center gap-3 bg-white/40 backdrop-blur-sm px-4 py-2 rounded-2xl border border-white/20 shadow-sm group">
-                  <div className={`w-2 h-2 rounded-full ${syncStatus === 'SYNCING' ? 'bg-blue-500 animate-ping' : syncStatus === 'ERROR' ? 'bg-red-500' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]'}`}></div>
+                <div className="flex items-center gap-3 bg-emerald-50/80 backdrop-blur-sm px-3.5 py-1.5 rounded-2xl border border-emerald-200/80 shadow-sm group">
+                  <div className={`w-2.5 h-2.5 rounded-full ${syncStatus === 'SYNCING' ? 'bg-blue-500 animate-ping' : isFirestoreOnline ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.7)] animate-pulse' : 'bg-amber-500'}`}></div>
                   <div className="flex flex-col">
-                    <span className={`text-[8px] font-black uppercase tracking-widest leading-none ${syncStatus === 'SYNCING' ? 'text-blue-600' : syncStatus === 'ERROR' ? 'text-red-700' : 'text-emerald-700'}`}>
-                      {syncStatus === 'SYNCING' ? 'Syncing...' : syncStatus === 'ERROR' ? 'Cloud Error' : 'Server Online'}
+                    <span className={`text-[8.5px] font-black uppercase tracking-wider leading-none ${syncStatus === 'SYNCING' ? 'text-blue-600' : isFirestoreOnline ? 'text-emerald-800' : 'text-amber-700'}`}>
+                      {syncStatus === 'SYNCING' ? 'MENYINKRONKAN CHUNKS...' : 'SINKRONISASI REALTIME AKTIF'}
                     </span>
                     {lastSyncTime && (
-                      <span className="text-[7px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5">
-                        Update: {lastSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      <span className="text-[7px] font-bold text-emerald-600/70 uppercase tracking-tighter mt-0.5">
+                        Update: {lastSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                       </span>
                     )}
                   </div>
                   <button 
                     onClick={onSync}
                     disabled={syncStatus === 'SYNCING'}
-                    className={`ml-1 p-1 hover:bg-white rounded-lg transition-all ${syncStatus === 'SYNCING' ? 'text-blue-500' : 'text-slate-300 hover:text-blue-600'}`}
+                    className={`ml-1 p-1 hover:bg-emerald-100/50 rounded-lg transition-all ${syncStatus === 'SYNCING' ? 'text-blue-500' : 'text-emerald-500 hover:text-emerald-700'}`}
                     title="Paksa Sinkron"
                   >
-                    <RefreshCw size={14} className={syncStatus === 'SYNCING' ? 'animate-spin' : ''} />
+                    <RefreshCw size={13} className={syncStatus === 'SYNCING' ? 'animate-spin' : ''} />
                   </button>
                 </div>
               )}

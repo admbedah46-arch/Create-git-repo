@@ -1,7 +1,8 @@
 
 import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
-import { MasterData, User, UserRole, CustomField, DoctorCategory, QualityIndicator } from '../../types';
+import { MasterData, User, UserRole, CustomField, DoctorCategory, QualityIndicator, RolePermission } from '../../types';
+import { ALL_MENU_IDS, DEFAULT_ROLE_PERMISSIONS } from '../../constants';
 import { getApiUrl, saveApiUrl, clearDeletedIds, registerDeletedId } from '../../db';
 import { Button } from '../Button';
 import { 
@@ -9,7 +10,7 @@ import {
   CheckCircle2, Eye, EyeOff, User as UserIcon, Settings, 
   Stethoscope, Users, Filter, LayoutGrid, ChevronRight, UserPlus,
   ClipboardCheck, Target, BarChart, Settings2, RefreshCw, Search, Upload,
-  Cloud, Lock, Check, LogOut, Copy, Globe
+  Cloud, Lock, Check, LogOut, Copy, Globe, ShieldCheck, FileSpreadsheet, Download
 } from 'lucide-react';
 
 interface DataManagementProps {
@@ -57,6 +58,347 @@ export const DataManagement: React.FC<DataManagementProps> = ({
   const [healingLogs, setHealingLogs] = useState<string[]>([]);
   const [healingAiMessage, setHealingAiMessage] = useState<string>('');
   
+  // Client-Side Dual-Engine Backup & Restore Local States
+  const [isRestoreConfirmOpen, setIsRestoreConfirmOpen] = useState(false);
+  const [pendingRestoreData, setPendingRestoreData] = useState<any>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  // Granular RBAC Matrix State
+  const [isRbacModalOpen, setIsRbacModalOpen] = useState(false);
+  const [selectedRoleForRbac, setSelectedRoleForRbac] = useState<UserRole>('KARU');
+  const [rbacPermissions, setRbacPermissions] = useState<Record<string, RolePermission>>(() => {
+    return masterData.rolePermissions || (DEFAULT_ROLE_PERMISSIONS as Record<string, RolePermission>);
+  });
+
+  const handleDownloadUserTemplate = () => {
+    const templateData = [
+      {
+        'NO': 1,
+        'NAMA STAF': 'DR. AHMAD RIADI, SP.B',
+        'NIP / NI PPPK / NIPPPK PW / NIK RS': '198501012010011001',
+        'UNIT KERJA': 'Ruang Bedah',
+        'POSISI JABATAN': 'Kepala Ruangan',
+        'ROLE AKSES': 'KARU'
+      },
+      {
+        'NO': 2,
+        'NAMA STAF': 'NS. SITI NURHALIZA, S.KEP',
+        'NIP / NI PPPK / NIPPPK PW / NIK RS': '199002022015022002',
+        'UNIT KERJA': 'Ruang Bedah',
+        'POSISI JABATAN': 'Sekretaris Ruangan',
+        'ROLE AKSES': 'SEKRU'
+      },
+      {
+        'NO': 3,
+        'NAMA STAF': 'SITI AMINAH, A.MD.KEP',
+        'NIP / NI PPPK / NIPPPK PW / NIK RS': '199203032018032003',
+        'UNIT KERJA': 'Ruang Bedah',
+        'POSISI JABATAN': 'Perawat Primer',
+        'ROLE AKSES': 'PPJA'
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Template Import Staf');
+    XLSX.writeFile(wb, 'Template_Import_User_Staf_SiMANTAP.xlsx');
+    notify("Template Excel Import Staf berhasil diunduh.");
+  };
+
+  const handleImportUsersExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const rows: any[] = XLSX.utils.sheet_to_json(worksheet);
+
+        if (!rows || rows.length === 0) {
+          alert("File Excel kosong atau tidak memiliki data!");
+          return;
+        }
+
+        const validRoles: UserRole[] = ['SUPER_ADMIN', 'BIDANG', 'KARU', 'SEKRU', 'ADMIN_RUANGAN', 'PPJA', 'PIC', 'STAFF'];
+        const currentUsers = [...masterData.users];
+        let importedCount = 0;
+
+        rows.forEach((row) => {
+          const name = (row['NAMA STAF'] || row['Nama'] || row['NAMA'] || '').toString().trim();
+          const nip = (row['NIP / NI PPPK / NIPPPK PW / NIK RS'] || row['NIP'] || row['NIP/NI PPPK'] || '').toString().trim();
+          const unit = (row['UNIT KERJA'] || row['UNIT'] || row['Unit'] || '').toString().trim();
+          const position = (row['POSISI JABATAN'] || row['POSISI'] || row['Posisi'] || 'Staff').toString().trim();
+          const rawRole = (row['ROLE AKSES'] || row['ROLE'] || row['Role'] || 'STAFF').toString().trim().toUpperCase().replace(/\s+/g, '_');
+
+          if (!name) return;
+
+          let role: UserRole = 'STAFF';
+          if (validRoles.includes(rawRole as UserRole)) {
+            role = rawRole as UserRole;
+          }
+
+          let username = nip ? nip.replace(/\s+/g, '') : name.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (!username) username = `user_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+
+          const existingIdx = currentUsers.findIndex(u => u.username === username || (nip && u.nip === nip));
+          const newUser: User = {
+            username: username,
+            password: existingIdx > -1 ? currentUsers[existingIdx].password : '123456',
+            name: name.toUpperCase(),
+            role: role,
+            unit: unit || 'Ruang Bedah',
+            position: position,
+            nip: nip
+          };
+
+          if (existingIdx > -1) {
+            currentUsers[existingIdx] = { ...currentUsers[existingIdx], ...newUser };
+          } else {
+            currentUsers.push(newUser);
+          }
+          importedCount++;
+        });
+
+        const newData = {
+          ...masterData,
+          users: currentUsers
+        };
+
+        handleSaveMaster(newData);
+        notify(`Sukses! ${importedCount} data staf berhasil diimpor.`);
+      } catch (err: any) {
+        alert("Gagal mengimpor file Excel: " + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
+  };
+
+  const handleSaveRbacPermissions = () => {
+    const newData: MasterData = {
+      ...masterData,
+      rolePermissions: rbacPermissions
+    };
+    handleSaveMaster(newData);
+    setIsRbacModalOpen(false);
+    notify("Matriks Hak Akses (RBAC) berhasil disimpan!");
+  };
+
+  const getTimestampString = () => {
+    const now = new Date();
+    const YYYY = now.getFullYear();
+    const MM = String(now.getMonth() + 1).padStart(2, '0');
+    const DD = String(now.getDate()).padStart(2, '0');
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    return `${YYYY}${MM}${DD}_${hh}${mm}${ss}`;
+  };
+
+  const handleExportLocalJSON = () => {
+    if (!appData) {
+      alert("Gagal mengekspor: Data tidak ditemukan.");
+      return;
+    }
+    const dateStr = getTimestampString();
+    const filename = `SiMANTAP_Backup_${dateStr}.json`;
+    
+    const jsonStr = JSON.stringify(appData, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    notify("Backup (.json) berhasil diunduh.");
+  };
+
+  const handleExportLocalXLSX = () => {
+    if (!appData) {
+      alert("Gagal mengekspor: Data tidak ditemukan.");
+      return;
+    }
+    const dateStr = getTimestampString();
+    const filename = `SiMANTAP_Backup_${dateStr}.xlsx`;
+
+    const wb = XLSX.utils.book_new();
+
+    // Helper to safely convert arrays or objects to sheets with correct shapes
+    const patientsData = (appData.patients || []).map((p: any) => ({
+      id: p.id,
+      noRegister: p.noRegister || '',
+      noRM: p.noRM || '',
+      name: p.name || '',
+      gender: p.gender || '',
+      birthDate: p.birthDate || '',
+      address: p.address || '',
+      entryDate: p.entryDate || '',
+      entryTime: p.entryTime || '',
+      origin: p.origin || '',
+      unitTujuan: p.unitTujuan || '',
+      kelasRawat: p.kelasRawat || '',
+      ruangan: p.ruangan || '',
+      nomorBed: p.nomorBed || '',
+      dpjp: p.dpjp || '',
+      suratKeterangan: p.suratKeterangan || ''
+    }));
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(patientsData), 'Patients');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(appData.dailyReports || []), 'DailyReports');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(appData.doctorVisits || []), 'DoctorVisits');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(appData.financeRecords || []), 'FinanceRecords');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(appData.incidentReports || []), 'IncidentReports');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(appData.qualityMeasurements || []), 'QualityMeasurements');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(appData.instruments || []), 'Instruments');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(appData.operationReports || []), 'OperationReports');
+
+    // Store masterData in a tabular format (Key-Value)
+    const masterRows = Object.keys(appData.masterData || {}).map(key => ({
+      Key: key,
+      Value: JSON.stringify(appData.masterData[key])
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(masterRows), 'MasterData');
+
+    XLSX.writeFile(wb, filename);
+    notify("Backup (.xlsx) berhasil diunduh.");
+  };
+
+  const processImportFile = (file: File) => {
+    const reader = new FileReader();
+    const ext = file.name.split('.').pop()?.toLowerCase();
+
+    if (ext === 'json') {
+      reader.onload = (e) => {
+        try {
+          const content = e.target?.result as string;
+          const parsed = JSON.parse(content);
+          
+          if (parsed && (parsed.patients || parsed.masterData)) {
+            setPendingRestoreData(parsed);
+            setIsRestoreConfirmOpen(true);
+          } else {
+            alert("Format file JSON tidak valid.");
+          }
+        } catch (err) {
+          alert("Gagal membaca file JSON: " + (err as Error).message);
+        }
+      };
+      reader.readAsText(file);
+    } else if (ext === 'xlsx') {
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array' });
+          
+          const reconstructed: any = {
+            timestamp: new Date().toISOString(),
+            patients: [],
+            dailyReports: [],
+            nursingReports: [],
+            operations: [],
+            masterData: {
+              doctors: [],
+              doctorMetadata: {},
+              nurses: [],
+              nurseMetadata: {},
+              users: [],
+              units: [],
+              unitToClasses: {},
+              classToRooms: {},
+              roomToBeds: {},
+              rooms: [],
+              roomClasses: [],
+              bedMapping: {},
+              addresses: [],
+              customFields: [],
+              qualityIndicators: [],
+              refs: {
+                positions: [],
+                ksmList: [],
+                asalMasuk: [],
+                jenisKll: [],
+                caraBayar: [],
+                statusTanggungan: [],
+                statusSep: [],
+                statusDataPasien: [],
+                caraKeluar: []
+              }
+            }
+          };
+
+          const parseSheet = (sheetName: string) => {
+            const sheet = workbook.Sheets[sheetName];
+            if (!sheet) return [];
+            return XLSX.utils.sheet_to_json(sheet);
+          };
+
+          if (workbook.Sheets['Patients']) reconstructed.patients = parseSheet('Patients');
+          if (workbook.Sheets['DailyReports']) reconstructed.dailyReports = parseSheet('DailyReports');
+          if (workbook.Sheets['DoctorVisits']) reconstructed.doctorVisits = parseSheet('DoctorVisits');
+          if (workbook.Sheets['FinanceRecords']) reconstructed.financeRecords = parseSheet('FinanceRecords');
+          if (workbook.Sheets['IncidentReports']) reconstructed.incidentReports = parseSheet('IncidentReports');
+          if (workbook.Sheets['QualityMeasurements']) reconstructed.qualityMeasurements = parseSheet('QualityMeasurements');
+          if (workbook.Sheets['Instruments']) reconstructed.instruments = parseSheet('Instruments');
+          if (workbook.Sheets['OperationReports']) reconstructed.operationReports = parseSheet('OperationReports');
+
+          const masterSheet = workbook.Sheets['MasterData'];
+          if (masterSheet) {
+            const rows: any[] = XLSX.utils.sheet_to_json(masterSheet);
+            rows.forEach(row => {
+              const key = row.Key;
+              const valStr = row.Value;
+              if (key && valStr) {
+                try {
+                  reconstructed.masterData[key] = JSON.parse(valStr);
+                } catch (e) {
+                  console.error("Error parsing masterData key from XLSX", key, e);
+                }
+              }
+            });
+          }
+
+          if (reconstructed.patients.length > 0 || reconstructed.masterData.doctors.length > 0 || reconstructed.masterData.users.length > 0) {
+            setPendingRestoreData(reconstructed);
+            setIsRestoreConfirmOpen(true);
+          } else {
+            alert("Format file Excel tidak dikenali atau kosong.");
+          }
+        } catch (err) {
+          alert("Gagal membaca file Excel: " + (err as Error).message);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      alert("Hanya berkas .json atau .xlsx yang didukung.");
+    }
+  };
+
+  const handleExecuteRestore = async () => {
+    if (!pendingRestoreData) return;
+    try {
+      if (onUpdateAppData) {
+        await onUpdateAppData(pendingRestoreData, true);
+        notify("Pemulihan data (Restore) berhasil diselesaikan secara utuh!");
+        setIsRestoreConfirmOpen(false);
+        setPendingRestoreData(null);
+        setTimeout(() => {
+          window.location.reload();
+        }, 1000);
+      } else {
+        alert("Sistem state update callback tidak aktif.");
+      }
+    } catch (err) {
+      alert("Gagal melakukan restore: " + (err as Error).message);
+    }
+  };
+
   const handleCopyLink = () => {
     navigator.clipboard.writeText("https://ais-pre-5yx5np5byvmf4dw3uf7moi-256092545608.asia-southeast1.run.app");
     setCopiedLink(true);
@@ -503,7 +845,7 @@ export const DataManagement: React.FC<DataManagementProps> = ({
     onSave(newData);
   };
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>, targetKey: 'logoUrl' | 'logoLetterLeftUrl' | 'logoLetterRightUrl' = 'logoUrl') => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -541,7 +883,7 @@ export const DataManagement: React.FC<DataManagementProps> = ({
         
         setTempSettings(prev => ({
           ...prev,
-          logoUrl: compressedBase64
+          [targetKey]: compressedBase64
         }));
         notify("Logo berhasil diunggah & dikompresi. Silakan klik 'Simpan Perubahan' di bawah.");
       };
@@ -960,24 +1302,50 @@ export const DataManagement: React.FC<DataManagementProps> = ({
         
         {activeTab === 'STAFF' && (
           <div className="p-10 space-y-8 animate-fade-in">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div>
                 <h3 className="text-3xl font-black text-slate-800 tracking-tight">Manajemen Pengguna</h3>
-                <p className="text-xs text-slate-400 font-medium mt-1">Kelola kredensial dan hak akses petugas ruangan.</p>
+                <p className="text-xs text-slate-400 font-medium mt-1">Kelola kredensial, import massal, dan hak akses petugas ruangan.</p>
               </div>
-              <div className="flex gap-4">
+              <div className="flex flex-wrap items-center gap-3">
                 <div className="relative">
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16}/>
                   <input 
                     type="text" 
-                    placeholder="Cari nama atau username..."
+                    placeholder="Cari nama, NIP, username..."
                     value={userSearch}
                     onChange={e => setUserSearch(e.target.value)}
-                    className="pl-12 pr-6 py-4 bg-white border border-slate-200 rounded-2xl text-xs font-bold focus:border-blue-500 outline-none w-72 shadow-sm"
+                    className="pl-12 pr-6 py-3.5 bg-white border border-slate-200 rounded-2xl text-xs font-bold focus:border-blue-500 outline-none w-64 shadow-xs"
                   />
                 </div>
-                <Button onClick={() => setIsAddUserOpen(true)} className="rounded-2xl px-10 py-4 shadow-xl shadow-blue-100 uppercase text-[10px] font-black tracking-widest">
-                  <Plus size={18} className="mr-2"/> Tambah Akun
+
+                <button
+                  onClick={() => setIsRbacModalOpen(true)}
+                  className="px-5 py-3.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-2xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer shadow-xs"
+                >
+                  <ShieldCheck size={16} /> Matriks RBAC
+                </button>
+
+                <button
+                  onClick={handleDownloadUserTemplate}
+                  className="px-5 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer"
+                  title="Unduh Template Excel Import User"
+                >
+                  <Download size={16} /> Template Excel
+                </button>
+
+                <label className="px-5 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer shadow-md shadow-emerald-600/20">
+                  <FileSpreadsheet size={16} /> Import Excel
+                  <input
+                    type="file"
+                    accept=".xlsx, .xls"
+                    onChange={handleImportUsersExcel}
+                    className="hidden"
+                  />
+                </label>
+
+                <Button onClick={() => setIsAddUserOpen(true)} className="rounded-2xl px-6 py-3.5 shadow-xl shadow-blue-100 uppercase text-[10px] font-black tracking-widest">
+                  <Plus size={18} className="mr-1.5"/> Tambah Akun
                 </Button>
               </div>
             </div>
@@ -1680,6 +2048,71 @@ export const DataManagement: React.FC<DataManagementProps> = ({
                  </div>
 
                  {/* Daftar Backup */}
+
+                  {/* Pencadangan & Pemulihan Lokal (Dual-Engine) */}
+                  <div className="py-5 border-t border-b border-slate-100 space-y-4">
+                    <div className="flex items-center gap-2">
+                      <span className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600 font-bold text-xs">💾</span>
+                      <h5 className="text-[10px] font-black text-slate-700 uppercase tracking-widest block font-mono">Pencadangan & Pemulihan Lokal (Dual-Engine Client)</h5>
+                    </div>
+                    
+                    <p className="text-[11px] text-slate-500 font-semibold leading-relaxed">
+                      Unduh seluruh basis data ke penyimpanan lokal komputer Anda, atau lakukan restore data rekam medis secara instan dari berkas backup <code className="bg-indigo-50 text-indigo-700 font-bold font-mono px-1 py-0.5 rounded text-[10px]">.json</code> atau <code className="bg-emerald-50 text-emerald-700 font-bold font-mono px-1 py-0.5 rounded text-[10px]">.xlsx</code> secara client-side.
+                    </p>
+
+                    {/* Export Buttons */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <button
+                        onClick={handleExportLocalJSON}
+                        className="py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all border-none cursor-pointer shadow-sm active:scale-95"
+                      >
+                        📥 Unduh Backup (.json)
+                      </button>
+                      <button
+                        onClick={handleExportLocalXLSX}
+                        className="py-3 px-4 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all border-none cursor-pointer shadow-sm active:scale-95"
+                      >
+                        📥 Unduh Backup (.xlsx)
+                      </button>
+                    </div>
+
+                    {/* Drag-and-Drop Dropzone Uploader */}
+                    <div
+                      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                      onDragLeave={() => setDragOver(false)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setDragOver(false);
+                        const file = e.dataTransfer.files[0];
+                        if (file) processImportFile(file);
+                      }}
+                      className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all flex flex-col items-center justify-center gap-2 ${
+                        dragOver 
+                          ? 'border-indigo-600 bg-indigo-50/50 scale-[1.01]' 
+                          : 'border-slate-200 hover:border-slate-350 bg-slate-50/40 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="text-2xl animate-pulse">📂</span>
+                      <p className="text-[10px] font-black text-slate-700 uppercase tracking-widest leading-none mt-1">
+                        Seret & Lepas Berkas Backup Di Sini
+                      </p>
+                      <p className="text-[9px] text-slate-450 font-semibold leading-normal">
+                        Format yang didukung: <code className="font-bold text-slate-600 font-mono">.json</code> atau <code className="font-bold text-slate-600 font-mono">.xlsx</code>
+                      </p>
+                      <label className="mt-2 py-1.5 px-3 bg-white hover:bg-slate-100 text-slate-700 border border-slate-250 rounded-lg text-[9px] font-black uppercase tracking-wider cursor-pointer shadow-sm active:scale-95 transition-all">
+                        Pilih Berkas Manual
+                        <input
+                          type="file"
+                          accept=".json,.xlsx"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) processImportFile(file);
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
                  <div className="space-y-3">
                    <h5 className="text-[10px] font-black text-slate-600 uppercase tracking-widest block font-mono">Hasil Pencadangan Aktif di Server</h5>
                    <div className="max-h-60 overflow-y-auto border border-slate-100 rounded-2xl divide-y divide-slate-100 custom-scrollbar">
@@ -1908,6 +2341,8 @@ export const DataManagement: React.FC<DataManagementProps> = ({
                          setTempSettings({
                            ...updatedSettings,
                            logoUrl: resJson.config.logoUrl || updatedSettings.logoUrl,
+                            logoLetterLeftUrl: resJson.config.logoLetterLeftUrl || updatedSettings.logoLetterLeftUrl,
+                            logoLetterRightUrl: resJson.config.logoLetterRightUrl || updatedSettings.logoLetterRightUrl,
                            loginWallpaperUrl: resJson.config.loginWallpaperUrl || updatedSettings.loginWallpaperUrl,
                            appWallpaperUrl: resJson.config.appWallpaperUrl || updatedSettings.appWallpaperUrl,
                          });
@@ -1949,18 +2384,18 @@ export const DataManagement: React.FC<DataManagementProps> = ({
                        />
                     </div>
                     <div className="space-y-1.5 pt-2">
-                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Logo Instansi (Cetak Surat)</label>
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Pengaturan 1: Logo Aplikasi (Sidebar & Login)</label>
                        <div className="flex gap-3">
                           <input 
                             type="text"
                             className="flex-1 bg-slate-50 border-none rounded-2xl p-4 text-[11px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
-                            placeholder="URL Logo Instansi (PNG/JPEG/Base64)..."
+                            placeholder="URL Logo Aplikasi (PNG/JPEG/Base64)..."
                             value={tempSettings?.logoUrl || ''}
-                            onChange={e => setTempSettings({ ...tempSettings, logoUrl: e.target.value })}
+                            onChange={e => setTempSettings({ ...tempSettings, logoUrl: normalizeWallpaperUrl(e.target.value) })}
                           />
                           <label className="bg-emerald-50 text-emerald-600 p-4 rounded-2xl cursor-pointer hover:bg-emerald-100 transition-all flex items-center justify-center shrink-0">
                              <Upload size={20}/>
-                             <input type="file" className="hidden" accept="image/*" onChange={(e) => handleLogoUpload(e)} />
+                             <input type="file" className="hidden" accept="image/*" onChange={(e) => handleLogoUpload(e, 'logoUrl')} />
                           </label>
                        </div>
                        {tempSettings?.logoUrl && (
@@ -1971,7 +2406,61 @@ export const DataManagement: React.FC<DataManagementProps> = ({
                             </button>
                           </div>
                        )}
-                       <p className="text-[8px] text-slate-400 font-medium italic mt-1">*Logo ini akan digunakan sebagai kop surat resmi secara dinamis pada semua dokumen cetak.</p>
+                       <p className="text-[8px] text-slate-400 font-medium italic mt-1">*Logo utama untuk visual branding pada bilah navigasi (sidebar) dan halaman masuk (login).</p>
+                     </div>
+
+                     {/* Pengaturan 2: Logo Kop Surat Kiri */}
+                     <div className="space-y-1.5 pt-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Pengaturan 2: Logo Kop Surat Kiri (Dokumen Cetak)</label>
+                        <div className="flex gap-3">
+                           <input 
+                             type="text"
+                             className="flex-1 bg-slate-50 border-none rounded-2xl p-4 text-[11px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+                             placeholder="URL Logo Kop Kiri (PNG/JPEG/Base64)..."
+                             value={tempSettings?.logoLetterLeftUrl || ''}
+                             onChange={e => setTempSettings({ ...tempSettings, logoLetterLeftUrl: normalizeWallpaperUrl(e.target.value) })}
+                           />
+                           <label className="bg-emerald-50 text-emerald-600 p-4 rounded-2xl cursor-pointer hover:bg-emerald-100 transition-all flex items-center justify-center shrink-0">
+                              <Upload size={20}/>
+                              <input type="file" className="hidden" accept="image/*" onChange={(e) => handleLogoUpload(e, 'logoLetterLeftUrl')} />
+                           </label>
+                        </div>
+                        {tempSettings?.logoLetterLeftUrl && (
+                           <div className="mt-2 relative w-16 h-16 rounded-xl border border-slate-150 p-2 bg-white overflow-hidden group flex items-center justify-center">
+                             <img src={tempSettings.logoLetterLeftUrl} className="max-w-full max-h-full object-contain" />
+                             <button onClick={() => setTempSettings({ ...tempSettings, logoLetterLeftUrl: '' })} className="absolute inset-0 bg-red-600/80 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-xl">
+                               <Trash2 size={12}/>
+                             </button>
+                           </div>
+                        )}
+                        <p className="text-[8px] text-slate-400 font-medium italic mt-1">*Logo khusus diletakkan di sisi KIRI kop surat resmi.</p>
+                     </div>
+
+                     {/* Pengaturan 3: Logo Kop Surat Kanan */}
+                     <div className="space-y-1.5 pt-2">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Pengaturan 3: Logo Kop Surat Kanan (Dokumen Cetak)</label>
+                        <div className="flex gap-3">
+                           <input 
+                             type="text"
+                             className="flex-1 bg-slate-50 border-none rounded-2xl p-4 text-[11px] font-bold text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+                             placeholder="URL Logo Kop Kanan (PNG/JPEG/Base64)..."
+                             value={tempSettings?.logoLetterRightUrl || ''}
+                             onChange={e => setTempSettings({ ...tempSettings, logoLetterRightUrl: normalizeWallpaperUrl(e.target.value) })}
+                           />
+                           <label className="bg-emerald-50 text-emerald-600 p-4 rounded-2xl cursor-pointer hover:bg-emerald-100 transition-all flex items-center justify-center shrink-0">
+                              <Upload size={20}/>
+                              <input type="file" className="hidden" accept="image/*" onChange={(e) => handleLogoUpload(e, 'logoLetterRightUrl')} />
+                           </label>
+                        </div>
+                        {tempSettings?.logoLetterRightUrl && (
+                           <div className="mt-2 relative w-16 h-16 rounded-xl border border-slate-150 p-2 bg-white overflow-hidden group flex items-center justify-center">
+                             <img src={tempSettings.logoLetterRightUrl} className="max-w-full max-h-full object-contain" />
+                             <button onClick={() => setTempSettings({ ...tempSettings, logoLetterRightUrl: '' })} className="absolute inset-0 bg-red-600/80 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-xl">
+                               <Trash2 size={12}/>
+                             </button>
+                           </div>
+                        )}
+                        <p className="text-[8px] text-slate-400 font-medium italic mt-1">*Logo khusus diletakkan di sisi KANAN kop surat resmi.</p>
                     </div>
                   </div>
                </div>
@@ -2533,6 +3022,52 @@ export const DataManagement: React.FC<DataManagementProps> = ({
         </div>
       )}
 
+      {/* Client-Side Restore Confirmation Modal */}
+      {isRestoreConfirmOpen && pendingRestoreData && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[500] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] p-10 w-full max-w-md shadow-2xl animate-fade-in text-center">
+            <div className="w-20 h-20 bg-amber-50 text-amber-600 rounded-[2rem] flex items-center justify-center mx-auto mb-8">
+              <AlertTriangle size={40}/>
+            </div>
+            <h3 className="font-black text-2xl mb-3 text-slate-800 uppercase tracking-tight">Konfirmasi Restore Data</h3>
+            <p className="text-xs text-slate-500 font-semibold leading-relaxed mb-6">
+              Tindakan ini akan menimpa basis data aktif dan melakukan refresh state data rekam medis secara instan di sisi client. Seluruh data historis yang belum disinkronkan mungkin akan terhapus.
+            </p>
+            
+            {/* Stats Preview */}
+            <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 mb-8 text-left space-y-2.5">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block font-mono">Ringkasan Berkas Restore:</span>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs font-semibold text-slate-600">
+                <div>👥 Pasien: <b className="text-slate-850">{(pendingRestoreData.patients || []).length}</b></div>
+                <div>🩺 Dokter: <b className="text-slate-850">{(pendingRestoreData.masterData?.doctors || []).length}</b></div>
+                <div>📝 Laporan Shift: <b className="text-slate-850">{(pendingRestoreData.dailyReports || []).length}</b></div>
+                <div>👤 Akun Pengguna: <b className="text-slate-850">{(pendingRestoreData.masterData?.users || []).length}</b></div>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <Button 
+                variant="danger" 
+                className="w-full py-4 rounded-2xl font-black text-xs uppercase tracking-widest bg-[#144272] hover:bg-[#1d5b9c] text-white cursor-pointer" 
+                onClick={handleExecuteRestore}
+              >
+                Ya, Lakukan Restore Sekarang
+              </Button>
+              <Button 
+                variant="ghost" 
+                className="w-full py-4 font-bold text-slate-400 cursor-pointer" 
+                onClick={() => {
+                  setIsRestoreConfirmOpen(false);
+                  setPendingRestoreData(null);
+                }}
+              >
+                Batalkan
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add/Edit User Modal */}
       {(isAddUserOpen || isEditUserOpen) && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[400] flex items-center justify-center p-4">
@@ -2793,6 +3328,229 @@ export const DataManagement: React.FC<DataManagementProps> = ({
                 const unit = (document.getElementById('add-data-unit') as HTMLSelectElement)?.value;
                 handleAddData(name, extra, category, unit);
               }}>Simpan Data</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Granular RBAC Matrix Modal */}
+      {isRbacModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-[500] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] p-8 sm:p-10 w-full max-w-4xl shadow-2xl animate-fade-in border border-slate-100 max-h-[90vh] overflow-y-auto custom-scrollbar flex flex-col justify-between">
+            <div>
+              <div className="flex justify-between items-start pb-6 mb-6 border-b border-slate-100">
+                <div>
+                  <span className="px-3 py-1 bg-purple-50 text-purple-700 rounded-full text-[10px] font-black uppercase tracking-wider border border-purple-200">
+                    Sistem Hak Akses Granular
+                  </span>
+                  <h3 className="text-2xl font-black text-slate-800 tracking-tight mt-2">Matriks Hak Akses Peran (RBAC)</h3>
+                  <p className="text-xs text-slate-400 font-medium mt-1">
+                    Atur izin menu & tindakan untuk tiap peran staf medis dan administrasi.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setIsRbacModalOpen(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Role Selection Tabs */}
+              <div className="flex flex-wrap gap-2 mb-6 p-2 bg-slate-100/70 rounded-2xl">
+                {(['SUPER_ADMIN', 'BIDANG', 'KARU', 'SEKRU', 'ADMIN_RUANGAN', 'PPJA', 'PIC', 'STAFF'] as UserRole[]).map((r) => {
+                  const active = selectedRoleForRbac === r;
+                  return (
+                    <button
+                      key={r}
+                      onClick={() => setSelectedRoleForRbac(r)}
+                      className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all ${
+                        active
+                          ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
+                          : 'bg-white text-slate-600 hover:bg-slate-200/50'
+                      }`}
+                    >
+                      {r.replace('_', ' ')}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Permissions Config Form for Selected Role */}
+              {(() => {
+                const currentPerm = rbacPermissions[selectedRoleForRbac] || {
+                  role: selectedRoleForRbac,
+                  allowedMenus: ALL_MENU_IDS,
+                  actions: { canCreate: true, canEdit: true, canDelete: true, canPrintPdf: true, canExportExcel: true, canPostBilling: true }
+                };
+
+                const toggleMenu = (menuId: string) => {
+                  const allowed = currentPerm.allowedMenus.includes(menuId)
+                    ? currentPerm.allowedMenus.filter((m) => m !== menuId)
+                    : [...currentPerm.allowedMenus, menuId];
+
+                  setRbacPermissions({
+                    ...rbacPermissions,
+                    [selectedRoleForRbac]: {
+                      ...currentPerm,
+                      allowedMenus: allowed
+                    }
+                  });
+                };
+
+                const toggleAction = (actionKey: keyof RolePermission['actions']) => {
+                  setRbacPermissions({
+                    ...rbacPermissions,
+                    [selectedRoleForRbac]: {
+                      ...currentPerm,
+                      actions: {
+                        ...currentPerm.actions,
+                        [actionKey]: !currentPerm.actions[actionKey]
+                      }
+                    }
+                  });
+                };
+
+                const menuGroupsUI = [
+                  {
+                    title: '1. Administrasi Pasien',
+                    menus: [
+                      { id: 'adm-register', label: 'Registrasi Pasien' },
+                      { id: 'adm-booking', label: 'Booking Ruangan' },
+                      { id: 'patients', label: 'Daftar Pasien & Kamar' },
+                      { id: 'monitoring-keluar-masuk', label: 'Keluar/Masuk Pasien' },
+                      { id: 'adm-census', label: 'Sensus Harian Ruangan' },
+                      { id: 'adm-data-bed', label: 'Master Ketersediaan Tempat Tidur' }
+                    ]
+                  },
+                  {
+                    title: '2. Pelayanan Keperawatan',
+                    menus: [
+                      { id: 'service-nursing', label: 'Laporan Keperawatan & Shift' },
+                      { id: 'service-schedule', label: 'Jadwal Jaga & Jadwal Operasi' }
+                    ]
+                  },
+                  {
+                    title: '3. Billing & Keuangan',
+                    menus: [
+                      { id: 'finance-reg-admin', label: 'Status Kelengkapan Berkas' },
+                      { id: 'finance-billing', label: 'Rincian Operasi & Biaya' },
+                      { id: 'finance-visite', label: 'Visite DPJP & Konsultasi' },
+                      { id: 'finance-summary', label: 'Rekapitulasi Keuangan' }
+                    ]
+                  },
+                  {
+                    title: '4. Indikator Mutu',
+                    menus: [
+                      { id: 'quality-kpi', label: 'Ringkasan Kinerja Mutu' },
+                      { id: 'quality-operasi-elektif', label: 'Kepatuhan Operasi Elektif' },
+                      { id: 'quality-asesmen-awal-medis', label: 'Asesmen Awal Medis' },
+                      { id: 'quality-dpjp-absensi', label: 'Absensi Jam Visite DPJP' },
+                      { id: 'quality-visite-compliance', label: 'Kepatuhan Visite DPJP' },
+                      { id: 'quality-dependency', label: 'Tingkat Ketergantungan Pasien' },
+                      { id: 'quality-pathway', label: 'Kepatuhan Clinical Pathway' },
+                      { id: 'quality-aps-mutu', label: 'Laporan Pasien APS' },
+                      { id: 'quality-diagnosis-top', label: 'Top Diagnosa Kasus' }
+                    ]
+                  },
+                  {
+                    title: '5. Keselamatan Pasien',
+                    menus: [
+                      { id: 'incident-report', label: 'Laporan Insiden (IKP)' },
+                      { id: 'incident-investigation', label: 'Investigasi Sederhana' },
+                      { id: 'incident-monthly', label: 'Laporan Bulanan IKP' }
+                    ]
+                  },
+                  {
+                    title: '6. Pengaturan Sistem',
+                    menus: [
+                      { id: 'system-data', label: 'Master Data & Pengguna' },
+                      { id: 'system-inventory', label: 'Restriksi Obat & Alkes' }
+                    ]
+                  }
+                ];
+
+                return (
+                  <div className="space-y-6">
+                    {/* Action Permissions Flags */}
+                    <div className="p-5 bg-purple-50/50 rounded-2xl border border-purple-100">
+                      <h4 className="text-xs font-black uppercase tracking-wider text-purple-900 mb-3">
+                        Izin Tindakan (Action Flags) - Peran {selectedRoleForRbac}
+                      </h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {[
+                          { key: 'canCreate', label: 'Tambah Data Baru' },
+                          { key: 'canEdit', label: 'Ubah / Edit Data' },
+                          { key: 'canDelete', label: 'Hapus Data' },
+                          { key: 'canPrintPdf', label: 'Cetak Laporan / PDF' },
+                          { key: 'canExportExcel', label: 'Ekspor File Excel' },
+                          { key: 'canPostBilling', label: 'Post Billing & Kunci Data' }
+                        ].map((act) => {
+                          const isChecked = currentPerm.actions[act.key as keyof RolePermission['actions']];
+                          return (
+                            <label
+                              key={act.key}
+                              className="flex items-center gap-2.5 p-2.5 bg-white rounded-xl border border-purple-200/60 cursor-pointer hover:border-purple-300 transition-all"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => toggleAction(act.key as keyof RolePermission['actions'])}
+                                className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                              />
+                              <span className="text-xs font-bold text-slate-800">{act.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Menu Access Checkboxes */}
+                    <div>
+                      <h4 className="text-xs font-black uppercase tracking-wider text-slate-700 mb-3">
+                        Akses Menu Modul Aplikasi
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {menuGroupsUI.map((group) => (
+                          <div key={group.title} className="p-4 bg-slate-50 rounded-2xl border border-slate-200/70">
+                            <h5 className="text-[11px] font-black uppercase tracking-wide text-slate-600 mb-2.5 pb-1.5 border-b border-slate-200">
+                              {group.title}
+                            </h5>
+                            <div className="space-y-2">
+                              {group.menus.map((m) => {
+                                const isAllowed = currentPerm.allowedMenus.includes(m.id);
+                                return (
+                                  <label
+                                    key={m.id}
+                                    className="flex items-center justify-between p-2 hover:bg-white rounded-xl cursor-pointer transition-all"
+                                  >
+                                    <span className="text-xs font-bold text-slate-700">{m.label}</span>
+                                    <input
+                                      type="checkbox"
+                                      checked={isAllowed}
+                                      onChange={() => toggleMenu(m.id)}
+                                      className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                                    />
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-slate-100">
+              <Button variant="ghost" className="font-bold px-6 rounded-xl" onClick={() => setIsRbacModalOpen(false)}>
+                Batal
+              </Button>
+              <Button onClick={handleSaveRbacPermissions} className="px-8 rounded-2xl shadow-lg bg-purple-600 hover:bg-purple-700 text-white font-black">
+                Simpan Matriks Hak Akses
+              </Button>
             </div>
           </div>
         </div>

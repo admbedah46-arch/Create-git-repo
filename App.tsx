@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Layout } from './components/Layout';
 import { Login } from './components/Auth/Login';
 import { DataManagement } from './components/Administrator/DataManagement';
@@ -8,6 +8,7 @@ import { IncidentModule } from './components/Incidents/IncidentModule';
 import { IncidentMonthlyReport } from './components/Incidents/IncidentMonthlyReport';
 import { PatientModal } from './components/Patient/PatientModal';
 import { PatientModule } from './components/Patient/PatientModule';
+import { RoomBookingComponent } from './components/Patient/RoomBookingComponent';
 import { CensusAdvanced } from './components/Administrator/CensusAdvanced';
 import { InventoryModule } from './components/Administrator/InventoryModule';
 import { OperationReportModule } from './components/Administrator/OperationReportModule';
@@ -21,11 +22,17 @@ import { AdminRegistrasiModule } from './components/Finance/AdminRegistrasiModul
 import { AsesmenAwalMedisWorksheet } from './components/Quality/AsesmenAwalMedisWorksheet';
 import { MonitoringPasienKeluarMasuk } from './components/Patient/MonitoringPasienKeluarMasuk';
 import { PatientDetailModal } from './components/Patient/PatientDetailModal';
+import { WorkspaceBar } from './components/GoogleWorkspace/WorkspaceBar';
+import { DocsExportModal } from './components/GoogleWorkspace/DocsExportModal';
+import { CalendarSyncModal } from './components/GoogleWorkspace/CalendarSyncModal';
+import { PickedFile } from './googleWorkspace';
 import { Button } from './components/Button';
 import { SearchableSelect } from './components/SearchableSelect';
-import { getDB, saveDB, uploadDataBackground, mergeData, getApiUrl, saveApiUrl, syncData, uploadData, registerDeletedId, getIsCurrentlyUploading, resilientParse, normalizeDatesInDb } from './db';
+import { getDB, saveDB, uploadDataBackground, mergeData, getApiUrl, saveApiUrl, syncData, uploadData, registerDeletedId, getDeletedIds, getIsCurrentlyUploading, resilientParse, normalizeDatesInDb, triggerOfflineQueueUpload, getLocalSnapshotFromDB, requestPersistentStorage, generatePermanentUUID, getLatestTimestamp, mergeRecordProperties, TAB_ID, setPendingUploadInDB, hasAppDataChanged } from './db';
+import { testFirestoreConnection } from './firebase';
+import { initFirestoreRealtimeSync, subscribeDataChange, subscribeConnectionStatus, pushToFirestore, loadFromFirestore } from './firestoreSync';
 import { INITIAL_DATA } from './constants';
-import { AppData, User, FinanceRecord, IncidentReport, Patient, DailyReportEntry, QualityMeasurement, DependencyLevel, Instrument, OperationReport, DoctorVisitRecord, getRoomBedStyles, getPaymentMethodStyles, getShiftFromTime } from './types';
+import { AppData, User, FinanceRecord, IncidentReport, Patient, DailyReportEntry, QualityMeasurement, DependencyLevel, Instrument, OperationReport, DoctorVisitRecord, RoomBooking, getRoomBedStyles, getPaymentMethodStyles, getShiftFromTime } from './types';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Cell, AreaChart, Area
@@ -42,6 +49,12 @@ const mergeDailyReportItems = (local: any, incoming: any): any => {
   if (!local) return incoming;
   if (!incoming) return local;
 
+  const localTimes = local.fieldModifiedTimes || {};
+  const incomingTimes = incoming.fieldModifiedTimes || {};
+
+  const localLm = getLatestTimestamp(local);
+  const incomingLm = getLatestTimestamp(incoming);
+
   const merged: any = {
     patientId: local.patientId || incoming.patientId,
     date: local.date || incoming.date,
@@ -50,9 +63,6 @@ const mergeDailyReportItems = (local: any, incoming: any): any => {
       ...(local.fieldModifiedTimes || {})
     }
   };
-
-  const localTimes = local.fieldModifiedTimes || {};
-  const incomingTimes = incoming.fieldModifiedTimes || {};
 
   const fields = [
     'morningReport', 'morningTherapy', 'morningRecordedBy', 'morningDependency',
@@ -70,22 +80,25 @@ const mergeDailyReportItems = (local: any, incoming: any): any => {
     const localTime = localTimes[f] ? new Date(localTimes[f]).getTime() : 0;
     const incomingTime = incomingTimes[f] ? new Date(incomingTimes[f]).getTime() : 0;
 
-    if (localTime >= incomingTime) {
-      merged[f] = localVal;
-      if (localTimes[f]) {
-        merged.fieldModifiedTimes[f] = localTimes[f];
+    if (localTime > 0 || incomingTime > 0) {
+      if (localTime >= incomingTime) {
+        merged[f] = localVal !== undefined && localVal !== null ? localVal : incomingVal;
+        if (localTimes[f]) merged.fieldModifiedTimes[f] = localTimes[f];
+      } else {
+        merged[f] = incomingVal !== undefined && incomingVal !== null ? incomingVal : localVal;
+        if (incomingTimes[f]) merged.fieldModifiedTimes[f] = incomingTimes[f];
       }
     } else {
-      merged[f] = incomingVal;
-      if (incomingTimes[f]) {
-        merged.fieldModifiedTimes[f] = incomingTimes[f];
+      if (localLm >= incomingLm) {
+        merged[f] = localVal !== undefined && localVal !== null ? localVal : incomingVal;
+      } else {
+        merged[f] = incomingVal !== undefined && incomingVal !== null ? incomingVal : localVal;
       }
     }
   });
 
-  const localLm = local.lastModified ? new Date(local.lastModified).getTime() : 0;
-  const incomingLm = incoming.lastModified ? new Date(incoming.lastModified).getTime() : 0;
-  merged.lastModified = localLm >= incomingLm ? local.lastModified : incoming.lastModified;
+  const maxLm = Math.max(localLm, incomingLm);
+  merged.lastModified = maxLm > 0 ? new Date(maxLm).toISOString() : (local.lastModified || incoming.lastModified);
 
   return merged;
 };
@@ -117,6 +130,20 @@ const App: React.FC = () => {
 
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [appData, setAppData] = useState<AppData>(getDB());
+  const safeAppData: AppData = useMemo(() => {
+    return {
+      ...INITIAL_DATA,
+      ...(appData || {}),
+      masterData: {
+        ...INITIAL_DATA.masterData,
+        ...(appData?.masterData || {}),
+        settings: {
+          ...INITIAL_DATA.masterData.settings,
+          ...(appData?.masterData?.settings || {})
+        }
+      }
+    };
+  }, [appData]);
   const [isPatientModalOpen, setIsPatientModalOpen] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -142,6 +169,61 @@ const App: React.FC = () => {
   const [monitoringFilterShift, setMonitoringFilterShift] = useState<'PAGI' | 'SIANG' | 'MALAM'>('PAGI');
   const [selectedDetailPatientId, setSelectedDetailPatientId] = useState<string | null>(null);
   const [patientLocks, setPatientLocks] = useState<{ [patientId: string]: { username: string; lockedAt: number } }>({});
+  const [isFirestoreOnline, setIsFirestoreOnline] = useState<boolean>(true);
+
+  // Subscribe to Realtime Firestore Delta Updates across all devices
+  useEffect(() => {
+    // 1. Subscribe to connection status updates
+    const unsubConn = subscribeConnectionStatus((online) => {
+      setIsFirestoreOnline(online);
+    });
+
+    // 2. Subscribe to real-time data changes broadcast from Firestore
+    const unsubData = subscribeDataChange((newMergedData) => {
+      if (hasAppDataChanged(newMergedData)) {
+        setAppData(newMergedData);
+        setLastSyncTime(new Date());
+      }
+    });
+
+    // 3. Force read & reconcile all chunks on initial load from Firestore
+    setSyncStatus('SYNCING');
+    loadFromFirestore().then((resData) => {
+      if (resData && hasAppDataChanged(resData)) {
+        setAppData(resData);
+        setLastSyncTime(new Date());
+      }
+      setSyncStatus('IDLE');
+    }).catch(() => {
+      setSyncStatus('IDLE');
+    });
+
+    // 4. Initialize real-time listener
+    const stopFirestoreSync = initFirestoreRealtimeSync();
+
+    return () => {
+      unsubConn();
+      unsubData();
+      stopFirestoreSync();
+    };
+  }, []);
+
+  // Google Workspace States & Modals
+  const [isDocsModalOpen, setIsDocsModalOpen] = useState(false);
+  const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
+  const [docsExportTitle, setDocsExportTitle] = useState('Laporan Medis SiMANTAP Bedah');
+  const [docsExportContent, setDocsExportContent] = useState('');
+  const [attachedDriveFiles, setAttachedDriveFiles] = useState<PickedFile[]>([]);
+
+  const handleOpenDocsExport = (title?: string, content?: string) => {
+    if (title) setDocsExportTitle(title);
+    if (content) setDocsExportContent(content);
+    setIsDocsModalOpen(true);
+  };
+
+  const handleFilePickedFromDrive = (file: PickedFile) => {
+    setAttachedDriveFiles(prev => [...prev, file]);
+  };
 
   const notify = (message: string, type: 'success' | 'danger' = 'success') => {
     setNotification({ message, type });
@@ -238,10 +320,23 @@ const App: React.FC = () => {
     }
     
     const initData = async () => {
+      // 0. Request Persistent Browser Storage permission (Chrome/Edge Anti-Eviction)
+      requestPersistentStorage().catch(() => {});
+
       // 1. Load from local database immediately to make application startup instantaneous (Stale-While-Revalidate)!
       const localDb = getDB();
       setAppData(localDb);
       setIsReady(true); // App is now immediately interactive!
+
+      // Asynchronously load persistent snapshot from IndexedDB to ensure zero local data loss
+      getLocalSnapshotFromDB().then(idbSnapshot => {
+        if (idbSnapshot) {
+          const currentLocal = getDB();
+          const mergedIdb = mergeData(currentLocal, idbSnapshot);
+          saveDB(mergedIdb);
+          setAppData(mergedIdb);
+        }
+      }).catch(() => {});
 
       try {
         let apiUrl = getApiUrl();
@@ -271,34 +366,41 @@ const App: React.FC = () => {
           return null;
         };
 
-        // PARALLEL PROMISE.ALL PIPELINE: Pull config, snappy data cache, and locks in parallel to maximize loading speed!
-        console.log('[On-Load Sync] Initiating Parallel Promise.all data acquisition pipeline...');
-        const [configResponse, fastResponse, locksResponse] = await Promise.all([
-          fetch('/api/config').catch(() => null),
-          fetch(`/api/data?url=${encodeURIComponent(apiUrl)}&force=false&t=${Date.now()}`).catch(() => null),
+        // STEP 1: Fetch Server configuration first to resolve correct Apps Script URL and theme before querying data
+        let configJson: any = null;
+        try {
+          const configResponse = await fetch('/api/config').catch(() => null);
+          if (configResponse && configResponse.ok) {
+            configJson = await configResponse.json();
+            if (configJson && configJson.appsScriptUrl && configJson.appsScriptUrl.trim() !== '') {
+              apiUrl = configJson.appsScriptUrl;
+              saveApiUrl(apiUrl);
+            }
+          }
+        } catch (configErr) {
+          console.warn('[On-Load Sync] Failed to load server config first:', configErr);
+        }
+
+        // STEP 2: Now perform parallel data sync queries using the verified, correct Apps Script URL!
+        console.log('[On-Load Sync] Initiating Parallel data acquisition pipeline...');
+        const [fastResponse, locksResponse] = await Promise.all([
+          fetch(`/api/data?url=${encodeURIComponent(apiUrl)}&force=false&excludeHeavy=true&t=${Date.now()}`).catch(() => null),
           fetch('/api/patients/locks').catch(() => null)
         ]);
 
-        // Process Configuration
-        let configJson: any = null;
-        if (configResponse && configResponse.ok) {
+        // Process Configuration theme parameters if retrieved
+        if (configJson) {
           try {
-            configJson = await configResponse.json();
-            if (configJson && configJson.appsScriptUrl) {
-              if (!apiUrl || apiUrl.trim() === '') {
-                apiUrl = configJson.appsScriptUrl;
-                saveApiUrl(apiUrl);
-              } else if (apiUrl !== configJson.appsScriptUrl) {
-                console.log('[API URL Sync] Propagating customized client Apps Script URL to server:', apiUrl);
-                fetch('/api/config', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ appsScriptUrl: apiUrl })
-                }).catch(() => {});
-              }
+            if (configJson.appsScriptUrl && apiUrl !== configJson.appsScriptUrl) {
+              console.log('[API URL Sync] Propagating customized client Apps Script URL to server:', apiUrl);
+              fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ appsScriptUrl: apiUrl })
+              }).catch(() => {});
             }
           } catch (e) {
-            console.warn('Failed to parse synchronized config:', e);
+            console.warn('Failed to post synchronized config:', e);
           }
         }
 
@@ -329,41 +431,6 @@ const App: React.FC = () => {
           } catch (fastErr) {
             console.warn('[On-Load Sync] Parallel cache parse failed:', fastErr);
           }
-        }
-
-        // Parallel Table Fetching to fulfill user database requirements
-        const fetchTableParallel = async (tableName: string) => {
-          try {
-            const tRes = await fetch(`/api/data?url=${encodeURIComponent(apiUrl)}&force=false&table=${tableName}&t=${Date.now()}`);
-            if (tRes.ok) {
-              const text = await tRes.text();
-              const parsed = robustParse(text);
-              if (parsed) {
-                const target = parsed.data || parsed;
-                if (target && Array.isArray(target[tableName]) && target[tableName].length > 0) {
-                  return target[tableName];
-                }
-              }
-            }
-          } catch (err) {
-            console.warn(`Parallel fetch failed for table: ${tableName}`, err);
-          }
-          return null;
-        };
-
-        // Explicit Parallel Promise (Promise.all) for Pasien, Laporan Keperawatan, and Laporan Keuangan
-        const [patientsTable, dailyReportsTable, financeRecordsTable] = await Promise.all([
-          fetchTableParallel('patients'),
-          fetchTableParallel('dailyReports'),
-          fetchTableParallel('financeRecords')
-        ]);
-
-        if (patientsTable !== null || dailyReportsTable !== null || financeRecordsTable !== null) {
-          console.log('[On-Load Sync] Specific tables loaded in parallel via Promise.all. Merging with cache.');
-          if (!fetchedData) fetchedData = extractStandardData({ patients: [], dailyReports: [], financeRecords: [] }) || {};
-          if (patientsTable !== null) fetchedData.patients = patientsTable;
-          if (dailyReportsTable !== null) fetchedData.dailyReports = dailyReportsTable;
-          if (financeRecordsTable !== null) fetchedData.financeRecords = financeRecordsTable;
         }
 
         // STEP B: Only do blocking fresh pull if server cache was empty or invalid
@@ -435,6 +502,8 @@ const App: React.FC = () => {
               appName: configJson.appName || fetchedData.masterData.settings?.appName || 'SiMANTAP',
               appSlogan: configJson.appSlogan || fetchedData.masterData.settings?.appSlogan || 'Manajemen Laporan Terpadu & Akurat',
               logoUrl: configJson.logoUrl || fetchedData.masterData.settings?.logoUrl || '',
+              logoLetterLeftUrl: configJson.logoLetterLeftUrl || fetchedData.masterData.settings?.logoLetterLeftUrl || '',
+              logoLetterRightUrl: configJson.logoLetterRightUrl || fetchedData.masterData.settings?.logoLetterRightUrl || '',
               loginWallpaperUrl: configJson.loginWallpaperUrl || fetchedData.masterData.settings?.loginWallpaperUrl || '',
               appWallpaperUrl: configJson.appWallpaperUrl || fetchedData.masterData.settings?.appWallpaperUrl || '',
               themeColor: configJson.themeColor || fetchedData.masterData.settings?.themeColor || '#144272',
@@ -459,6 +528,8 @@ const App: React.FC = () => {
               appName: configJson.appName || currentLocal.masterData.settings?.appName || 'SiMANTAP',
               appSlogan: configJson.appSlogan || currentLocal.masterData.settings?.appSlogan || 'Manajemen Laporan Terpadu & Akurat',
               logoUrl: configJson.logoUrl || currentLocal.masterData.settings?.logoUrl || '',
+              logoLetterLeftUrl: configJson.logoLetterLeftUrl || currentLocal.masterData.settings?.logoLetterLeftUrl || '',
+              logoLetterRightUrl: configJson.logoLetterRightUrl || currentLocal.masterData.settings?.logoLetterRightUrl || '',
               loginWallpaperUrl: configJson.loginWallpaperUrl || currentLocal.masterData.settings?.loginWallpaperUrl || '',
               appWallpaperUrl: configJson.appWallpaperUrl || currentLocal.masterData.settings?.appWallpaperUrl || '',
               themeColor: configJson.themeColor || currentLocal.masterData.settings?.themeColor || '#144272',
@@ -469,6 +540,90 @@ const App: React.FC = () => {
           setAppData(currentLocal);
           setSyncStatus('IDLE');
         }
+        const loadHeavyTablesInChunks = async (url: string) => {
+          const tables = ['patients', 'dailyReports', 'financeRecords'];
+          const CHUNK_SIZE = 250;
+
+          for (const table of tables) {
+            let page = 1;
+            let hasMore = true;
+            console.log(`[Chunk Loading] Starting async background pipeline for table: ${table}`);
+
+            while (hasMore) {
+              try {
+                const res = await fetch(`/api/data?url=${encodeURIComponent(url)}&chunkTable=${table}&chunkPage=${page}&chunkSize=${CHUNK_SIZE}&t=${Date.now()}`);
+                if (res.ok) {
+                  const json = await res.json();
+                  if (json && Array.isArray(json.data)) {
+                    const chunk = json.data;
+                    console.log(`[Chunk Loading] Received ${table} Page ${page}: ${chunk.length} items of ${json.total}`);
+                    
+                    if (chunk.length > 0) {
+                      const currentDb = getDB();
+                      const normalizedDb = normalizeDatesInDb(currentDb);
+                      const existingList = normalizedDb[table] || [];
+                      
+                      const existingMap = new Map();
+                      existingList.forEach((item: any) => {
+                        const key = item.id || (item.patientId + '_' + item.date) || JSON.stringify(item);
+                        existingMap.set(key, item);
+                      });
+                      
+                      const tempObj = { [table]: chunk };
+                      normalizeDatesInDb(tempObj);
+                      const normalizedChunk = tempObj[table];
+
+                      const activeDeletedIds = getDeletedIds();
+                      normalizedChunk.forEach((item: any) => {
+                        if (!item) return;
+                        const key = item.id || (item.patientId ? `${item.patientId}_${item.date}` : null) || JSON.stringify(item);
+                        
+                        // Check soft deletions
+                        if (item.isDeleted || item.deleted) return;
+                        if (key && activeDeletedIds.includes(key)) return;
+                        if (item.id && activeDeletedIds.includes(String(item.id))) return;
+                        if (item.patientId && activeDeletedIds.includes(String(item.patientId))) return;
+                        if (item.indicatorId && activeDeletedIds.includes(String(item.indicatorId))) return;
+
+                        const existing = existingMap.get(key);
+                        if (existing) {
+                          existingMap.set(key, mergeRecordProperties(existing, item));
+                        } else {
+                          existingMap.set(key, item);
+                        }
+                      });
+                      
+                      normalizedDb[table] = Array.from(existingMap.values());
+                      saveDB(normalizedDb);
+                      setAppData({ ...normalizedDb });
+                    }
+                    
+                    hasMore = json.hasMore && chunk.length > 0;
+                    page++;
+                    
+                    // Small yield to let browser process UI frames smoothly
+                    await new Promise(resolve => setTimeout(resolve, 30));
+                  } else {
+                    hasMore = false;
+                  }
+                } else {
+                  hasMore = false;
+                }
+              } catch (err) {
+                console.warn(`[Chunk Loading] Failed to fetch chunk for ${table} Page ${page}:`, err);
+                hasMore = false;
+              }
+            }
+          }
+          console.log('[Chunk Loading] Completed all background table pipelines successfully!');
+        };
+
+        // Trigger background asynchronous chunk loading pipeline
+        loadHeavyTablesInChunks(apiUrl);
+
+        // Check and trigger any pending offline uploads on start
+        triggerOfflineQueueUpload();
+
       } catch (e) {
         console.warn('On-load sync unsuccessful, loading local memory database:', e);
         const currentLocal = getDB();
@@ -506,8 +661,10 @@ const App: React.FC = () => {
         const res = await syncData(false);
         if (res.success) {
           const freshData = getDB();
-          setAppData(freshData);
-          setLastSyncTime(new Date());
+          if (hasAppDataChanged(freshData)) {
+            setAppData(freshData);
+            setLastSyncTime(new Date());
+          }
           
           // Auto-heal: Clear any previous visual error states once connection is restored
           setSyncStatus(prev => prev === 'ERROR' ? 'SUCCESS' : prev);
@@ -583,15 +740,25 @@ const App: React.FC = () => {
             console.log(`[SSE Delta Event] Delta update received for ${table}:`, items);
             if (items.length > 0 && table) {
               const currentDB = getDB();
+              const activeDeletedIds = getDeletedIds();
               let localList = [...(currentDB[table] || [])];
               let updatedLocal = false;
               const keyField = 'id';
 
               items.forEach((newItem: any) => {
                 if (!newItem) return;
+                
+                // FILTER DELETED ITEMS FROM SSE DELTAS
+                if (newItem.isDeleted || newItem.deleted) return;
+                if (newItem.id && activeDeletedIds.includes(String(newItem.id))) return;
+                if (newItem.patientId && activeDeletedIds.includes(String(newItem.patientId))) return;
+                if (newItem.indicatorId && activeDeletedIds.includes(String(newItem.indicatorId))) return;
+
                 if (table === 'dailyReports') {
                   if (!newItem.patientId || !newItem.date) return;
                   const key = `${newItem.patientId}_${newItem.date}`;
+                  if (activeDeletedIds.includes(key)) return;
+
                   const localIdx = localList.findIndex(r => `${r.patientId}_${r.date}` === key);
                   if (localIdx > -1) {
                     const localItem = localList[localIdx];
@@ -607,15 +774,13 @@ const App: React.FC = () => {
                 } else {
                   if (newItem[keyField] === undefined || newItem[keyField] === null) return;
                   const itemId = String(newItem[keyField]);
+                  if (activeDeletedIds.includes(itemId)) return;
+
                   const localIdx = localList.findIndex(r => String(r[keyField]) === itemId);
                   if (localIdx > -1) {
                     const localItem = localList[localIdx];
-                    const localLm = localItem.lastModified ? new Date(localItem.lastModified).getTime() : 0;
-                    const newLm = newItem.lastModified ? new Date(newItem.lastModified).getTime() : 0;
-                    if (newLm >= localLm) {
-                      localList[localIdx] = { ...localItem, ...newItem };
-                      updatedLocal = true;
-                    }
+                    localList[localIdx] = mergeRecordProperties(localItem, newItem);
+                    updatedLocal = true;
                   } else {
                     localList.push(newItem);
                     updatedLocal = true;
@@ -634,8 +799,15 @@ const App: React.FC = () => {
                 let updatedState = false;
                 items.forEach((newItem: any) => {
                   if (!newItem) return;
+                  if (newItem.isDeleted || newItem.deleted) return;
+                  if (newItem.id && activeDeletedIds.includes(String(newItem.id))) return;
+                  if (newItem.patientId && activeDeletedIds.includes(String(newItem.patientId))) return;
+                  if (newItem.indicatorId && activeDeletedIds.includes(String(newItem.indicatorId))) return;
+
                   if (table === 'dailyReports') {
                     const key = `${newItem.patientId}_${newItem.date}`;
+                    if (activeDeletedIds.includes(key)) return;
+
                     const idx = stateList.findIndex(r => `${r.patientId}_${r.date}` === key);
                     if (idx > -1) {
                       const stateItem = stateList[idx];
@@ -651,15 +823,13 @@ const App: React.FC = () => {
                   } else {
                     if (newItem[keyField] === undefined || newItem[keyField] === null) return;
                     const itemId = String(newItem[keyField]);
+                    if (activeDeletedIds.includes(itemId)) return;
+
                     const idx = stateList.findIndex(r => String(r[keyField]) === itemId);
                     if (idx > -1) {
                       const stateItem = stateList[idx];
-                      const localLm = stateItem.lastModified ? new Date(stateItem.lastModified).getTime() : 0;
-                      const newLm = newItem.lastModified ? new Date(newItem.lastModified).getTime() : 0;
-                      if (newLm >= localLm) {
-                        stateList[idx] = { ...stateItem, ...newItem };
-                        updatedState = true;
-                      }
+                      stateList[idx] = mergeRecordProperties(stateItem, newItem);
+                      updatedState = true;
                     } else {
                       stateList.push(newItem);
                       updatedState = true;
@@ -675,10 +845,10 @@ const App: React.FC = () => {
             }
           } else if (payload.type === 'hard-sync') {
             // Force Sync / Hard Pull: Triggered by other devices' changes
-            // To prevent self-override loops, skip only if we recently edited (within 1 second)
+            // To prevent self-override loops, skip if we recently edited (within 10 seconds)
             const timeSinceLastLocal = Date.now() - lastLocalActionRef.current;
-            if (timeSinceLastLocal < 1000) {
-              console.log("[SSE Event] Hard sync skipped on originating device.");
+            if (timeSinceLastLocal < 10000) {
+              console.log("[SSE Event] Hard sync skipped on originating device due to recent local action.");
               return;
             }
             console.log("[SSE Event] Hard sync signal received. Triggering immediate Hard Pull...");
@@ -690,11 +860,11 @@ const App: React.FC = () => {
               }
             })();
           } else if (payload.type === 'data-update') {
-            // Anti-rollback/race condition check: If this device recently performed a local edit (within 5s),
+            // Anti-rollback/race condition check: If this device recently performed a local edit (within 10s),
             // it's highly likely that this data-update event was triggered by our own push, or we are currently editing.
             // Under these high-concurrency conditions, skip downloading to prevent overwriting static client state.
             const timeSinceLastLocal = Date.now() - lastLocalActionRef.current;
-            if (timeSinceLastLocal < 5000) {
+            if (timeSinceLastLocal < 10000) {
               console.log("[SSE Event] Data change detected, but skipped because of recent local action in progress.");
               return;
             }
@@ -755,6 +925,85 @@ const App: React.FC = () => {
     };
   }, []);
 
+  // BroadcastChannel listener for instant zero-latency tab-to-tab & device sync
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return;
+    const channelNames = ['simantap_global_sync', 'simantap_sync_channel'];
+    const activeChannels: BroadcastChannel[] = [];
+    let bcDebounceTimer: any = null;
+
+    channelNames.forEach((chName) => {
+      try {
+        const bc = new BroadcastChannel(chName);
+        bc.onmessage = (event) => {
+          if (
+            event.data &&
+            (event.data.type === 'SIMANTAP_GLOBAL_SYNC' ||
+              event.data.type === 'LOCAL_TAB_SYNC' ||
+              event.data.type === 'LOCAL_DATA_UPDATE')
+          ) {
+            if (event.data.senderId === TAB_ID) return; // Prevent echo loop from origin tab
+
+            // 1. FAST DELTA HANDLING (O(1) lightweight update)
+            if (event.data.delta) {
+              const { table, item, action } = event.data.delta;
+              const currentLocal = getDB();
+              if (table && item && Array.isArray(currentLocal[table as keyof AppData])) {
+                let list = [...((currentLocal[table as keyof AppData] as any[]) || [])];
+                const getItemKey = (i: any) => i.id || (i.patientId && i.date ? `${i.patientId}_${i.date}` : null);
+                const targetKey = getItemKey(item);
+
+                if (action === 'DELETE') {
+                  list = list.filter((i) => getItemKey(i) !== targetKey);
+                } else {
+                  const idx = list.findIndex((i) => getItemKey(i) === targetKey);
+                  if (idx > -1) {
+                    list[idx] = { ...list[idx], ...item };
+                  } else {
+                    list.push(item);
+                  }
+                }
+
+                const updatedData = { ...currentLocal, [table]: list };
+                saveDB(updatedData, true); // Pass skipBroadcast = true
+                if (hasAppDataChanged(updatedData)) {
+                  setAppData(updatedData);
+                  setLastSyncTime(new Date());
+                }
+                return;
+              }
+            }
+
+            // 2. FULL PAYLOAD FALLBACK (Debounced + change checked)
+            const payloadData = event.data.data || event.data.payload;
+            if (payloadData) {
+              if (bcDebounceTimer) clearTimeout(bcDebounceTimer);
+              bcDebounceTimer = setTimeout(() => {
+                const currentLocal = getDB();
+                const merged = mergeData(currentLocal, payloadData);
+                saveDB(merged, true); // Pass skipBroadcast = true
+                if (hasAppDataChanged(merged)) {
+                  setAppData(merged);
+                  setLastSyncTime(new Date());
+                }
+              }, 150);
+            }
+          }
+        };
+        activeChannels.push(bc);
+      } catch (e) {}
+    });
+
+    return () => {
+      if (bcDebounceTimer) clearTimeout(bcDebounceTimer);
+      activeChannels.forEach((bc) => {
+        try {
+          bc.close();
+        } catch (e) {}
+      });
+    };
+  }, []);
+
   // Listen for background successful offline uploads and update state dynamically
   useEffect(() => {
     const handleOfflineSynced = (e: Event) => {
@@ -781,6 +1030,7 @@ const App: React.FC = () => {
     };
     window.addEventListener('surgihub_offline_queue_synced', handleOfflineSynced);
     window.addEventListener('surgihub_toast', handleSurgihubToast);
+    testFirestoreConnection();
     return () => {
       window.removeEventListener('surgihub_offline_queue_synced', handleOfflineSynced);
       window.removeEventListener('surgihub_toast', handleSurgihubToast);
@@ -855,7 +1105,7 @@ const App: React.FC = () => {
     
     // Instantly update UI and lock locally (Optimistic UI & Local State Lock)
     setAppData(syncedData);
-    saveDB(syncedData);
+    saveDB(syncedData); // saveDB automatically broadcasts to other tabs safely with senderId
     setSyncStatus('SYNCING');
     
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -864,50 +1114,17 @@ const App: React.FC = () => {
       try {
         const res = await uploadData(syncedData, true);
         if (res.success) {
-          if (lastLocalActionRef.current === now) {
-            if (res.data) {
-              const syncedResData = syncCatatanKhususToAdminNote(res.data);
-              setAppData(syncedResData);
-            }
-          }
           setSyncStatus('SUCCESS');
-          
-          if (retrySyncTimerRef.current) {
-            clearInterval(retrySyncTimerRef.current);
-            retrySyncTimerRef.current = null;
-          }
-          
           setTimeout(() => setSyncStatus(prev => prev === 'SUCCESS' ? 'IDLE' : prev), 3000);
           return res;
         } else {
           throw new Error(res.error || 'Sync failed');
         }
       } catch (e: any) {
-        console.warn('Google Sheets immediate sync failed (silent fallback to offline queue):', e);
-        // Fallback silently to offline queue as requested. Do not trigger a hard alert or block the user.
+        console.warn('Google Sheets immediate sync failed (silent fallback to resilient queue):', e);
         setSyncStatus('IDLE');
-        
-        if (!retrySyncTimerRef.current) {
-          retrySyncTimerRef.current = setInterval(async () => {
-            console.log('[Resilient Sync] Retrying pending upload every 3s...');
-            try {
-              const currentLocalDB = getDB();
-              const retryRes = await uploadData(currentLocalDB);
-              if (retryRes.success) {
-                console.log('[Resilient Sync] Silent background retry successful!');
-                clearInterval(retrySyncTimerRef.current);
-                retrySyncTimerRef.current = null;
-                
-                setAppData(getDB());
-                setSyncStatus('SUCCESS');
-                setTimeout(() => setSyncStatus(prev => prev === 'SUCCESS' ? 'IDLE' : prev), 3000);
-              }
-            } catch (retryErr) {
-              console.warn('[Resilient Sync] Silent retry failed, will try again in 3s...');
-            }
-          }, 3000);
-        }
-        // Return a mock success response to avoid throwing browser alerts or blocking UI
+        await setPendingUploadInDB(syncedData);
+        triggerOfflineQueueUpload();
         return { success: true, fallback: true, error: e.message };
       }
     } else {
@@ -916,53 +1133,17 @@ const App: React.FC = () => {
           try {
             const res = await uploadData(syncedData);
             if (res.success) {
-              // Anti-rollback safeguard: Only update react state from server if there has been
-              // no newer local edits during the network flight time. This prevents typing overwrites.
-              if (lastLocalActionRef.current === now) {
-                if (res.data) {
-                  const syncedResData = syncCatatanKhususToAdminNote(res.data);
-                  setAppData(syncedResData);
-                }
-              }
               setSyncStatus('SUCCESS');
-              
-              // Clear retry timer if active
-              if (retrySyncTimerRef.current) {
-                clearInterval(retrySyncTimerRef.current);
-                retrySyncTimerRef.current = null;
-              }
-              
               setTimeout(() => setSyncStatus(prev => prev === 'SUCCESS' ? 'IDLE' : prev), 3000);
               resolve(res);
             } else {
               throw new Error(res.error || 'Sync failed');
             }
           } catch (e: any) {
-            console.warn('Google Sheets sync failed (silent background retry loop initiated):', e);
+            console.warn('Google Sheets sync failed (silent background retry queue initiated):', e);
             setSyncStatus('IDLE');
-            
-            // Start retry timer if not already running
-            if (!retrySyncTimerRef.current) {
-              retrySyncTimerRef.current = setInterval(async () => {
-                console.log('[Resilient Sync] Retrying pending upload every 3s...');
-                try {
-                  const currentLocalDB = getDB();
-                  const retryRes = await uploadData(currentLocalDB);
-                  if (retryRes.success) {
-                    console.log('[Resilient Sync] Silent background retry successful!');
-                    clearInterval(retrySyncTimerRef.current);
-                    retrySyncTimerRef.current = null;
-                    
-                    // Merge and update UI safely
-                    setAppData(getDB());
-                    setSyncStatus('SUCCESS');
-                    setTimeout(() => setSyncStatus(prev => prev === 'SUCCESS' ? 'IDLE' : prev), 3000);
-                  }
-                } catch (retryErr) {
-                  console.warn('[Resilient Sync] Silent retry failed, will try again in 3s...');
-                }
-              }, 3000);
-            }
+            await setPendingUploadInDB(syncedData);
+            triggerOfflineQueueUpload();
             resolve({ success: true, fallback: true, error: e.message });
           }
         }, 1000);
@@ -974,7 +1155,7 @@ const App: React.FC = () => {
     try {
       const apiUrl = getApiUrl();
       setSyncStatus('SYNCING');
-      const response = await fetch(`/api/data?url=${encodeURIComponent(apiUrl)}&force=${isForce}&t=${Date.now()}`);
+      const response = await fetch(`/api/data?url=${encodeURIComponent(apiUrl)}&force=${isForce}&excludeHeavy=true&t=${Date.now()}`);
       const result = await response.json();
       let fetchedDb: any = null;
       if (result) {
@@ -991,6 +1172,76 @@ const App: React.FC = () => {
         saveDB(merged);
         setSyncStatus('SUCCESS');
         setTimeout(() => setSyncStatus('IDLE'), 2000);
+
+        // Run background async chunk loading pipeline for heavy tables
+        (async () => {
+          const tables = ['patients', 'dailyReports', 'financeRecords'];
+          const CHUNK_SIZE = 250;
+          for (const table of tables) {
+            let page = 1;
+            let hasMore = true;
+            while (hasMore) {
+              try {
+                const chunkRes = await fetch(`/api/data?url=${encodeURIComponent(apiUrl)}&chunkTable=${table}&chunkPage=${page}&chunkSize=${CHUNK_SIZE}&t=${Date.now()}`);
+                if (chunkRes.ok) {
+                  const json = await chunkRes.json();
+                  if (json && Array.isArray(json.data)) {
+                    const chunk = json.data;
+                    if (chunk.length > 0) {
+                      const currentDb = getDB();
+                      const normalizedDb = normalizeDatesInDb(currentDb);
+                      const existingList = normalizedDb[table] || [];
+                      const existingMap = new Map();
+                      existingList.forEach((item: any) => {
+                        const key = item.id || (item.patientId + '_' + item.date) || JSON.stringify(item);
+                        existingMap.set(key, item);
+                      });
+                      
+                      const tempObj = { [table]: chunk };
+                      normalizeDatesInDb(tempObj);
+                      const normalizedChunk = tempObj[table];
+                      const deletedIds = getDeletedIds();
+
+                      normalizedChunk.forEach((item: any) => {
+                        if (!item) return;
+                        const key = item.id || (item.patientId ? `${item.patientId}_${item.date}` : null) || JSON.stringify(item);
+                        
+                        // Check deletions
+                        if (item.isDeleted || item.deleted) return;
+                        if (key && deletedIds.includes(key)) return;
+                        if (item.id && deletedIds.includes(String(item.id))) return;
+                        if (item.patientId && deletedIds.includes(String(item.patientId))) return;
+                        if (item.indicatorId && deletedIds.includes(String(item.indicatorId))) return;
+
+                        const existing = existingMap.get(key);
+                        if (existing) {
+                          existingMap.set(key, mergeRecordProperties(existing, item));
+                        } else {
+                          existingMap.set(key, item);
+                        }
+                      });
+                      
+                      normalizedDb[table] = Array.from(existingMap.values());
+                      saveDB(normalizedDb);
+                      setAppData({ ...normalizedDb });
+                    }
+                    hasMore = json.hasMore && chunk.length > 0;
+                    page++;
+                    await new Promise(resolve => setTimeout(resolve, 30));
+                  } else {
+                    hasMore = false;
+                  }
+                } else {
+                  hasMore = false;
+                }
+              } catch (err) {
+                console.warn(`[Manual Chunk Loading] Failed for ${table} Page ${page}:`, err);
+                hasMore = false;
+              }
+            }
+          }
+        })();
+
         return true;
       }
     } catch (e) {
@@ -1009,6 +1260,104 @@ const App: React.FC = () => {
   const handleLogout = () => {
     setUser(null);
     localStorage.removeItem('surgihub_user');
+  };
+
+  const handleSaveRoomBooking = (bookingData: Omit<RoomBooking, 'id' | 'createdAt' | 'updatedAt'>) => {
+    const now = new Date().toISOString();
+    const newBooking: RoomBooking = {
+      ...bookingData,
+      id: generatePermanentUUID(),
+      createdAt: now,
+      updatedAt: now,
+      createdByName: user?.name || 'Petugas',
+      createdByUsername: user?.username || 'user'
+    };
+
+    const currentBookings = appData.roomBookings || [];
+    const updatedBookings = [newBooking, ...currentBookings];
+
+    const newData: AppData = {
+      ...appData,
+      roomBookings: updatedBookings
+    };
+
+    handleUpdateAppData(newData, true);
+    notify('Booking ruangan berhasil dibuat!');
+  };
+
+  const handleUpdateBookingStatus = (id: string, status: RoomBooking['status'], cancellationReason?: string) => {
+    const currentBookings = appData.roomBookings || [];
+    const updatedBookings = currentBookings.map(b => {
+      if (b.id === id) {
+        return {
+          ...b,
+          status,
+          cancellationReason: cancellationReason || b.cancellationReason,
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return b;
+    });
+
+    const newData: AppData = {
+      ...appData,
+      roomBookings: updatedBookings
+    };
+
+    handleUpdateAppData(newData, true);
+    notify(`Status booking berhasil diperbarui ke: ${status}`);
+  };
+
+  const handleDeleteRoomBooking = (id: string) => {
+    const currentBookings = appData.roomBookings || [];
+    const updatedBookings = currentBookings.filter(b => b.id !== id);
+
+    registerDeletedId(id);
+
+    const newData: AppData = {
+      ...appData,
+      roomBookings: updatedBookings
+    };
+
+    handleUpdateAppData(newData, true);
+    notify('Data booking ruangan berhasil dihapus.');
+  };
+
+  const handleCheckInBookingToRegistration = (booking: RoomBooking) => {
+    handleUpdateBookingStatus(booking.id, 'CHECKED_IN');
+
+    const prefilledPatient: Patient = {
+      id: generatePermanentUUID(),
+      noRegister: `REG-${Date.now().toString().slice(-6)}`,
+      noRM: booking.noRM,
+      name: booking.patientName,
+      gender: 'L',
+      birthDate: '',
+      address: '',
+      entryDate: booking.bookingDate || new Date().toISOString().split('T')[0],
+      entryTime: new Date().toTimeString().split(' ')[0].substring(0, 5),
+      origin: booking.patientStatus || 'Di Rumah',
+      originUnit: booking.patientStatus || 'Di Rumah',
+      unitTujuan: booking.plannedRoom || 'Ruang Bedah',
+      kelasRawat: 'Kelas 3',
+      ruangan: booking.plannedRoom || 'Ruang Bedah',
+      nomorBed: '',
+      paymentMethod: ['BPJS KESEHATAN'],
+      noSEP: '',
+      statusSEP: 'Belum Terbit',
+      jenisKLL: 'Bukan KLL',
+      noLP: '',
+      perawatPrimer: user?.name || '',
+      catatanKhusus: booking.notes || '',
+      diagnosaUtama: booking.notes || '',
+      tindakanProsedur: '',
+      dpjpList: [],
+      statusDataPasien: 'Masih Dirawat',
+      status: 'ADMITTED'
+    };
+
+    setEditingPatient(prefilledPatient);
+    setIsPatientModalOpen(true);
   };
 
   const handleStartEditPatient = async (p: Patient) => {
@@ -1057,7 +1406,14 @@ const App: React.FC = () => {
         transferDestinationRoom: ''
       };
     }
-    return pData;
+    const todayStr = new Date().toISOString().split('T')[0];
+    const nowTimeStr = new Date().toTimeString().split(' ')[0].substring(0, 5);
+    return {
+      ...pData,
+      status: 'DISCHARGED',
+      dischargeDate: pData.dischargeDate || todayStr,
+      dischargeTime: pData.dischargeTime || nowTimeStr
+    };
   };
 
   const checkBedDoubleBooking = (patientId: string | null, rgn: string, bNo: string): string | null => {
@@ -1122,7 +1478,8 @@ const App: React.FC = () => {
             merged.ksm = firstDoc ? (newData.masterData.doctorMetadata?.[firstDoc]?.ksm || '') : '';
           }
           const cleanPatient = enforceMasihDirawatBypass(merged);
-          return { ...cleanPatient, lastModified: new Date().toISOString() };
+          const nowIso = new Date().toISOString();
+          return { ...cleanPatient, lastModified: nowIso, updatedAt: nowIso };
         }
         return p;
       });
@@ -1135,11 +1492,13 @@ const App: React.FC = () => {
       }
       const cleanNew = enforceMasihDirawatBypass({
         ...mergedNew,
-        id: `P-${Date.now()}`
+        id: generatePermanentUUID('P')
       });
+      const nowIso = new Date().toISOString();
       const newPatient: Patient = {
         ...cleanNew,
-        lastModified: new Date().toISOString()
+        lastModified: nowIso,
+        updatedAt: nowIso
       };
       newData.patients = [...(newData.patients || []), newPatient];
     }
@@ -1189,13 +1548,21 @@ const App: React.FC = () => {
           merged.ksm = firstDoc ? (newData.masterData.doctorMetadata?.[firstDoc]?.ksm || '') : '';
         }
         const cleanPatient = enforceMasihDirawatBypass(merged);
-        return { ...cleanPatient, lastModified: new Date().toISOString() };
+        const nowIso = new Date().toISOString();
+        return { ...cleanPatient, lastModified: nowIso, updatedAt: nowIso };
       }
       return p;
     });
 
     if (autoRegisterNewRecord) {
-      newData.patients.push(autoRegisterNewRecord);
+      const nowIso = new Date().toISOString();
+      const permanentAutoRecord = {
+        ...autoRegisterNewRecord,
+        id: autoRegisterNewRecord.id && !autoRegisterNewRecord.id.startsWith('P-17') ? autoRegisterNewRecord.id : generatePermanentUUID('P'),
+        lastModified: nowIso,
+        updatedAt: nowIso
+      };
+      newData.patients.push(permanentAutoRecord);
     }
 
     handleUpdateAppData(newData);
@@ -1205,7 +1572,7 @@ const App: React.FC = () => {
   const handleCreateEmptyPatient = () => {
     const savedAdmin = typeof window !== 'undefined' ? localStorage.getItem('simantap_admin_pj') || '' : '';
     const newPatient: Patient = {
-      id: `P-${Date.now()}`,
+      id: generatePermanentUUID('P'),
       noRegister: `REG-${Date.now().toString().slice(-6)}`,
       noRM: '',
       name: 'PASIEN BARU',
@@ -1216,7 +1583,7 @@ const App: React.FC = () => {
       origin: 'IGD',
       unitTujuan: 'Rawat Inap',
       kelasRawat: 'Kelas 3',
-      ruangan: appData.masterData.rooms[0] || '3A1',
+      ruangan: safeAppData.masterData.rooms[0] || '3A1',
       nomorBed: '',
       statusDataPasien: 'AKTIF',
       diagnosaUtama: '',
@@ -1380,9 +1747,9 @@ const App: React.FC = () => {
     let updatedReports;
     if (existingIdx > -1) {
       if (type === 'BATCH') {
-        updatedReports = reports.map((r, i) => i === existingIdx ? { ...r, ...content, fieldModifiedTimes: newFieldTimes, lastModified: nowStr } : r);
+        updatedReports = reports.map((r, i) => i === existingIdx ? { ...r, ...content, fieldModifiedTimes: newFieldTimes, lastModified: nowStr, updatedAt: nowStr } : r);
       } else {
-        updatedReports = reports.map((r, i) => i === existingIdx ? { ...r, [type]: content, fieldModifiedTimes: newFieldTimes, lastModified: nowStr } : r);
+        updatedReports = reports.map((r, i) => i === existingIdx ? { ...r, [type]: content, fieldModifiedTimes: newFieldTimes, lastModified: nowStr, updatedAt: nowStr } : r);
       }
     } else {
       const newEntry: DailyReportEntry = {
@@ -1390,7 +1757,8 @@ const App: React.FC = () => {
         date: targetDate,
         ...(type === 'BATCH' ? content : { [type]: content }),
         fieldModifiedTimes: newFieldTimes,
-        lastModified: nowStr
+        lastModified: nowStr,
+        updatedAt: nowStr
       } as DailyReportEntry;
       updatedReports = [...reports, newEntry];
     }
@@ -1496,7 +1864,7 @@ const App: React.FC = () => {
     registerDeletedId(id);
     const newData = { ...appData };
     newData.financeRecords = (newData.financeRecords || []).filter(r => r.id !== id);
-    handleUpdateAppData(newData);
+    handleUpdateAppData(newData, true);
     notify('DATA ENTRY KEUANGAN BERHASIL DIHAPUS', 'danger');
   };
 
@@ -1565,14 +1933,41 @@ const App: React.FC = () => {
 
   const handleSaveQualityMeasurement = (measurement: QualityMeasurement | QualityMeasurement[], immediate: boolean = false) => {
     const newData = { ...appData };
+    const nowIso = new Date().toISOString();
     
     if (Array.isArray(measurement)) {
-      newData.qualityMeasurements = measurement;
+      const currentList = [...(newData.qualityMeasurements || [])];
+      measurement.forEach(m => {
+        const mWithLm: QualityMeasurement = {
+          ...m,
+          id: m.id || `qm-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          lastModified: nowIso,
+          updatedAt: nowIso
+        };
+        const idx = currentList.findIndex(existing => 
+          (existing.id && mWithLm.id && existing.id === mWithLm.id) || 
+          (existing.indicatorId === mWithLm.indicatorId && existing.date === mWithLm.date)
+        );
+        if (idx > -1) {
+          currentList[idx] = mWithLm;
+        } else {
+          currentList.push(mWithLm);
+        }
+      });
+      newData.qualityMeasurements = currentList;
     } else {
       const measurements = [...(newData.qualityMeasurements || [])];
-      const existingIdx = measurements.findIndex(m => m.indicatorId === measurement.indicatorId && m.date === measurement.date);
+      const existingIdx = measurements.findIndex(m => 
+        (m.id && measurement.id && m.id === measurement.id) || 
+        (m.indicatorId === measurement.indicatorId && m.date === measurement.date)
+      );
       
-      const measurementWithLm = { ...measurement, lastModified: new Date().toISOString() };
+      const measurementWithLm: QualityMeasurement = {
+        ...measurement,
+        id: measurement.id || `qm-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        lastModified: nowIso,
+        updatedAt: nowIso
+      };
       if (existingIdx > -1) {
         measurements[existingIdx] = measurementWithLm;
       } else {
@@ -1581,13 +1976,14 @@ const App: React.FC = () => {
       newData.qualityMeasurements = measurements;
     }
     
-    return handleUpdateAppData(newData, immediate);
     notify('DATA PENGUKURAN MUTU TERSIMPAN');
+    return handleUpdateAppData(newData, immediate);
   };
 
   const handleAddInstrument = (inst: Omit<Instrument, 'id'>) => {
     const newData = { ...appData };
-    const newInstrument: Instrument = { ...inst, id: `INST-${Date.now()}`, lastModified: new Date().toISOString() };
+    const nowIso = new Date().toISOString();
+    const newInstrument: Instrument = { ...inst, id: `INST-${Date.now()}`, lastModified: nowIso, updatedAt: nowIso };
     newData.instruments = [...(newData.instruments || []), newInstrument];
     handleUpdateAppData(newData);
     notify('INSTRUMEN BARU BERHASIL DITAMBAHKAN');
@@ -1595,18 +1991,21 @@ const App: React.FC = () => {
 
   const handleUpdateInstrument = (id: string, updates: Partial<Instrument>) => {
     const newData = { ...appData };
-    newData.instruments = (newData.instruments || []).map(i => i.id === id ? { ...i, ...updates, lastModified: new Date().toISOString() } : i);
+    const nowIso = new Date().toISOString();
+    newData.instruments = (newData.instruments || []).map(i => i.id === id ? { ...i, ...updates, lastModified: nowIso, updatedAt: nowIso } : i);
     handleUpdateAppData(newData);
     notify('DATA INSTRUMEN DIPERBARUI');
   };
 
   const handleAddOperationReport = (report: Omit<OperationReport, 'id' | 'createdAt'>) => {
     const newData = { ...appData };
+    const nowIso = new Date().toISOString();
     const newReport: OperationReport = { 
       ...report, 
       id: `OPR-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      lastModified: new Date().toISOString()
+      createdAt: nowIso,
+      lastModified: nowIso,
+      updatedAt: nowIso
     };
     newData.operationReports = [...(newData.operationReports || []), newReport];
     handleUpdateAppData(newData);
@@ -1615,8 +2014,9 @@ const App: React.FC = () => {
 
   const handleUpdateOperationReport = (id: string, report: Partial<OperationReport>) => {
     const newData = { ...appData };
+    const nowIso = new Date().toISOString();
     newData.operationReports = (newData.operationReports || []).map(r => 
-      r.id === id ? { ...r, ...report, lastModified: new Date().toISOString() } : r
+      r.id === id ? { ...r, ...report, lastModified: nowIso, updatedAt: nowIso } : r
     );
     handleUpdateAppData(newData);
     notify('LAPORAN OPERASI BERHASIL DIPERBARUI');
@@ -1626,15 +2026,26 @@ const App: React.FC = () => {
     registerDeletedId(id);
     const newData = { ...appData };
     newData.operationReports = (newData.operationReports || []).filter(r => r.id !== id);
-    handleUpdateAppData(newData);
+    handleUpdateAppData(newData, true);
     notify('LAPORAN OPERASI BERHASIL DIHAPUS', 'danger');
   };
 
   const handleDeletePatient = (id: string) => {
     registerDeletedId(id);
+    const targetPat = (appData.patients || []).find(p => p.id === id);
+    if (targetPat && targetPat.noRM) registerDeletedId(targetPat.noRM);
+    (appData.dailyReports || []).forEach(r => {
+      if (r.patientId === id) registerDeletedId(`${r.patientId}_${r.date}`);
+    });
+    (appData.financeRecords || []).forEach(f => {
+      if (f.patientId === id && f.id) registerDeletedId(f.id);
+    });
+    (appData.doctorVisits || []).forEach(v => {
+      if (v.patientId === id && v.id) registerDeletedId(v.id);
+    });
     const newData = { ...appData };
     newData.patients = (newData.patients || []).filter(p => p.id !== id);
-    handleUpdateAppData(newData);
+    handleUpdateAppData(newData, true);
     notify('DATA PASIEN DIHAPUS DARI SISTEM', 'danger');
   };
 
@@ -1642,7 +2053,7 @@ const App: React.FC = () => {
     registerDeletedId(id);
     const newData = { ...appData };
     newData.incidentReports = (newData.incidentReports || []).filter(r => r.id !== id);
-    handleUpdateAppData(newData);
+    handleUpdateAppData(newData, true);
     notify('LAPORAN INSIDEN TELAH DIHAPUS', 'danger');
   };
 
@@ -1653,8 +2064,8 @@ const App: React.FC = () => {
     const openIncidents = incidentReports.filter(i => i.status !== 'RESOLVED');
 
     // Safe adaptive design parameters to ensure full accessibility on different backgrounds
-    const hasWallpaper = !!appData.masterData?.settings?.appWallpaperUrl;
-    const originalFontColor = appData.masterData?.settings?.fontColor || '#1e293b';
+    const hasWallpaper = !!safeAppData.masterData?.settings?.appWallpaperUrl;
+    const originalFontColor = safeAppData.masterData?.settings?.fontColor || '#1e293b';
     const safeTitleColor = hasWallpaper ? originalFontColor : '#1e293b';
     const safeSubTitleColor = hasWallpaper ? (originalFontColor === '#ffffff' ? '#ffffffcc' : `${originalFontColor}cc`) : '#64748b';
 
@@ -1663,9 +2074,19 @@ const App: React.FC = () => {
     const patientsToday = patients.filter(p => p.entryDate === today).length;
     // Helper to check if patient is effectively discharged
     const isDischarged = (p: Patient) => {
-      if (p.status === 'DISCHARGED') return true;
-      const s = p.statusDataPasien || '';
-      return s.includes('Pulang') || s === 'APS' || s === 'Dirujuk' || s === 'Dipindah ke Ruangan Lain';
+      if ((p.status as string) === 'DISCHARGED') return true;
+      const s = (p.statusDataPasien || '').toUpperCase();
+      return (
+        s.includes('PULANG') || 
+        s.includes('BPL') || 
+        s.includes('APS') || 
+        s.includes('DIRUJUK') || 
+        s.includes('MENINGGAL') || 
+        s.includes('PINDAH') || 
+        s.includes('BATAL') || 
+        s.includes('KELUAR') || 
+        (p.status as string) === 'DISCHARGED'
+      );
     };
 
     const dischargedToday = patients.filter(isDischarged).length;
@@ -1690,7 +2111,7 @@ const App: React.FC = () => {
     const surgeryToday = uniqueSurgeryReports.filter(r => r.surgeryDate === today).length;
     
     // Bed Occupancy (BOR)
-    const totalBedsAcrossUnits: number = (Object.values(appData.masterData.roomToBeds || {}) as string[][]).reduce((acc: number, beds: string[]) => acc + beds.length, 0) || 1;
+    const totalBedsAcrossUnits: number = (Object.values(safeAppData.masterData.roomToBeds || {}) as string[][]).reduce((acc: number, beds: string[]) => acc + beds.length, 0) || 1;
     const bor = Math.round((occupiedBedsCount / totalBedsAcrossUnits) * 100);
 
     // Quality Compliance Rate Calculation
@@ -1895,6 +2316,24 @@ const App: React.FC = () => {
           </div>
         );
 
+      case 'adm-booking':
+      case 'booking':
+      case 'booking-ruangan':
+      case 'patient-booking':
+        return (
+          <RoomBookingComponent
+            appData={appData}
+            bookings={appData?.roomBookings || []}
+            masterData={safeAppData?.masterData}
+            currentUser={user}
+            onSaveBooking={handleSaveRoomBooking}
+            onUpdateBookingStatus={handleUpdateBookingStatus}
+            onUpdateStatus={handleUpdateBookingStatus}
+            onDeleteBooking={handleDeleteRoomBooking}
+            onCheckInToRegistration={handleCheckInBookingToRegistration}
+          />
+        );
+
       case 'adm-census':
         return <CensusAdvanced appData={appData} currentUser={user} />;
 
@@ -1931,7 +2370,7 @@ const App: React.FC = () => {
 
       case 'adm-data-bed': {
         const targetUnit = bedUnitFilter;
-        const unitClasses = appData.masterData.unitToClasses[targetUnit] || [];
+        const unitClasses = safeAppData.masterData.unitToClasses[targetUnit] || [];
         
         const bedPatients = appData.patients || [];
         
@@ -2073,9 +2512,9 @@ const App: React.FC = () => {
         const targetRoomsStats = (() => {
           const statsList: { roomName: string; className: string; totalBeds: number; occupiedBeds: number; emptyBeds: number; occupancyRate: number }[] = [];
           unitClasses.forEach(cls => {
-            const classRooms = appData.masterData.classToRooms[`${targetUnit} - ${cls}`] || [];
+            const classRooms = safeAppData.masterData.classToRooms[`${targetUnit} - ${cls}`] || [];
             classRooms.forEach(rm => {
-              const roomBeds = appData.masterData.roomToBeds[rm] || [];
+              const roomBeds = safeAppData.masterData.roomToBeds[rm] || [];
               const occupiedInRoom = roomBeds.filter(b => (appData.patients || []).some(p => pOccupiesBedOnDate(p, monitoringFilterDate, targetUnit, rm, b))).length;
               const emptyInRoom = roomBeds.length - occupiedInRoom;
               const occupancyRate = roomBeds.length > 0 ? (occupiedInRoom / roomBeds.length) * 100 : 0;
@@ -2108,7 +2547,7 @@ const App: React.FC = () => {
                     disabled={user?.role !== 'SUPER_ADMIN' && user?.role !== 'BIDANG'}
                     className="bg-white border-0 text-xs font-black text-blue-600 rounded-xl px-4 py-2 focus:ring-0 cursor-pointer outline-none disabled:opacity-50"
                   >
-                    {appData.masterData.units.map(u => <option key={u} value={u}>{u}</option>)}
+                    {safeAppData.masterData.units.map(u => <option key={u} value={u}>{u}</option>)}
                   </select>
                 </div>
               </div>
@@ -2378,8 +2817,8 @@ const App: React.FC = () => {
                     </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                      {(appData.masterData.classToRooms[`${targetUnit} - ${cls}`] || []).map(rm => {
-                        const roomBeds = appData.masterData.roomToBeds[rm] || [];
+                      {(safeAppData.masterData.classToRooms[`${targetUnit} - ${cls}`] || []).map(rm => {
+                        const roomBeds = safeAppData.masterData.roomToBeds[rm] || [];
                         const occupiedInRoom = roomBeds.filter(b => (appData.patients || []).some(p => pOccupiesBedOnDate(p, monitoringFilterDate, targetUnit, rm, b))).length;
                         const emptyInRoom = roomBeds.length - occupiedInRoom;
                         
@@ -2395,7 +2834,7 @@ const App: React.FC = () => {
                               </div>
                             </div>
                             <div className="grid grid-cols-1 gap-3">
-                            {(appData.masterData.roomToBeds[rm] || []).map(b => {
+                            {(safeAppData.masterData.roomToBeds[rm] || []).map(b => {
                               const residents = (appData.patients || []).filter(p => pOccupiesBedOnDate(p, monitoringFilterDate, targetUnit, rm, b));
                               const resident = residents[0];
                               const isDoubleBooked = residents.length > 1;
@@ -3154,7 +3593,7 @@ const App: React.FC = () => {
             onUpdateReport={handleUpdateOperationReport}
             onDeleteReport={handleDeleteOperationReport}
             currentUser={user}
-            masterData={appData.masterData}
+            masterData={safeAppData.masterData}
           />
         );
 
@@ -3341,7 +3780,7 @@ const App: React.FC = () => {
             patients={appData.patients || []}
             dailyReports={appData.dailyReports || []}
             patientLocks={patientLocks}
-            masterData={appData.masterData}
+            masterData={safeAppData.masterData}
             onAddPatient={() => setIsPatientModalOpen(true)}
             onUpdateReport={handleUpdateDailyReport}
             onUpdateDependency={handleUpdateDependency}
@@ -3360,7 +3799,7 @@ const App: React.FC = () => {
         return (
           <AdminRegistrasiModule 
             patients={appData.patients || []}
-            masterData={appData.masterData}
+            masterData={safeAppData.masterData}
             currentUser={user}
             onUpdatePatient={handleUpdatePatient}
             onAddPatient={handleAddPatient}
@@ -3375,7 +3814,7 @@ const App: React.FC = () => {
           <DoctorVisitAdmin 
             financeRecords={appData.financeRecords || []}
             patients={appData.patients || []}
-            masterData={appData.masterData}
+            masterData={safeAppData.masterData}
             currentUser={user}
           />
         );
@@ -3383,11 +3822,11 @@ const App: React.FC = () => {
       case 'quality-kpi':
         return (
           <QualityWorksheet 
-            indicators={appData.masterData.qualityIndicators || []}
+            indicators={safeAppData.masterData.qualityIndicators || []}
             measurements={appData.qualityMeasurements || []}
             onSaveMeasurement={handleSaveQualityMeasurement}
             currentUser={user}
-            masterData={appData.masterData}
+            masterData={safeAppData.masterData}
             patients={appData.patients || []}
             dailyReports={appData.dailyReports || []}
             selectedDate={qualityFilterDate}
@@ -3399,7 +3838,7 @@ const App: React.FC = () => {
       case 'quality-print':
         return (
           <PrintQualityWorksheet
-            indicators={appData.masterData.qualityIndicators || []}
+            indicators={safeAppData.masterData.qualityIndicators || []}
             measurements={appData.qualityMeasurements || []}
             patients={appData.patients || []}
             dailyReports={appData.dailyReports || []}
@@ -3409,24 +3848,24 @@ const App: React.FC = () => {
         );
 
       case 'quality-dpjp-absensi':
-        return <QualityReports type="DPJP_ABSENSI" patients={appData.patients} dailyReports={appData.dailyReports} doctorVisits={appData.doctorVisits} masterData={appData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
+        return <QualityReports type="DPJP_ABSENSI" patients={appData.patients} dailyReports={appData.dailyReports} doctorVisits={appData.doctorVisits} masterData={safeAppData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
       case 'quality-visite-compliance':
-        return <QualityReports type="VISITE_COMPLIANCE" patients={appData.patients} dailyReports={appData.dailyReports} doctorVisits={appData.doctorVisits} masterData={appData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
+        return <QualityReports type="VISITE_COMPLIANCE" patients={appData.patients} dailyReports={appData.dailyReports} doctorVisits={appData.doctorVisits} masterData={safeAppData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
       case 'quality-dependency':
-        return <QualityReports type="DEPENDENCY" patients={appData.patients} dailyReports={appData.dailyReports} masterData={appData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
+        return <QualityReports type="DEPENDENCY" patients={appData.patients} dailyReports={appData.dailyReports} masterData={safeAppData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
       case 'quality-pathway':
-        return <QualityReports type="PATHWAY" patients={appData.patients} dailyReports={appData.dailyReports} masterData={appData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
+        return <QualityReports type="PATHWAY" patients={appData.patients} dailyReports={appData.dailyReports} masterData={safeAppData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
       case 'quality-aps-mutu':
-        return <QualityReports type="APS_MUTU" patients={appData.patients} dailyReports={appData.dailyReports} masterData={appData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
+        return <QualityReports type="APS_MUTU" patients={appData.patients} dailyReports={appData.dailyReports} masterData={safeAppData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
       case 'quality-diagnosis-top':
-        return <QualityReports type="DIAGNOSIS" patients={appData.patients} dailyReports={appData.dailyReports} masterData={appData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
+        return <QualityReports type="DIAGNOSIS" patients={appData.patients} dailyReports={appData.dailyReports} masterData={safeAppData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} />;
       case 'quality-operasi-elektif':
-        return <QualityReports type="OPERASI_ELEKTIF" patients={appData.patients} dailyReports={appData.dailyReports} masterData={appData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} onUpdateReport={handleUpdateDailyReport} />;
+        return <QualityReports type="OPERASI_ELEKTIF" patients={appData.patients} dailyReports={appData.dailyReports} masterData={safeAppData.masterData} currentUser={user} qualityMeasurements={appData.qualityMeasurements} onUpdateReport={handleUpdateDailyReport} />;
 
       case 'system-data':
         return (
           <DataManagement 
-            masterData={appData.masterData} 
+            masterData={safeAppData.masterData} 
             onSave={handleUpdateMasterData} 
             currentUser={user} 
             appData={appData}
@@ -3447,7 +3886,7 @@ const App: React.FC = () => {
       case 'finance-billing':
         return <FinanceModule 
           records={financeRecords} 
-          masterData={appData.masterData} 
+          masterData={safeAppData.masterData} 
           patients={appData.patients || []} 
           doctorVisits={appData.doctorVisits || []}
           onAddRecord={handleAddFinance}
@@ -3463,7 +3902,7 @@ const App: React.FC = () => {
           onUpdateStatus={handleUpdateIncident} 
           onDeleteReport={handleDeleteIncident}
           currentUser={user}
-          settings={appData.masterData.settings}
+          settings={safeAppData.masterData.settings}
         />;
 
       default:
@@ -3513,25 +3952,77 @@ const App: React.FC = () => {
   }
 
   if (!user) {
-    return <Login onLogin={handleLogin} settings={appData.masterData.settings} />;
+    return <Login onLogin={handleLogin} settings={safeAppData.masterData.settings} />;
   }
+
+  const allSurgicalOperations = [
+    ...(appData.dailyReports || [])
+      .filter(dr => dr.surgeryProcedure || dr.surgeryDate)
+      .map(dr => {
+        const patient = (appData.patients || []).find(p => p.id === dr.patientId);
+        return {
+          id: dr.patientId,
+          patientName: patient?.name || 'Pasien Bedah',
+          medRecNo: patient?.noRM || '-',
+          operator: dr.surgeryOperator || 'dr. Operator Bedah',
+          procedure: dr.surgeryProcedure || 'Tindakan Operasi',
+          room: patient?.ruangan || 'Kamar Operasi',
+          date: dr.surgeryDate || dr.date || new Date().toISOString().split('T')[0],
+          startTime: dr.surgeryTime || '08:00',
+        };
+      }),
+    ...(appData.operationReports || []).map(opr => ({
+      id: opr.id,
+      patientName: opr.patientName || 'Pasien',
+      medRecNo: opr.noRM || '-',
+      operator: opr.operator || 'dr. Operator',
+      procedure: opr.procedureName || 'Operasi Bedah',
+      room: opr.room || 'Kamar Operasi',
+      date: opr.date || new Date().toISOString().split('T')[0],
+      startTime: opr.startTime || '08:00',
+    })),
+  ];
 
   return (
     <Layout 
       user={user} 
+      rolePermissions={safeAppData.masterData?.rolePermissions}
       onLogout={handleLogout} 
       onNavigate={setActiveMenu} 
       activeMenu={activeMenu}
       syncStatus={syncStatus}
+      isFirestoreOnline={isFirestoreOnline}
       onSync={handleSync}
       lastSyncTime={lastSyncTime}
-      settings={appData.masterData.settings}
+      settings={safeAppData.masterData.settings}
     >
+      <WorkspaceBar
+        onFilePicked={handleFilePickedFromDrive}
+        onOpenDocsExport={() => handleOpenDocsExport()}
+        onOpenCalendarSync={() => setIsCalendarModalOpen(true)}
+        notify={notify}
+      />
+
       {renderContent()}
+      
+      <DocsExportModal
+        isOpen={isDocsModalOpen}
+        onClose={() => setIsDocsModalOpen(false)}
+        defaultTitle={docsExportTitle}
+        defaultContent={docsExportContent}
+        notify={notify}
+      />
+
+      <CalendarSyncModal
+        isOpen={isCalendarModalOpen}
+        onClose={() => setIsCalendarModalOpen(false)}
+        operations={allSurgicalOperations}
+        notify={notify}
+      />
       
       {isPatientModalOpen && (
         <PatientModal 
-          masterData={appData.masterData}
+          masterData={safeAppData.masterData}
           onClose={() => {
             if (editingPatient) {
               const pId = editingPatient.id;
@@ -3562,7 +4053,7 @@ const App: React.FC = () => {
             dailyReports={appData.dailyReports || []}
             onClose={() => setSelectedDetailPatientId(null)}
             onSave={handleUpdatePatient}
-            masterData={appData.masterData}
+            masterData={safeAppData.masterData}
           />
         );
       })()}

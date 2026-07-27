@@ -1,5 +1,79 @@
 
-import { AppData, DoctorCategory } from './types';
+import { AppData, DoctorCategory, RolePermission, UserRole } from './types';
+
+export const ALL_MENU_IDS = [
+  'dashboard',
+  'adm-register',
+  'adm-booking',
+  'patients',
+  'monitoring-keluar-masuk',
+  'adm-census',
+  'adm-data-bed',
+  'service-nursing',
+  'service-schedule',
+  'finance-reg-admin',
+  'finance-billing',
+  'finance-visite',
+  'finance-summary',
+  'quality-kpi',
+  'quality-operasi-elektif',
+  'quality-print',
+  'quality-asesmen-awal-medis',
+  'quality-dpjp-absensi',
+  'quality-visite-compliance',
+  'quality-dependency',
+  'quality-pathway',
+  'quality-aps-mutu',
+  'quality-diagnosis-top',
+  'incident-report',
+  'incident-investigation',
+  'incident-monthly',
+  'system-data',
+  'system-inventory'
+];
+
+export const DEFAULT_ROLE_PERMISSIONS: Record<string, RolePermission> = {
+  SUPER_ADMIN: {
+    role: 'SUPER_ADMIN',
+    allowedMenus: ALL_MENU_IDS,
+    actions: { canCreate: true, canEdit: true, canDelete: true, canPrintPdf: true, canExportExcel: true, canPostBilling: true }
+  },
+  BIDANG: {
+    role: 'BIDANG',
+    allowedMenus: ALL_MENU_IDS,
+    actions: { canCreate: true, canEdit: true, canDelete: true, canPrintPdf: true, canExportExcel: true, canPostBilling: true }
+  },
+  KARU: {
+    role: 'KARU',
+    allowedMenus: ALL_MENU_IDS.filter(m => m !== 'system-data'),
+    actions: { canCreate: true, canEdit: true, canDelete: true, canPrintPdf: true, canExportExcel: true, canPostBilling: true }
+  },
+  SEKRU: {
+    role: 'SEKRU',
+    allowedMenus: ALL_MENU_IDS.filter(m => m !== 'system-data'),
+    actions: { canCreate: true, canEdit: true, canDelete: false, canPrintPdf: true, canExportExcel: true, canPostBilling: true }
+  },
+  ADMIN_RUANGAN: {
+    role: 'ADMIN_RUANGAN',
+    allowedMenus: ALL_MENU_IDS.filter(m => m !== 'system-data'),
+    actions: { canCreate: true, canEdit: true, canDelete: false, canPrintPdf: true, canExportExcel: true, canPostBilling: true }
+  },
+  PPJA: {
+    role: 'PPJA',
+    allowedMenus: ALL_MENU_IDS.filter(m => !['system-data', 'system-inventory'].includes(m)),
+    actions: { canCreate: true, canEdit: true, canDelete: false, canPrintPdf: true, canExportExcel: true, canPostBilling: false }
+  },
+  PIC: {
+    role: 'PIC',
+    allowedMenus: ALL_MENU_IDS.filter(m => !['system-data'].includes(m)),
+    actions: { canCreate: true, canEdit: true, canDelete: false, canPrintPdf: true, canExportExcel: true, canPostBilling: false }
+  },
+  STAFF: {
+    role: 'STAFF',
+    allowedMenus: ['dashboard', 'adm-register', 'adm-booking', 'patients', 'monitoring-keluar-masuk', 'adm-data-bed', 'service-nursing', 'service-schedule', 'incident-report'],
+    actions: { canCreate: true, canEdit: true, canDelete: false, canPrintPdf: true, canExportExcel: false, canPostBilling: false }
+  }
+};
 
 const getClassToRooms = () => ({
     "Ruang Bedah - Kelas 3": ["Bedah 3A", "Bedah 3B", "Bedah 3C", "Bedah 3D", "Bedah 3E", "Bedah 3F"],
@@ -136,6 +210,7 @@ export const INITIAL_DATA: AppData = {
   "doctorVisits": [],
   "incidentReports": [],
   "qualityMeasurements": [],
+  "roomBookings": [],
   "masterData": {
     "doctors": Object.keys(initialDoctorMetadata),
     "doctorMetadata": initialDoctorMetadata,
@@ -336,6 +411,7 @@ export const INITIAL_DATA: AppData = {
       { drugName: 'Ranitidine', maxDays: 5 },
       { drugName: 'Ketoprofen', maxDays: 3 },
     ],
+    rolePermissions: DEFAULT_ROLE_PERMISSIONS,
     settings: {
       appName: 'SiMANTAP',
       appSlogan: 'Manajemen Laporan Terpadu & Akurat',
@@ -346,4 +422,4 @@ export const INITIAL_DATA: AppData = {
       settingsTimestamp: '2020-01-01T00:00:00.000Z'
     }
   }
-}
+};

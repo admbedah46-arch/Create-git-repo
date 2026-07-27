@@ -28,6 +28,8 @@ let serverConfig = {
   appName: 'SiMANTAP',
   appSlogan: 'Manajemen Laporan Terpadu & Akurat',
   logoUrl: '',
+  logoLetterLeftUrl: '',
+  logoLetterRightUrl: '',
   loginWallpaperUrl: '',
   appWallpaperUrl: '',
   themeColor: '#144272',
@@ -55,20 +57,64 @@ function sanitizeJsonString(str: string): string {
   if (!str) return str;
   let result = '';
   let inString = false;
-  
+  let isEscaped = false;
+
   for (let i = 0; i < str.length; i++) {
     const char = str[i];
-    
+
     if (inString) {
-      if (char === '\\') {
+      if (isEscaped) {
+        result += char;
+        isEscaped = false;
+      } else if (char === '\\') {
         result += '\\';
-        if (i + 1 < str.length) {
-          result += str[i + 1];
-          i++;
-        }
+        isEscaped = true;
       } else if (char === '"') {
-        // Look ahead to check if this double quote is followed by structural JSON chars:
-        // whitespace followed by ',' or '}' or ']' or ':'
+        result += '"';
+        inString = false;
+      } else {
+        const code = char.charCodeAt(0);
+        if (char === '\n') {
+          result += '\\n';
+        } else if (char === '\r') {
+          result += '\\r';
+        } else if (char === '\t') {
+          result += '\\t';
+        } else if (code < 32) {
+          const hex = code.toString(16).padStart(4, '0');
+          result += '\\u' + hex;
+        } else {
+          result += char;
+        }
+      }
+    } else {
+      if (char === '"') {
+        inString = true;
+      }
+      result += char;
+    }
+  }
+
+  return result.replace(/,\s*([\}\]])/g, '$1');
+}
+
+function sanitizeUnescapedInnerQuotes(str: string): string {
+  if (!str) return str;
+  let result = '';
+  let inString = false;
+  let isEscaped = false;
+
+  for (let i = 0; i < str.length; i++) {
+    const char = str[i];
+
+    if (inString) {
+      if (isEscaped) {
+        result += char;
+        isEscaped = false;
+      } else if (char === '\\') {
+        result += '\\';
+        isEscaped = true;
+      } else if (char === '"') {
         let nextNonWhitespace = '';
         for (let j = i + 1; j < str.length; j++) {
           if (!/\s/.test(str[j])) {
@@ -77,33 +123,28 @@ function sanitizeJsonString(str: string): string {
           }
         }
         if (nextNonWhitespace === ',' || nextNonWhitespace === '}' || nextNonWhitespace === ']' || nextNonWhitespace === ':') {
-          // This is a structural double quote
-          result += char;
+          result += '"';
           inString = false;
         } else {
-          // Unescaped inner quote!
           result += '\\"';
         }
       } else {
         const code = char.charCodeAt(0);
-        if (code < 32) {
-          // Escape control characters
-          if (char === '\n') result += '\\n';
-          else if (char === '\r') result += '\\r';
-          else if (char === '\t') result += '\\t';
-          // Drop other control characters below ASCII 32 to prevent JSON parse errors
-        } else {
-          result += char;
-        }
+        if (char === '\n') result += '\\n';
+        else if (char === '\r') result += '\\r';
+        else if (char === '\t') result += '\\t';
+        else if (code < 32) result += '\\u' + code.toString(16).padStart(4, '0');
+        else result += char;
       }
     } else {
-      result += char;
       if (char === '"') {
         inString = true;
       }
+      result += char;
     }
   }
-  return result;
+
+  return result.replace(/,\s*([\}\]])/g, '$1');
 }
 
 function normalizeDatesInDb(db: any): any {
@@ -127,7 +168,14 @@ function normalizeDatesInDb(db: any): any {
         clean = clean.split('T')[0];
       } else if (clean.includes(' ')) {
         const parts = clean.split(' ');
-        if (parts[0].includes('-') || parts[0].includes('/')) {
+        const monthNamesIndo = [
+          'januari', 'februari', 'maret', 'april', 'mei', 'juni', 'juli', 'agustus', 'september', 'oktober', 'november', 'desember',
+          'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'agu', 'agt', 'sep', 'okt', 'nov', 'des'
+        ];
+        const hasIndoMonth = parts.some(p => monthNamesIndo.includes(p.toLowerCase()));
+        if (hasIndoMonth) {
+          clean = parts.slice(0, 3).join(' ');
+        } else if (parts[0].includes('-') || parts[0].includes('/')) {
           clean = parts[0];
         }
       }
@@ -145,6 +193,37 @@ function normalizeDatesInDb(db: any): any {
         const y = match[3];
         return `${y}-${m}-${d}`;
       }
+      const lowerClean = clean.toLowerCase();
+      const monthsMap: Record<string, string> = {
+        januari: '01', jan: '01',
+        februari: '02', feb: '02',
+        maret: '03', mar: '03',
+        april: '04', apr: '04',
+        mei: '05',
+        juni: '06', jun: '06',
+        juli: '07', jul: '07',
+        agustus: '08', agu: '08', agt: '08',
+        september: '09', sep: '09',
+        oktober: '10', okt: '10',
+        november: '11', nov: '11',
+        desember: '12', des: '12'
+      };
+      const textMatch1 = lowerClean.match(/^(\d{1,2})\s+([a-z]+)\s+(\d{4})/);
+      if (textMatch1) {
+        const day = textMatch1[1].padStart(2, '0');
+        const monthName = textMatch1[2];
+        const year = textMatch1[3];
+        const monthNum = monthsMap[monthName];
+        if (monthNum) return `${year}-${monthNum}-${day}`;
+      }
+      const textMatch2 = lowerClean.match(/^([a-z]+)\s+(\d{1,2})[,\s]+(\d{4})/);
+      if (textMatch2) {
+        const monthName = textMatch2[1];
+        const day = textMatch2[2].padStart(2, '0');
+        const year = textMatch2[3];
+        const monthNum = monthsMap[monthName];
+        if (monthNum) return `${year}-${monthNum}-${day}`;
+      }
       const parsed = new Date(clean);
       if (!isNaN(parsed.getTime())) {
         const y = parsed.getFullYear();
@@ -152,11 +231,112 @@ function normalizeDatesInDb(db: any): any {
         const d = String(parsed.getDate()).padStart(2, '0');
         return `${y}-${m}-${d}`;
       }
+      const num = Math.floor(Number(clean));
+      if (!isNaN(num) && num > 0) {
+        if (num > 100000000000) {
+          const dObj = new Date(num);
+          if (!isNaN(dObj.getTime())) {
+            const y = dObj.getFullYear();
+            const m = String(dObj.getMonth() + 1).padStart(2, '0');
+            const d = String(dObj.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+          }
+        } else if (num > 10000 && num < 60000) {
+          const excelEpoch = new Date(1899, 11, 30);
+          const dObj = new Date(excelEpoch.getTime() + num * 24 * 60 * 60 * 1000);
+          if (!isNaN(dObj.getTime())) {
+            const y = dObj.getFullYear();
+            const m = String(dObj.getMonth() + 1).padStart(2, '0');
+            const d = String(dObj.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+          }
+        }
+      }
       return clean;
     } catch {
       return '';
     }
   };
+
+  // SANITIZE UNPAIRED QUOTES FUNCTION
+  const sanitizeUnpairedQuotes = (text: any): string => {
+    if (text === undefined || text === null) return '';
+    const str = String(text);
+    const quotesCount = (str.match(/"/g) || []).length;
+    if (quotesCount === 0) return str;
+    
+    if (quotesCount % 2 !== 0) {
+      const chars = str.split('');
+      let inQuote = false;
+      let lastQuoteIdx = -1;
+      for (let i = 0; i < chars.length; i++) {
+        if (chars[i] === '"') {
+          if (!inQuote) {
+            inQuote = true;
+            lastQuoteIdx = i;
+          } else {
+            inQuote = false;
+            lastQuoteIdx = -1;
+          }
+        }
+      }
+      if (inQuote && lastQuoteIdx !== -1) {
+        chars.splice(lastQuoteIdx, 1);
+      }
+      return chars.join('');
+    }
+    return str;
+  };
+
+  // SANITIZE PATIENT LIST
+  if (Array.isArray(db.patients)) {
+    db.patients.forEach((item: any) => {
+      if (!item || typeof item !== 'object') return;
+      
+      // 1. RM Number Protection
+      if (item.noRM !== undefined && item.noRM !== null) {
+        let rmStr = String(item.noRM).trim();
+        const hasAlphabet = /[a-zA-Z]/.test(rmStr);
+        if (hasAlphabet) {
+          const sanitizedRm = rmStr.replace(/[^a-zA-Z0-9-]/g, '');
+          item.noRM = sanitizedRm || `RM-DEF-${Math.floor(Math.random() * 10000)}`;
+        } else {
+          item.noRM = rmStr;
+        }
+      } else {
+        item.noRM = `RM-DEF-${Math.floor(Math.random() * 10000)}`;
+      }
+
+      // 2. Alamat & Catatan Unpaired Double Quotes Sanitization
+      if (item.address) {
+        item.address = sanitizeUnpairedQuotes(item.address);
+      }
+      if (item.catatanKhusus) {
+        item.catatanKhusus = sanitizeUnpairedQuotes(item.catatanKhusus);
+      }
+    });
+  }
+
+  // SANITIZE DAILY REPORTS LIST
+  if (Array.isArray(db.dailyReports)) {
+    db.dailyReports.forEach((item: any) => {
+      if (!item || typeof item !== 'object') return;
+      const textFields = ['morningReport', 'afternoonReport', 'nightReport', 'morningTherapy', 'afternoonTherapy', 'nightTherapy', 'adminNote', 'surgeryDelayReason'];
+      textFields.forEach(f => {
+        if (item[f]) {
+          item[f] = sanitizeUnpairedQuotes(item[f]);
+        }
+      });
+    });
+  }
+  
+  if (Array.isArray(db.nursingReports)) {
+    db.nursingReports.forEach((item: any) => {
+      if (!item || typeof item !== 'object') return;
+      if (item.catatan) item.catatan = sanitizeUnpairedQuotes(item.catatan);
+      if (item.alamat) item.alamat = sanitizeUnpairedQuotes(item.alamat);
+    });
+  }
 
   const processList = (list: any[], dateFields: string[]) => {
     if (!Array.isArray(list)) return;
@@ -185,50 +365,84 @@ function normalizeDatesInDb(db: any): any {
 }
 
 function resilientParse(jsonStr: string): any {
+  if (!jsonStr) return null;
+
+  // 1. Direct standard JSON.parse
   try {
     const parsed = JSON.parse(jsonStr);
     return normalizeDatesInDb(parsed);
-  } catch (firstError: any) {
-    console.warn('[Resilient Parser Server] Standard JSON.parse failed. Attempting sanitization...', firstError.message);
+  } catch (e1) {}
+
+  // 2. Direct text-bracket extraction if wrapped in non-JSON text / HTML
+  const firstBrace = jsonStr.indexOf('{');
+  const lastBrace = jsonStr.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
     try {
-      const sanitized = sanitizeJsonString(jsonStr);
+      const bracketSubstring = jsonStr.substring(firstBrace, lastBrace + 1);
+      const parsed = JSON.parse(bracketSubstring);
+      return normalizeDatesInDb(parsed);
+    } catch (e2) {}
+  }
+
+  // 3. Sanitized JSON.parse (control chars, newlines, trailing commas)
+  try {
+    const sanitized = sanitizeJsonString(jsonStr);
+    const parsed = JSON.parse(sanitized);
+    return normalizeDatesInDb(parsed);
+  } catch (e3) {}
+
+  // 4. Bracket extraction + Sanitized JSON.parse
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    try {
+      const bracketSubstring = jsonStr.substring(firstBrace, lastBrace + 1);
+      const sanitized = sanitizeJsonString(bracketSubstring);
       const parsed = JSON.parse(sanitized);
       return normalizeDatesInDb(parsed);
-    } catch (secondError: any) {
-      console.warn('[Resilient Parser Server] Sanitization failed. Attempting theme isolation recovery...', secondError.message);
-      try {
-        let cleaned = jsonStr;
-        
-        // Attempt to isolate and clean settings block using brace matching
-        const settingsIndex = cleaned.search(/"settings"\s*:\s*\{/);
-        if (settingsIndex !== -1) {
-          let braceCount = 0;
-          let foundStart = false;
-          let endIndex = -1;
-          for (let i = settingsIndex; i < cleaned.length; i++) {
-            if (cleaned[i] === '{') {
-              braceCount++;
-              foundStart = true;
-            } else if (cleaned[i] === '}') {
-              braceCount--;
-              if (foundStart && braceCount === 0) {
-                endIndex = i;
-                break;
-              }
-            }
-          }
-          if (endIndex !== -1) {
-            cleaned = cleaned.substring(0, settingsIndex) + '"settings": {"appName": "SiMANTAP", "appSlogan": "Manajemen Laporan Terpadu & Akurat", "themeColor": "#144272", "fontColor": "#ffffff"}' + cleaned.substring(endIndex + 1);
+    } catch (e4) {}
+  }
+
+  // 5. Unescaped inner quotes sanitization
+  try {
+    const sanitized = sanitizeUnescapedInnerQuotes(jsonStr);
+    const parsed = JSON.parse(sanitized);
+    return normalizeDatesInDb(parsed);
+  } catch (e5) {}
+
+  // 6. Settings block isolation
+  try {
+    let cleaned = jsonStr;
+    const settingsIndex = cleaned.search(/"settings"\s*:\s*\{/);
+    if (settingsIndex !== -1) {
+      let braceCount = 0;
+      let foundStart = false;
+      let endIndex = -1;
+      for (let i = settingsIndex; i < cleaned.length; i++) {
+        if (cleaned[i] === '{') {
+          braceCount++;
+          foundStart = true;
+        } else if (cleaned[i] === '}') {
+          braceCount--;
+          if (foundStart && braceCount === 0) {
+            endIndex = i;
+            break;
           }
         }
-        const parsed = JSON.parse(sanitizeJsonString(cleaned));
-        return normalizeDatesInDb(parsed);
-      } catch (thirdError: any) {
-        console.warn('[Resilient Parser Server] Theme isolation failed too. Reverting to fallback raw extraction...', thirdError.message);
-        const parsed = fallbackRawExtract(jsonStr);
-        return normalizeDatesInDb(parsed);
+      }
+      if (endIndex !== -1) {
+        cleaned = cleaned.substring(0, settingsIndex) + '"settings": {"appName": "SiMANTAP", "appSlogan": "Manajemen Laporan Terpadu & Akurat", "themeColor": "#144272", "fontColor": "#ffffff"}' + cleaned.substring(endIndex + 1);
       }
     }
+    const parsed = JSON.parse(sanitizeJsonString(cleaned));
+    return normalizeDatesInDb(parsed);
+  } catch (e6) {}
+
+  // 7. Fallback raw extract (never throws, rescues every array item)
+  try {
+    const extracted = fallbackRawExtract(jsonStr);
+    return normalizeDatesInDb(extracted);
+  } catch (e7) {
+    console.error('[Resilient Parser Server] All recovery steps failed. Returning initial template.');
+    return normalizeDatesInDb(JSON.parse(JSON.stringify(INITIAL_DATA)));
   }
 }
 
@@ -357,7 +571,33 @@ let cachedData: any = null;
 let lastCloudFetchTime = 0;
 let isBackgroundFetchingCloud = false; // Prevent overlapping background syncs
 let activeCloudFetchPromise: Promise<any> | null = null; // Shared promise to deduplicate parallel Google Sheets fetches
-const CLOUD_CACHE_TTL = 3000; // 3 seconds in-memory TTL to ensure snappy multi-device real-time sync with Google Sheets
+const CLOUD_CACHE_TTL = 20000; // 20 seconds in-memory TTL to prevent Google Apps Script quota exhaustion
+
+// Global Rate Exceeded Shield Variables
+let sheetsRateLimitedUntil = 0;
+let sheetsBackoffMs = 5000;
+
+function handleSheetsRateLimitError(errStr: string): boolean {
+  const lower = (errStr || '').toLowerCase();
+  if (
+    lower.includes('rate exceeded') || 
+    lower.includes('exceeded rate') || 
+    lower.includes('too many requests') || 
+    lower.includes('429') || 
+    lower.includes('quota exceeded')
+  ) {
+    sheetsRateLimitedUntil = Date.now() + sheetsBackoffMs;
+    console.warn(`[Rate Limit Shield] Google Sheets rate limit reached ("${errStr.trim()}"). Pausing Apps Script requests for ${sheetsBackoffMs / 1000}s. Local server cache is 100% active and preserved.`);
+    sheetsBackoffMs = Math.min(sheetsBackoffMs * 2, 60000);
+    return true;
+  }
+  return false;
+}
+
+function handleSheetsSuccess() {
+  sheetsRateLimitedUntil = 0;
+  sheetsBackoffMs = 5000;
+}
 
 // Helper to load latest backup from disk if cache is empty/corrupt
 function loadLatestBackup() {
@@ -541,13 +781,16 @@ const ensureWallpaperUrls = (data: any) => {
   return data;
 };
 
-function serverMergeData(local: any, rawCloud: any): any {
-  if (!rawCloud) return local;
-  if (!local) return rawCloud;
+function serverMergeData(rawLocal: any, rawCloud: any): any {
+  if (!rawCloud) return rawLocal;
+  if (!rawLocal) return rawCloud;
+
+  // Standardize all dates immediately in both datasets to prevent key misalignment and accidental filtering out of items!
+  const local = normalizeDatesInDb(JSON.parse(JSON.stringify(rawLocal)));
+  const cloud = normalizeDatesInDb(JSON.parse(JSON.stringify(rawCloud)));
 
   // Loosened Data Shield on server-side: only guard if cloudList is completely missing or not an array.
   // If the cloudList is present as an array (even if empty), we accept it as-is!
-  const cloud = { ...rawCloud };
   const majorKeys = ['patients', 'financeRecords', 'dailyReports', 'nursingReports', 'operations', 'incidentReports', 'operationReports', 'instruments', 'doctorVisits', 'qualityMeasurements'];
   majorKeys.forEach(key => {
     const localList = local[key];
@@ -565,73 +808,136 @@ function serverMergeData(local: any, rawCloud: any): any {
   const localTs = new Date(localSettings.settingsTimestamp || '2000-01-01').getTime();
   const cloudTs = new Date(cloudSettings.settingsTimestamp || '2000-01-01').getTime();
 
-  // Merge deletedIds based on settingsTimestamp comparison to prevent rollback of deletions!
-  let mergedDeletedIds: string[] = [];
-  if (localTs > cloudTs) {
-    mergedDeletedIds = Array.isArray(local.deletedIds) ? [...local.deletedIds] : [];
-  } else if (cloudTs > localTs) {
-    mergedDeletedIds = Array.isArray(cloud.deletedIds) ? [...cloud.deletedIds] : [];
-  } else {
-    mergedDeletedIds = Array.from(new Set([
-      ...(Array.isArray(local.deletedIds) ? local.deletedIds : []),
-      ...(Array.isArray(cloud.deletedIds) ? cloud.deletedIds : [])
-    ]));
-  }
+  // Merge deletedIds as permanent UNION across local and cloud (tombstone pattern) to prevent rollback of deletions!
+  let mergedDeletedIds: string[] = Array.from(new Set([
+    ...(Array.isArray(local.deletedIds) ? local.deletedIds : []),
+    ...(Array.isArray(cloud.deletedIds) ? cloud.deletedIds : [])
+  ]));
   // Protect super administrator from deletion
   mergedDeletedIds = mergedDeletedIds.filter(id => id !== 'USER_administrator');
 
-  const mergeList = (localList: any, cloudList: any, key: string = 'id') => {
-    const safeLocal = (Array.isArray(localList) ? localList : []).filter(item => item && item[key] !== undefined && item[key] !== null);
-    const safeCloud = (Array.isArray(cloudList) ? cloudList : []).filter(item => item && item[key] !== undefined && item[key] !== null);
+  const getItemKeyServer = (item: any, key: string = 'id'): string | null => {
+    if (!item) return null;
+    if (item[key] !== undefined && item[key] !== null && String(item[key]).trim() !== '') return String(item[key]);
+    if (item.id !== undefined && item.id !== null && String(item.id).trim() !== '') return String(item.id);
+    if (item.patientId && item.date) return `${item.patientId}_${item.date}`;
+    if (item.indicatorId && item.date) return `${item.indicatorId}_${item.date}`;
+    return null;
+  };
 
-    // Safeguard: If the server cache is completely empty, accept client's upload to populate the cache
+  const getLatestTimestampServer = (item: any): number => {
+    if (!item || typeof item !== 'object') return 0;
+    let maxTs = 0;
+    const fields = ['lastModified', 'updatedAt', 'deletedAt', 'settingsTimestamp', 'date'];
+    for (const f of fields) {
+      if (item[f]) {
+        const t = new Date(item[f]).getTime();
+        if (!isNaN(t) && t > maxTs) maxTs = t;
+      }
+    }
+    return maxTs;
+  };
+
+  const chooseNonEmptyVal = (primaryVal: any, secondaryVal: any) => {
+    if (primaryVal !== undefined && primaryVal !== null) {
+      return primaryVal;
+    }
+    return secondaryVal;
+  };
+
+  const mergeRecordProperties = (primaryItem: any, secondaryItem: any): any => {
+    if (!primaryItem) return secondaryItem;
+    if (!secondaryItem) return primaryItem;
+    
+    const merged = { ...secondaryItem, ...primaryItem };
+    Object.keys(primaryItem).forEach(prop => {
+      if (primaryItem[prop] !== undefined && primaryItem[prop] !== null) {
+        merged[prop] = primaryItem[prop];
+      }
+    });
+    return merged;
+  };
+
+  const mergeList = (localList: any, cloudList: any, key: string = 'id') => {
+    const safeLocal = (Array.isArray(localList) ? localList : []).filter(item => item && getItemKeyServer(item, key) !== null);
+    const safeCloud = (Array.isArray(cloudList) ? cloudList : []).filter(item => item && getItemKeyServer(item, key) !== null);
+
     if (safeCloud.length === 0 && safeLocal.length > 0) {
-      return safeLocal;
+      return safeLocal.filter(item => {
+        const k = getItemKeyServer(item, key);
+        return k && !mergedDeletedIds.includes(k) && !item.isDeleted && !item.deleted;
+      });
     }
 
-    const merged: any[] = [];
-    const localMap = new Map(safeLocal.map((item: any) => [String(item[key]), item]));
-    const cloudMap = new Map(safeCloud.map((item: any) => [String(item[key]), item]));
+    const mergedMap = new Map<string, any>();
+    const localKeyMap = new Map<string, any>();
+    const cloudKeyMap = new Map<string, any>();
 
-    // 1. Process all cloud items - they represent the primary SERVER/CLOUD SOURCE OF TRUTH
-    safeCloud.forEach((cloudItem: any) => {
-      if (!cloudItem) return;
-      const itemId = String(cloudItem[key]);
-      if (mergedDeletedIds.includes(itemId)) {
+    safeLocal.forEach(i => {
+      const k = getItemKeyServer(i, key);
+      if (k) localKeyMap.set(k, i);
+    });
+
+    safeCloud.forEach(i => {
+      const k = getItemKeyServer(i, key);
+      if (k) cloudKeyMap.set(k, i);
+    });
+
+    const allKeys = new Set<string>([
+      ...Array.from(localKeyMap.keys()),
+      ...Array.from(cloudKeyMap.keys())
+    ]);
+
+    allKeys.forEach(itemId => {
+      const localItem = localKeyMap.get(itemId);
+      const cloudItem = cloudKeyMap.get(itemId);
+
+      // Thorough tombstone check against item ID, patientId, indicatorId
+      const isDeletedInRegistry = mergedDeletedIds.includes(itemId) ||
+        (localItem && localItem.id && mergedDeletedIds.includes(String(localItem.id))) ||
+        (cloudItem && cloudItem.id && mergedDeletedIds.includes(String(cloudItem.id))) ||
+        (localItem && localItem.patientId && mergedDeletedIds.includes(String(localItem.patientId))) ||
+        (cloudItem && cloudItem.patientId && mergedDeletedIds.includes(String(cloudItem.patientId))) ||
+        (localItem && localItem.indicatorId && mergedDeletedIds.includes(String(localItem.indicatorId))) ||
+        (cloudItem && cloudItem.indicatorId && mergedDeletedIds.includes(String(cloudItem.indicatorId)));
+
+      if (isDeletedInRegistry) {
+        if (!mergedDeletedIds.includes(itemId)) mergedDeletedIds.push(itemId);
         return;
       }
 
-      const localItem = localMap.get(itemId);
-      if (localItem) {
-        const localLm = localItem.lastModified ? new Date(localItem.lastModified).getTime() : 0;
-        const cloudLm = cloudItem.lastModified ? new Date(cloudItem.lastModified).getTime() : 0;
+      const localIsDeleted = !!(localItem && (localItem.isDeleted || localItem.deleted));
+      const cloudIsDeleted = !!(cloudItem && (cloudItem.isDeleted || cloudItem.deleted));
 
-        // Cloud/Server is the absolute source of truth. Allow server data to overwrite cached state
-        // unless modified extremely recently (e.g., < 10 seconds ago) to preserve active post requests.
-        const isRecentlyEditedLocally = (Date.now() - localLm < 10000);
+      const localLm = getLatestTimestampServer(localItem);
+      const cloudLm = getLatestTimestampServer(cloudItem);
 
-        if (isRecentlyEditedLocally) {
-          merged.push({ ...cloudItem, ...localItem });
-        } else {
-          merged.push({ ...localItem, ...cloudItem });
+      if (localIsDeleted || cloudIsDeleted) {
+        if (localIsDeleted) {
+          if (!mergedDeletedIds.includes(itemId)) mergedDeletedIds.push(itemId);
+          return;
         }
-      } else {
-        merged.push(cloudItem);
+        if (cloudIsDeleted && cloudLm > localLm) {
+          if (!mergedDeletedIds.includes(itemId)) mergedDeletedIds.push(itemId);
+          return;
+        }
+      }
+
+      if (localItem && cloudItem) {
+        // Favor localItem (client payload) unless cloudItem is strictly newer with a > 30s gap
+        if (cloudLm - localLm > 30000) {
+          mergedMap.set(itemId, mergeRecordProperties(cloudItem, localItem));
+        } else {
+          mergedMap.set(itemId, mergeRecordProperties(localItem, cloudItem));
+        }
+      } else if (localItem && !localIsDeleted) {
+        mergedMap.set(itemId, localItem);
+      } else if (cloudItem && !cloudIsDeleted) {
+        mergedMap.set(itemId, cloudItem);
       }
     });
 
-    // 2. Process brand new local items from the client
-    safeLocal.forEach((localItem: any) => {
-      if (!localItem) return;
-      const itemId = String(localItem[key]);
-      if (cloudMap.has(itemId)) return;
-      if (mergedDeletedIds.includes(itemId)) return;
-
-      // Always accept brand new items that are not in cloud and not deleted
-      merged.push(localItem);
-    });
-
-    return merged;
+    return Array.from(mergedMap.values());
   };
 
   const mergedPatients = mergeList(local.patients || [], cloud.patients || []).map((p: any) => {
@@ -660,8 +966,7 @@ function serverMergeData(local: any, rawCloud: any): any {
   safeCloudReports.forEach((cr: any) => {
     if (cr && cr.patientId && cr.date) {
       const patientIdStr = String(cr.patientId);
-      // Lewati laporan harian untuk pasien yang sudah dihapus secara permanen
-      if (mergedDeletedIds.includes(patientIdStr)) {
+      if (mergedDeletedIds.includes(patientIdStr) || cr.isDeleted || cr.deleted) {
         return;
       }
       const key = `${patientIdStr}_${cr.date}`;
@@ -674,8 +979,7 @@ function serverMergeData(local: any, rawCloud: any): any {
   safeLocalReports.forEach((lr: any) => {
     if (lr && lr.patientId && lr.date) {
       const patientIdStr = String(lr.patientId);
-      // Lewati laporan harian untuk pasien yang sudah dihapus secara permanen
-      if (mergedDeletedIds.includes(patientIdStr)) {
+      if (mergedDeletedIds.includes(patientIdStr) || lr.isDeleted || lr.deleted) {
         return;
       }
 
@@ -683,10 +987,9 @@ function serverMergeData(local: any, rawCloud: any): any {
       const cloudReport = mergedDailyReportsMap.get(key);
 
       if (!cloudReport) {
-        // Always accept new reports that do not exist on the server yet
         mergedDailyReportsMap.set(key, { ...lr });
       } else {
-        // Keduanya ada. Lakukan Cell-Level Deep Merge (Bukan Row-Overwrite)
+        // Keduanya ada. Lakukan Cell-Level Deep Merge dengan aturan LATEST TIMESTAMP WINS
         const fields = [
           'morningReport', 'morningTherapy', 'morningRecordedBy', 'morningDependency',
           'afternoonReport', 'afternoonTherapy', 'afternoonRecordedBy', 'afternoonDependency',
@@ -708,6 +1011,9 @@ function serverMergeData(local: any, rawCloud: any): any {
         const localTimes = lr.fieldModifiedTimes || {};
         const cloudTimes = cloudReport.fieldModifiedTimes || {};
 
+        const localLm = getLatestTimestampServer(lr);
+        const cloudLm = getLatestTimestampServer(cloudReport);
+
         fields.forEach(f => {
           const localVal = lr[f];
           const cloudVal = cloudReport[f];
@@ -715,42 +1021,28 @@ function serverMergeData(local: any, rawCloud: any): any {
           const localTime = localTimes[f] ? new Date(localTimes[f]).getTime() : 0;
           const cloudTime = cloudTimes[f] ? new Date(cloudTimes[f]).getTime() : 0;
 
-          // Tentukan nilai sel mana yang menang berdasarkan stempel waktu sel tersebut
           if (localTime > 0 || cloudTime > 0) {
             if (localTime >= cloudTime) {
-              merged[f] = localVal;
+              merged[f] = chooseNonEmptyVal(localVal, cloudVal);
               if (localTimes[f]) {
                 merged.fieldModifiedTimes[f] = localTimes[f];
               }
             } else {
-              merged[f] = cloudVal;
+              merged[f] = chooseNonEmptyVal(cloudVal, localVal);
               if (cloudTimes[f]) {
                 merged.fieldModifiedTimes[f] = cloudTimes[f];
               }
             }
           } else {
-            // Fallback jika tidak ada stempel waktu per-kolom (legacy data)
-            const localHasValue = localVal !== undefined && localVal !== null && localVal !== '';
-            const cloudHasValue = cloudVal !== undefined && cloudVal !== null && cloudVal !== '';
-
-            if (localHasValue && !cloudHasValue) {
-              merged[f] = localVal;
-            } else if (!localHasValue && cloudHasValue) {
-              merged[f] = cloudVal;
+            // Fallback jika tidak ada stempel waktu per-kolom: LATEST ENTRY TIMESTAMP WINS or NON-EMPTY CONTENT PRESERVED
+            if (localLm >= cloudLm) {
+              merged[f] = chooseNonEmptyVal(localVal, cloudVal);
             } else {
-              const localLm = lr.lastModified ? new Date(lr.lastModified).getTime() : 0;
-              const cloudLm = cloudReport.lastModified ? new Date(cloudReport.lastModified).getTime() : 0;
-              if (localLm >= cloudLm) {
-                merged[f] = localVal;
-              } else {
-                merged[f] = cloudVal;
-              }
+              merged[f] = chooseNonEmptyVal(cloudVal, localVal);
             }
           }
         });
 
-        const localLm = lr.lastModified ? new Date(lr.lastModified).getTime() : 0;
-        const cloudLm = cloudReport.lastModified ? new Date(cloudReport.lastModified).getTime() : 0;
         let maxTime = Math.max(localLm, cloudLm);
 
         Object.values(merged.fieldModifiedTimes).forEach((t: any) => {
@@ -761,6 +1053,7 @@ function serverMergeData(local: any, rawCloud: any): any {
         });
 
         merged.lastModified = new Date(maxTime).toISOString();
+        merged.updatedAt = new Date(maxTime).toISOString();
         mergedDailyReportsMap.set(key, merged);
       }
     }
@@ -836,24 +1129,31 @@ function serverMergeData(local: any, rawCloud: any): any {
     }
   });
 
-  // Smart Merge for Settings: NEVER discard non-empty values from local/cloud settings. Keep defaults, overlay local and cloud.
-  let finalSettings = {
-    ...INITIAL_DATA.masterData.settings,
-    ...localSettings
+  // Smart Merge for Settings: Merge property by property. A customized value (non-empty, non-default) should always win over a default/empty value!
+  const mergeTwoSettings = (a: any, b: any) => {
+    const merged = { ...INITIAL_DATA.masterData.settings, ...a, ...b };
+    Object.keys(merged).forEach(key => {
+      const valA = a[key];
+      const valB = b[key];
+      const defaultVal = (INITIAL_DATA.masterData.settings as any)[key];
+      const isDefaultB = valB === undefined || valB === null || valB === '' || valB === defaultVal;
+      const isCustomA = valA !== undefined && valA !== null && valA !== '' && valA !== defaultVal;
+      if (isCustomA && isDefaultB) {
+        merged[key] = valA;
+      }
+    });
+    return merged;
   };
+
+  let finalSettings = mergeTwoSettings(cloudSettings, localSettings);
   if (cloudSettings) {
     if (localTs > cloudTs) {
-      finalSettings = {
-        ...INITIAL_DATA.masterData.settings,
-        ...cloudSettings,
-        ...localSettings
-      };
+      finalSettings = mergeTwoSettings(cloudSettings, localSettings);
+    } else if (cloudTs > localTs) {
+      finalSettings = mergeTwoSettings(localSettings, cloudSettings);
     } else {
-      finalSettings = {
-        ...INITIAL_DATA.masterData.settings,
-        ...localSettings,
-        ...cloudSettings
-      };
+      // Equal timestamps: merge, but let cloud values override local only if they are not empty/default
+      finalSettings = mergeTwoSettings(localSettings, cloudSettings);
     }
   }
 
@@ -1716,6 +2016,8 @@ app.get('/api/config', (req, res) => {
     appName: serverConfig.appName || 'SiMANTAP',
     appSlogan: serverConfig.appSlogan || 'Manajemen Laporan Terpadu & Akurat',
     logoUrl: serverConfig.logoUrl || '',
+    logoLetterLeftUrl: serverConfig.logoLetterLeftUrl || '',
+    logoLetterRightUrl: serverConfig.logoLetterRightUrl || '',
     loginWallpaperUrl: serverConfig.loginWallpaperUrl || '',
     appWallpaperUrl: serverConfig.appWallpaperUrl || '',
     themeColor: serverConfig.themeColor || '#144272',
@@ -1832,7 +2134,8 @@ app.post('/api/config', (req, res) => {
   const { 
     appsScriptUrl, enableGoogleSheets, googleSpreadsheetId,
     appName, appSlogan, logoUrl, loginWallpaperUrl, appWallpaperUrl,
-    themeColor, fontColor, isSidebarAutohide
+    themeColor, fontColor, isSidebarAutohide,
+    logoLetterLeftUrl, logoLetterRightUrl
   } = req.body;
   
   if (typeof appsScriptUrl === 'string') {
@@ -1854,6 +2157,8 @@ app.post('/api/config', (req, res) => {
   if (typeof themeColor === 'string') serverConfig.themeColor = themeColor;
   if (typeof fontColor === 'string') serverConfig.fontColor = fontColor;
   if (typeof isSidebarAutohide === 'boolean') serverConfig.isSidebarAutohide = isSidebarAutohide;
+  if (typeof logoLetterLeftUrl === 'string') serverConfig.logoLetterLeftUrl = logoLetterLeftUrl;
+  if (typeof logoLetterRightUrl === 'string') serverConfig.logoLetterRightUrl = logoLetterRightUrl;
 
   const num = Date.now();
   if (typeof logoUrl === 'string') {
@@ -1895,6 +2200,8 @@ app.post('/api/config', (req, res) => {
         appName: serverConfig.appName,
         appSlogan: serverConfig.appSlogan,
         logoUrl: serverConfig.logoUrl,
+        logoLetterLeftUrl: serverConfig.logoLetterLeftUrl,
+        logoLetterRightUrl: serverConfig.logoLetterRightUrl,
         loginWallpaperUrl: serverConfig.loginWallpaperUrl,
         appWallpaperUrl: serverConfig.appWallpaperUrl,
         themeColor: serverConfig.themeColor,
@@ -2005,11 +2312,41 @@ app.get('/api/data', async (req, res) => {
     res.setHeader('Expires', '0');
     res.setHeader('Surrogate-Control', 'no-store');
 
+    // No truncation - return full data to prevent loss and missing historical records
+    const originalJson = res.json.bind(res);
+    res.json = (body: any) => {
+      return originalJson(body);
+    };
+
+    // Support paginated chunked table requests
+    if (req.query.chunkTable) {
+      const table = req.query.chunkTable as string;
+      const page = parseInt(req.query.chunkPage as string || '1', 10);
+      const size = parseInt(req.query.chunkSize as string || '200', 10);
+      const db = cachedData || INITIAL_DATA;
+      const fullArray = db[table] || [];
+      const start = (page - 1) * size;
+      const chunk = fullArray.slice(start, start + size);
+      return res.json({
+        status: 'ready',
+        table,
+        data: chunk,
+        page,
+        size,
+        total: fullArray.length,
+        hasMore: start + size < fullArray.length
+      });
+    }
+
     const queryUrl = req.query.url as string;
     const isForce = req.query.force === 'true';
     
     // Propagate appsScriptUrl globally if passed by any connected device
-    if (queryUrl && queryUrl.startsWith('http') && (!serverConfig.appsScriptUrl || serverConfig.appsScriptUrl !== queryUrl)) {
+    // CRITICAL SECURITY FLIGHT SHIELD: Never let a client start-up fallback URL overwrite a custom Sheets URL configured on the server!
+    const isQueryFallback = queryUrl === FALLBACK_APPS_SCRIPT_URL;
+    const isServerFallback = !serverConfig.appsScriptUrl || serverConfig.appsScriptUrl === FALLBACK_APPS_SCRIPT_URL;
+    
+    if (queryUrl && queryUrl.startsWith('http') && !isQueryFallback && (isServerFallback || serverConfig.appsScriptUrl !== queryUrl)) {
       serverConfig.appsScriptUrl = queryUrl;
       serverConfig.enableGoogleSheets = true;
       try {
@@ -2176,7 +2513,7 @@ app.get('/api/data', async (req, res) => {
       });
 
       // Background Fetch: If cache is stale and no background pull is already active, trigger one in background!
-      if (!isFresh && !isBackgroundFetchingCloud) {
+      if (!isFresh && !isBackgroundFetchingCloud && Date.now() >= sheetsRateLimitedUntil) {
         isBackgroundFetchingCloud = true;
         (async () => {
           try {
@@ -2190,6 +2527,10 @@ app.get('/api/data', async (req, res) => {
             
             if (response.ok) {
               const rawText = await response.text();
+              if (handleSheetsRateLimitError(rawText)) {
+                return;
+              }
+              handleSheetsSuccess();
               const cloudResObj = resilientParse(rawText);
               if (cloudResObj) {
                 let cloudData: any = null;
@@ -2208,12 +2549,15 @@ app.get('/api/data', async (req, res) => {
                   });
                 }
               }
+            } else if (response.status === 429) {
+              handleSheetsRateLimitError('HTTP 429 Rate Exceeded');
             }
           } catch (e: any) {
             if (e.name === 'AbortError' || e.message?.includes('aborted')) {
               console.log('[Auto-Sync] Background Google Sheets pull timed out/aborted gracefully. Will retry on next request series.');
             } else {
-              console.warn('[Auto-Sync] Background Google Sheets pull failed:', e.message);
+              handleSheetsRateLimitError(e.message || '');
+              console.warn('[Auto-Sync] Background Google Sheets pull suspended:', e.message);
             }
           } finally {
             isBackgroundFetchingCloud = false;
@@ -2234,6 +2578,103 @@ app.get('/api/data', async (req, res) => {
     });
   }
 });
+
+function getSheetsOptimizedData(data: any): any {
+  if (!data) return data;
+  const copy = JSON.parse(JSON.stringify(data));
+  
+  // Trim high-volume historic arrays for Google Sheets cell limit protection
+  if (Array.isArray(copy.dailyReports) && copy.dailyReports.length > 100) {
+    copy.dailyReports = copy.dailyReports.slice(-100);
+  }
+  if (Array.isArray(copy.patients) && copy.patients.length > 150) {
+    copy.patients = copy.patients.slice(-150);
+  }
+  if (Array.isArray(copy.doctorVisits) && copy.doctorVisits.length > 100) {
+    copy.doctorVisits = copy.doctorVisits.slice(-100);
+  }
+  if (Array.isArray(copy.financeRecords) && copy.financeRecords.length > 100) {
+    copy.financeRecords = copy.financeRecords.slice(-100);
+  }
+  if (Array.isArray(copy.nursingReports) && copy.nursingReports.length > 100) {
+    copy.nursingReports = copy.nursingReports.slice(-100);
+  }
+  if (Array.isArray(copy.operationReports) && copy.operationReports.length > 100) {
+    copy.operationReports = copy.operationReports.slice(-100);
+  }
+  
+  return copy;
+}
+
+function splitAndCompressPayloadServer(data: any): any[] {
+  if (!data) return [];
+  const rawStr = JSON.stringify(data);
+  if (rawStr.length <= 40000) {
+    return [data];
+  }
+
+  // 1. Clean empty properties and nulls
+  const cleanObj = JSON.parse(rawStr);
+  const stripEmpty = (obj: any) => {
+    if (!obj || typeof obj !== 'object') return;
+    Object.keys(obj).forEach(key => {
+      if (obj[key] === null || obj[key] === '' || obj[key] === undefined) {
+        delete obj[key];
+      } else if (typeof obj[key] === 'object') {
+        stripEmpty(obj[key]);
+      }
+    });
+  };
+  stripEmpty(cleanObj);
+
+  const cleanStr = JSON.stringify(cleanObj);
+  if (cleanStr.length <= 40000) {
+    return [cleanObj];
+  }
+
+  // 2. Break into sub-chunk payloads if length > 40,000 characters
+  const chunks: any[] = [];
+  const baseHeader: any = {
+    masterData: cleanObj.masterData,
+    deletedIds: cleanObj.deletedIds || [],
+    timestamp: cleanObj.timestamp || new Date().toISOString()
+  };
+
+  const majorTables = [
+    'patients', 'dailyReports', 'nursingReports', 'financeRecords',
+    'operationReports', 'operations', 'incidentReports', 'instruments',
+    'doctorVisits', 'qualityMeasurements'
+  ];
+
+  let currentChunk: any = { ...baseHeader };
+  majorTables.forEach(t => { currentChunk[t] = []; });
+  let currentChunkSize = JSON.stringify(currentChunk).length;
+
+  majorTables.forEach(t => {
+    const arr = cleanObj[t];
+    if (Array.isArray(arr) && arr.length > 0) {
+      arr.forEach((item: any) => {
+        const itemStr = JSON.stringify(item);
+        if (currentChunkSize + itemStr.length > 38000) {
+          chunks.push(currentChunk);
+          currentChunk = { ...baseHeader };
+          majorTables.forEach(tbl => { currentChunk[tbl] = []; });
+          currentChunk[t] = [item];
+          currentChunkSize = JSON.stringify(currentChunk).length;
+        } else {
+          currentChunk[t].push(item);
+          currentChunkSize += itemStr.length + 1;
+        }
+      });
+    }
+  });
+
+  if (currentChunkSize > 0) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks.length > 0 ? chunks : [cleanObj];
+}
 
 app.post('/api/sync', async (req, res) => {
   try {
@@ -2328,49 +2769,80 @@ app.post('/api/sync', async (req, res) => {
     const appsScriptUrl = getIsolatedAppsScriptUrl(rawAppsScriptUrl);
     const shouldSyncGoogleSheets = serverConfig.enableGoogleSheets && appsScriptUrl && appsScriptUrl.startsWith('http');
 
-    // If Apps Script integration is enabled, write to Google Sheets
+    // If Apps Script integration is enabled, write to Google Sheets with 10s debouncing & rate limit protection
     if (shouldSyncGoogleSheets) {
       const runSheetsSync = async () => {
+        if (Date.now() < sheetsRateLimitedUntil) {
+          console.log('[Sync Background] Deferring Google Sheets background write due to active rate limit backoff. Data is safely persisted in server memory, Firestore, and cache file.');
+          return false;
+        }
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 60000); // Generous 60s timeout for resilient hospital networks
-          
-          const response = await fetch(appsScriptUrl, {
-            method: 'POST',
-            headers: { 
-              'Content-Type': 'text/plain',
-              'Accept': 'application/json'
-            },
-            body: JSON.stringify(sanitizedLocalData),
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
-          
-          if (response.ok) {
-            const rawText = await response.text();
-            const result = resilientParse(rawText);
-            if (result) {
-              let cloudData: any = null;
-              if (result.data && (result.data.patients || result.data.dailyReports || result.data.operationReports)) {
-                cloudData = result.data;
-              } else if (result.patients || result.dailyReports || result.operationReports) {
-                cloudData = result;
+          const optimizedData = getSheetsOptimizedData(sanitizedLocalData);
+          const payloadChunks = splitAndCompressPayloadServer(optimizedData);
+          for (const chunkPayload of payloadChunks) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout per chunk
+            
+            try {
+              const response = await fetch(appsScriptUrl, {
+                method: 'POST',
+                headers: { 
+                  'Content-Type': 'text/plain',
+                  'Accept': 'application/json'
+                },
+                body: JSON.stringify(chunkPayload),
+                signal: controller.signal
+              });
+              clearTimeout(timeoutId);
+              
+              if (response.ok) {
+                const rawText = await response.text();
+                if (handleSheetsRateLimitError(rawText)) {
+                  return false;
+                }
+                handleSheetsSuccess();
+                const result = resilientParse(rawText);
+                if (result) {
+                  let cloudData: any = null;
+                  if (result.data && (result.data.patients || result.data.dailyReports || result.data.operationReports)) {
+                    cloudData = result.data;
+                  } else if (result.patients || result.dailyReports || result.operationReports) {
+                    cloudData = result;
+                  }
+                  if (cloudData) {
+                    // Merge any newest cloud return
+                    cachedData = serverMergeData(cachedData || INITIAL_DATA, cloudData);
+                    cachedData = ensureWallpaperUrls(cachedData);
+                    lastCloudFetchTime = Date.now();
+                    fs.writeFileSync(CACHE_PATH, JSON.stringify(cachedData, null, 2));
+                    broadcastEvent({ type: 'data-update' });
+                  }
+                }
+              } else {
+                const errTxt = await response.text().catch(() => '');
+                handleSheetsRateLimitError(errTxt || `HTTP ${response.status}`);
+                return false;
               }
-              if (cloudData) {
-                // Merge any newest cloud return
-                cachedData = serverMergeData(cachedData || INITIAL_DATA, cloudData);
-                cachedData = ensureWallpaperUrls(cachedData);
-                lastCloudFetchTime = Date.now();
-                fs.writeFileSync(CACHE_PATH, JSON.stringify(cachedData, null, 2));
-                broadcastEvent({ type: 'data-update' });
-                return true;
+            } catch (chunkErr: any) {
+              clearTimeout(timeoutId);
+              if (chunkErr.name === 'AbortError' || chunkErr.message?.includes('aborted')) {
+                console.log('[Sync Background] Google Sheets background chunk write timed out/aborted gracefully.');
+              } else {
+                handleSheetsRateLimitError(chunkErr.message || '');
+                console.log('[Sync Background] Google Sheets write chunk deferred:', chunkErr.message);
               }
+              break;
             }
           }
-          throw new Error(`Google Sheets API responded with status ${response.status}`);
+          return true;
         } catch (error: any) {
-          console.warn('[Sync Error] Write to Google Sheets failed:', error.message);
-          throw error;
+          if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+            console.log('[Sync Background] Google Sheets write deferred/aborted gracefully.');
+          } else {
+            handleSheetsRateLimitError(error.message || '');
+            console.log('[Sync Background] Write to Google Sheets deferred:', error.message);
+          }
+          return false;
         }
       };
 

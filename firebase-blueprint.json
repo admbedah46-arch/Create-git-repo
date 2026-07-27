@@ -1,0 +1,47 @@
+{
+  "entities": {
+    "Patient": {
+      "title": "Patient",
+      "description": "Patient demographic and stay records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "noRM": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 256 },
+        "statusDataPasien": { "type": "string", "maxLength": 64 },
+        "unitTujuan": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "noRM", "name"]
+    },
+    "AppData": {
+      "title": "AppData",
+      "description": "Root application payload containing patients, daily reports, finance, and master data",
+      "type": "object",
+      "properties": {
+        "timestamp": { "type": "string", "maxLength": 64 },
+        "patients": { "type": "array" },
+        "dailyReports": { "type": "array" },
+        "nursingReports": { "type": "array" },
+        "operations": { "type": "array" },
+        "incidentReports": { "type": "array" },
+        "qualityMeasurements": { "type": "array" },
+        "instruments": { "type": "array" },
+        "operationReports": { "type": "array" },
+        "financeRecords": { "type": "array" },
+        "doctorVisits": { "type": "array" },
+        "deletedIds": { "type": "array" },
+        "masterData": { "type": "object" }
+      }
+    }
+  },
+  "firestore": {
+    "/appData/{docId}": {
+      "schema": { "$ref": "#/entities/AppData" },
+      "description": "Central application data state document"
+    },
+    "/patients/{patientId}": {
+      "schema": { "$ref": "#/entities/Patient" },
+      "description": "Collection of patient records"
+    }
+  }
+}

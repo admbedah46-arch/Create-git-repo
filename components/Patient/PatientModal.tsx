@@ -1,9 +1,10 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { X, User as UserIcon, Calendar, MapPin, Bed as BedIcon, ClipboardList, Stethoscope, Wallet, Save, Activity, ShieldCheck, FileText, LayoutGrid, Clock, AlertCircle, ChevronDown, Search, Check } from 'lucide-react';
 import { Patient, MasterData, User } from '../../types';
 import { Button } from '../Button';
 import { SearchableSelect } from '../SearchableSelect';
+import { DebouncedInput, DebouncedTextarea } from '../DebouncedInput';
 
 interface PatientModalProps {
   onClose: () => void;
@@ -14,7 +15,7 @@ interface PatientModalProps {
   initialData?: Patient;
 }
 
-export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onDelete, masterData, currentUser, initialData }) => {
+export const PatientModal: React.FC<PatientModalProps> = React.memo(({ onClose, onSave, onDelete, masterData, currentUser, initialData }) => {
   // Safe default helper functions
   const getDefaultUnitTujuan = () => {
     if (initialData?.unitTujuan) return initialData.unitTujuan;
@@ -322,15 +323,15 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
               <div className="md:col-span-3 space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nomor Register</label>
-                <input className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="Otomatis..." value={formData.noRegister || ''} onChange={e => setFormData({...formData, noRegister: e.target.value})}/>
+                <DebouncedInput className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="Otomatis..." value={formData.noRegister || ''} onChangeValue={val => setFormData(prev => ({...prev, noRegister: val}))}/>
               </div>
               <div className="md:col-span-3 space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nomor Rekam Medis (RM)</label>
-                <input required className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="00-00-00" value={formData.noRM || ''} onChange={e => setFormData({...formData, noRM: e.target.value})}/>
+                <DebouncedInput required className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="00-00-00" value={formData.noRM || ''} onChangeValue={val => setFormData(prev => ({...prev, noRM: val}))}/>
               </div>
               <div className="md:col-span-6 space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nama Lengkap Pasien</label>
-                <input required className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/20 uppercase" placeholder="Nama sesuai identitas..." value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})}/>
+                <DebouncedInput required className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/20 uppercase" placeholder="Nama sesuai identitas..." value={formData.name || ''} onChangeValue={val => setFormData(prev => ({...prev, name: val}))}/>
               </div>
               <div className="md:col-span-6 space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
@@ -416,7 +417,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
               </div>
               <div className="md:col-span-9 space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Alamat Domisili</label>
-                <input className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="Alamat lengkap..." value={formData.address || ''} onChange={e => setFormData({...formData, address: e.target.value})}/>
+                <DebouncedInput className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="Alamat lengkap..." value={formData.address || ''} onChangeValue={val => setFormData(prev => ({...prev, address: val}))}/>
               </div>
             </div>
           </section>
@@ -605,13 +606,13 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
                   {isDischargeStatus(formData.statusDataPasien) && (formData.statusDataPasien.toUpperCase().includes('APS')) && (
                     <div className="md:col-span-2 space-y-1">
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Alasan APS</label>
-                      <input className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none" placeholder="Sebutkan alasan pasien pulang paksa/APS..." value={formData.apsReason || ''} onChange={e => setFormData({...formData, apsReason: e.target.value})}/>
+                      <DebouncedInput className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none" placeholder="Sebutkan alasan pasien pulang paksa/APS..." value={formData.apsReason || ''} onChangeValue={val => setFormData(prev => ({...prev, apsReason: val}))}/>
                     </div>
                   )}
                   {isDischargeStatus(formData.statusDataPasien) && (formData.statusDataPasien.toUpperCase().includes('DIRUJUK') || formData.statusDataPasien.toUpperCase().includes('RUJUK')) && (
                     <div className="md:col-span-2 space-y-1">
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tujuan Rujukan</label>
-                      <input className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none" placeholder="Nama RS/Faskes rujukan..." value={formData.referralDestination || ''} onChange={e => setFormData({...formData, referralDestination: e.target.value})}/>
+                      <DebouncedInput className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none" placeholder="Nama RS/Faskes rujukan..." value={formData.referralDestination || ''} onChangeValue={val => setFormData(prev => ({...prev, referralDestination: val}))}/>
                     </div>
                   )}
                   {isDischargeStatus(formData.statusDataPasien) && (formData.statusDataPasien.toUpperCase().includes('PINDAH') || formData.statusDataPasien.toUpperCase().includes('RUANGAN LAIN')) && (
@@ -689,15 +690,15 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Diagnosa Medis (Utama)</label>
-                <textarea className="w-full border rounded-lg px-4 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 h-20" placeholder="Contoh: Appendicitis Acute..." value={formData.diagnosaUtama || ''} onChange={e => setFormData({...formData, diagnosaUtama: e.target.value})}/>
+                <DebouncedTextarea className="w-full border rounded-lg px-4 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 h-20" placeholder="Contoh: Appendicitis Acute..." value={formData.diagnosaUtama || ''} onChangeValue={val => setFormData(prev => ({...prev, diagnosaUtama: val}))}/>
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Diagnosa Sekunder</label>
-                <textarea className="w-full border rounded-lg px-4 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 h-20" placeholder="Contoh: Diabetes Mellitus T2..." value={formData.diagnosaSekunder || ''} onChange={e => setFormData({...formData, diagnosaSekunder: e.target.value})}/>
+                <DebouncedTextarea className="w-full border rounded-lg px-4 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 h-20" placeholder="Contoh: Diabetes Mellitus T2..." value={formData.diagnosaSekunder || ''} onChangeValue={val => setFormData(prev => ({...prev, diagnosaSekunder: val}))}/>
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tindakan / Prosedur</label>
-                <textarea className="w-full border rounded-lg px-4 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 h-20" placeholder="Contoh: Laparoscopy Appendectomy..." value={formData.tindakanProsedur || ''} onChange={e => setFormData({...formData, tindakanProsedur: e.target.value})}/>
+                <DebouncedTextarea className="w-full border rounded-lg px-4 py-2.5 text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 h-20" placeholder="Contoh: Laparoscopy Appendectomy..." value={formData.tindakanProsedur || ''} onChangeValue={val => setFormData(prev => ({...prev, tindakanProsedur: val}))}/>
               </div>
             </div>
             
@@ -821,7 +822,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nomor SEP</label>
-                <input className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none" placeholder="0001R..." value={formData.noSEP || ''} onChange={e => setFormData({...formData, noSEP: e.target.value})}/>
+                <DebouncedInput className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none" placeholder="0001R..." value={formData.noSEP || ''} onChangeValue={val => setFormData(prev => ({...prev, noSEP: val}))}/>
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status SEP</label>
@@ -837,11 +838,11 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">No Laporan Polisi (LP)</label>
-                <input className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none" placeholder="No LP..." value={formData.noLP || ''} onChange={e => setFormData({...formData, noLP: e.target.value})}/>
+                <DebouncedInput className="w-full border rounded-lg px-4 py-2.5 text-sm font-bold outline-none" placeholder="No LP..." value={formData.noLP || ''} onChangeValue={val => setFormData(prev => ({...prev, noLP: val}))}/>
               </div>
                <div className="md:col-span-3 space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Keterangan Tambahan / Catatan Khusus</label>
-                <textarea className="w-full border rounded-lg px-4 py-2.5 text-sm font-medium outline-none h-20" placeholder="Alergi obat, catatan risiko, dll..." value={formData.catatanKhusus || ''} onChange={e => setFormData({...formData, catatanKhusus: e.target.value})}/>
+                <DebouncedTextarea className="w-full border rounded-lg px-4 py-2.5 text-sm font-medium outline-none h-20" placeholder="Alergi obat, catatan risiko, dll..." value={formData.catatanKhusus || ''} onChangeValue={val => setFormData(prev => ({...prev, catatanKhusus: val}))}/>
               </div>
             </div>
           </section>
@@ -854,7 +855,7 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
               <div className="md:col-span-12 space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-rose-500">Riwayat Alergi</label>
-                <textarea className="w-full border border-rose-100 bg-rose-50/20 rounded-lg px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-rose-500/20 h-20" placeholder="Sebutkan alergi (obat, makanan, dsb) jika ada..." value={formData.allergyHistory || ''} onChange={e => setFormData({...formData, allergyHistory: e.target.value})}/>
+                <DebouncedTextarea className="w-full border border-rose-100 bg-rose-50/20 rounded-lg px-4 py-2.5 text-sm font-bold outline-none focus:ring-2 focus:ring-rose-500/20 h-20" placeholder="Sebutkan alergi (obat, makanan, dsb) jika ada..." value={formData.allergyHistory || ''} onChangeValue={val => setFormData(prev => ({...prev, allergyHistory: val}))}/>
               </div>
             </div>
           </section>
@@ -925,4 +926,4 @@ export const PatientModal: React.FC<PatientModalProps> = ({ onClose, onSave, onD
       )}
     </div>
   );
-};
+});

@@ -16,19 +16,20 @@ export const PatientModule: React.FC<PatientModuleProps> = ({ appData, onEditPat
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<Patient | null>(null);
 
+  const [selectedUnit, setSelectedUnit] = useState<string>('Semua Unit');
+
   const filteredPatients = useMemo(() => {
     let list = appData.patients || [];
     
-    // Filter by unit if not super admin or bidang
-    if (currentUser && currentUser.role !== 'SUPER_ADMIN' && currentUser.role !== 'BIDANG') {
-      list = list.filter(p => p.unitTujuan === currentUser.unit);
+    if (selectedUnit !== 'Semua Unit') {
+      list = list.filter(p => p.unitTujuan === selectedUnit);
     }
     
     return list.filter(p => 
       p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       p.noRM.includes(searchTerm)
     );
-  }, [appData.patients, searchTerm, currentUser]);
+  }, [appData.patients, searchTerm, selectedUnit]);
 
   const selectedPatient = useMemo(() => 
     appData.patients?.find(p => p.id === selectedPatientId),
@@ -64,8 +65,8 @@ export const PatientModule: React.FC<PatientModuleProps> = ({ appData, onEditPat
         {/* Patient List Section */}
         <div className={`transition-all duration-300 ${selectedPatientId ? 'lg:col-span-5' : 'lg:col-span-12'}`}>
           <div className="bg-white/70 backdrop-blur-md rounded-[2.5rem] border shadow-sm overflow-hidden flex flex-col h-[700px]">
-            <div className="p-6 border-b bg-slate-50/50">
-              <div className="relative">
+            <div className="p-6 border-b bg-slate-50/50 flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                 <input
                   type="text"
@@ -75,6 +76,16 @@ export const PatientModule: React.FC<PatientModuleProps> = ({ appData, onEditPat
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
+              <select
+                className="py-3 px-4 bg-white border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
+                value={selectedUnit}
+                onChange={(e) => setSelectedUnit(e.target.value)}
+              >
+                <option value="Semua Unit">Semua Unit ({appData.patients?.length || 0})</option>
+                {(appData.masterData?.units || []).map(u => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
+              </select>
             </div>
 
             <div className="flex-1 overflow-y-auto custom-scrollbar p-2">

@@ -36,6 +36,8 @@ import {
 } from "../../types";
 import { Button } from "../Button";
 import { SearchableSelect } from "../SearchableSelect";
+import { DebouncedInput, DebouncedTextarea } from "../DebouncedInput";
+import { generatePermanentUUID } from "../../db";
 
 const isSameDate = (d1: any, d2: any) => {
   if (!d1 || !d2) return false;
@@ -96,8 +98,8 @@ const DoctorVisitRow = ({
     existingVisit?.attendanceStatuses || (existingVisit?.attendanceStatus ? [existingVisit.attendanceStatus] : [])
   );
 
-  const assistantDoctors = (masterData.doctors || []).filter((d: string) => 
-    masterData.doctorMetadata[d]?.ksm === 'Umum'
+  const assistantDoctors = (masterData?.doctors || []).filter((d: string) => 
+    masterData?.doctorMetadata?.[d]?.ksm === 'Umum'
   );
 
   const toggleStatus = (statusId: string) => {
@@ -313,7 +315,7 @@ const StatusChangeModal: React.FC<StatusChangeModalProps> = ({
         updates.transferBed = localState.destinationBed;
         updates.transferDestinationRoom = localState.destinationRoom;
 
-        const newPatientId = `P-${Date.now()}`;
+        const newPatientId = generatePermanentUUID('P');
         const autoRecord: Patient = {
           id: newPatientId,
           noRegister: `REG-${Date.now().toString().slice(-6)}`,
@@ -628,7 +630,7 @@ interface ShiftReportModalProps {
   onClose: () => void;
 }
 
-const ShiftReportModal: React.FC<ShiftReportModalProps> = ({
+const ShiftReportModal: React.FC<ShiftReportModalProps> = React.memo(({
   editingEntry: initialEntry,
   patients,
   masterData,
@@ -658,6 +660,18 @@ const ShiftReportModal: React.FC<ShiftReportModalProps> = ({
       n.toLowerCase().includes(nurseSearch.toLowerCase()),
     );
   }, [primaryNurses, nurseSearch]);
+
+  const handleSelectDependency = React.useCallback((lvl: DependencyLevel) => {
+    setEditingEntry((prev) => (prev ? { ...prev, tempDependency: lvl } : null));
+    setError(null);
+  }, []);
+
+  const handleSelectNurse = React.useCallback((nurseName: string) => {
+    setEditingEntry((prev) => (prev ? { ...prev, tempRecordedBy: nurseName } : null));
+    setIsNurseDropdownOpen(false);
+    setNurseSearch("");
+    setError(null);
+  }, []);
 
   const getReportForPatient = (pId: string) => {
     return dailyReports.find(r => r.patientId === pId && isSameDate(r.date, selectedDate));
@@ -834,10 +848,10 @@ const ShiftReportModal: React.FC<ShiftReportModalProps> = ({
               type="button"
               id="btn-mini-reset-laporan"
               onClick={() => setShowResetConfirm(true)}
-              className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100/70 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 cursor-pointer select-none"
-              title="Reset draf laporan ini"
+              className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-1.5 cursor-pointer shadow-sm select-none"
+              title="Reset total laporan shift ini"
             >
-              <RefreshCw size={11} /> Reset Laporan
+              <RefreshCw size={13} className="animate-spin-slow text-red-500" /> RESET LAPORAN
             </button>
           </div>
 
@@ -849,17 +863,12 @@ const ShiftReportModal: React.FC<ShiftReportModalProps> = ({
               <div className="grid grid-cols-3 gap-2">
                 {(["MINIMAL", "PARSIAL", "TOTAL"] as DependencyLevel[]).map(
                   (lvl, i) => {
-                    const currentLevel = editingEntry.tempDependency;
+                    const currentLevel = editingEntry?.tempDependency;
                     return (
                       <button
                         key={`${lvl}-${i}`}
-                        onClick={() => {
-                          setEditingEntry({
-                            ...editingEntry,
-                            tempDependency: lvl,
-                          });
-                          setError(null);
-                        }}
+                        type="button"
+                        onClick={() => handleSelectDependency(lvl)}
                         className={`py-3 rounded-xl text-[10px] font-black border transition-all ${currentLevel === lvl ? "bg-indigo-600 text-white border-indigo-600 shadow-lg" : "bg-slate-50 text-slate-400 border-slate-100 hover:bg-white"}`}
                       >
                         {lvl}
@@ -907,17 +916,9 @@ const ShiftReportModal: React.FC<ShiftReportModalProps> = ({
                           filteredNurses.map((n, nIdx) => (
                             <div
                               key={`nurse-${n}-${nIdx}`}
-                              onClick={() => {
-                                setEditingEntry({
-                                  ...editingEntry,
-                                  tempRecordedBy: n,
-                                });
-                                setIsNurseDropdownOpen(false);
-                                setNurseSearch("");
-                                setError(null);
-                              }}
+                              onClick={() => handleSelectNurse(n)}
                               className={`px-4 py-3 text-xs font-bold cursor-pointer transition-colors flex items-center justify-between ${
-                                editingEntry.tempRecordedBy === n
+                                editingEntry?.tempRecordedBy === n
                                   ? "bg-indigo-50 text-indigo-600"
                                   : "hover:bg-slate-50 text-slate-600"
                               }`}
@@ -1026,16 +1027,16 @@ const ShiftReportModal: React.FC<ShiftReportModalProps> = ({
                   ✨ AI Belah Diagnosa
                 </button>
               </div>
-              <input
+              <DebouncedInput
                 type="text"
                 className="w-full border-2 border-slate-100 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-indigo-500"
                 placeholder="Diagnosa saat ini (bisa gabungan, misal: Hipertensi, DM)..."
                 value={editingEntry.tempDiagnosis || ""}
-                onChange={(e) =>
-                  setEditingEntry({
-                    ...editingEntry,
-                    tempDiagnosis: e.target.value,
-                  })
+                onChangeValue={(val) =>
+                  setEditingEntry((prev) => (prev ? {
+                    ...prev,
+                    tempDiagnosis: val,
+                  } : null))
                 }
               />
               {aiSplittingDiagnosis && (
@@ -1081,15 +1082,15 @@ const ShiftReportModal: React.FC<ShiftReportModalProps> = ({
                     💊 AI Analisa Restriksi
                   </button>
                 </div>
-                <textarea
+                <DebouncedTextarea
                   className="w-full border-2 border-slate-100 rounded-2xl p-4 text-sm font-medium focus:border-emerald-500 outline-none flex-1 min-h-[300px] bg-emerald-50/20"
                   placeholder="Masukkan daftar obat, dosis, atau instruksi khusus..."
                   value={editingEntry.tempTherapy || ""}
-                  onChange={(e) =>
-                    setEditingEntry({
-                      ...editingEntry,
-                      tempTherapy: e.target.value,
-                    })
+                  onChangeValue={(val) =>
+                    setEditingEntry((prev) => (prev ? {
+                      ...prev,
+                      tempTherapy: val,
+                    } : null))
                   }
                 />
                 {aiAnalyzingTherapy && (
@@ -1224,16 +1225,16 @@ const ShiftReportModal: React.FC<ShiftReportModalProps> = ({
                   </div>
                 </div>
 
-                <textarea
+                <DebouncedTextarea
                   id="catatan-textarea"
                   className="w-full border-2 border-slate-100 rounded-2xl p-4 text-sm font-medium focus:border-indigo-500 outline-none flex-1 min-h-[300px] leading-relaxed shadow-inner"
                   placeholder="Masukkan detail implementasi keperawatan..."
                   value={editingEntry.tempReport || ""}
-                  onChange={(e) =>
-                    setEditingEntry({
-                      ...editingEntry,
-                      tempReport: e.target.value,
-                    })
+                  onChangeValue={(val) =>
+                    setEditingEntry((prev) => (prev ? {
+                      ...prev,
+                      tempReport: val,
+                    } : null))
                   }
                 />
               </div>
@@ -1265,16 +1266,6 @@ const ShiftReportModal: React.FC<ShiftReportModalProps> = ({
               className="px-6 py-4 rounded-2xl font-black uppercase tracking-widest bg-slate-100 text-slate-600 border-none hover:bg-slate-200 disabled:opacity-50"
             >
               Batal
-            </Button>
-            <Button
-              id="btn-reset-laporan"
-              variant="ghost"
-              onClick={() => setShowResetConfirm(true)}
-              disabled={isSaving}
-              className="px-4 py-2 text-[10px] rounded-xl font-black uppercase tracking-wider border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
-              title="Reset draf laporan ini"
-            >
-              Reset Laporan
             </Button>
             <Button
               id="btn-bersihkan-laporan"
@@ -1436,13 +1427,13 @@ const ShiftReportModal: React.FC<ShiftReportModalProps> = ({
 
       {showResetConfirm && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[250] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2rem] p-8 w-full max-w-sm border-t-8 border-rose-500 shadow-2xl animate-fade-in text-center text-slate-800">
-            <div className="w-16 h-16 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-4 text-rose-500">
+          <div className="bg-white rounded-[2rem] p-8 w-full max-w-sm border-t-8 border-red-500 shadow-2xl animate-fade-in text-center text-slate-800">
+            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500">
               <AlertCircle size={32} />
             </div>
             <h3 className="text-xl font-black uppercase tracking-tight text-slate-800 mb-2">Konfirmasi Reset</h3>
             <p className="text-sm font-bold text-slate-500 leading-relaxed mb-6">
-              Apakah anda yakin reset laporan shift ini?
+              Apakah Anda yakin ingin mereset laporan? Data yang sudah di-entry pada shift ini akan dihapus permanen.
             </p>
             <div className="flex gap-4">
               <button
@@ -1457,6 +1448,9 @@ const ShiftReportModal: React.FC<ShiftReportModalProps> = ({
                 type="button"
                 id="btn-ya-confirm-reset"
                 onClick={() => {
+                  const shiftPrefix = editingEntry.type.replace("Report", "");
+                  
+                  // Reset local editing states immediately for Optimistic rendering
                   setEditingEntry({
                     ...editingEntry,
                     tempReport: "",
@@ -1465,9 +1459,37 @@ const ShiftReportModal: React.FC<ShiftReportModalProps> = ({
                     tempDependency: undefined,
                     tempRecordedBy: "",
                   });
+                  
+                  // Clear the shift data fields in the global state & server database asynchronously
+                  onUpdateReport(
+                    editingEntry.patientId,
+                    "BATCH",
+                    {
+                      [`${shiftPrefix}Therapy`]: "",
+                      [`${shiftPrefix}Report`]: "",
+                      [`${shiftPrefix}RecordedBy`]: "",
+                      [`${shiftPrefix}Dependency`]: "",
+                    },
+                    selectedDate,
+                  ).catch((err: any) => {
+                    console.warn("Background shift report delete failed:", err);
+                  });
+
+                  if (typeof window !== "undefined") {
+                    window.dispatchEvent(
+                      new CustomEvent("surgihub_toast", {
+                        detail: {
+                          message: "Laporan shift berhasil direset & dihapus dari server.",
+                          type: "success",
+                        },
+                      })
+                    );
+                  }
+
                   setShowResetConfirm(false);
+                  onClose(); // Automatically redirect/close window returning to Nursing Reports page
                 }}
-                className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer shadow-lg shadow-rose-100"
+                className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer shadow-lg shadow-red-100"
               >
                 Ya, Reset
               </button>
@@ -1477,9 +1499,9 @@ const ShiftReportModal: React.FC<ShiftReportModalProps> = ({
       )}
     </div>
   );
-};
+});
 
-export const ServiceMatrix: React.FC<ServiceMatrixProps> = ({
+export const ServiceMatrix: React.FC<ServiceMatrixProps> = React.memo(({
   patients,
   dailyReports,
   patientLocks,
@@ -1637,6 +1659,12 @@ export const ServiceMatrix: React.FC<ServiceMatrixProps> = ({
   const [selectedRaberanDocs, setSelectedRaberanDocs] = useState<string[]>([]);
   const [nurseSearch, setNurseSearch] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(15);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedDate, selectedUnit, selectedPPJA, selectedDPJP, selectedStatus]);
   const [isNurseDropdownOpen, setIsNurseDropdownOpen] = useState(false);
   const [activeNurseSelectId, setActiveNurseSelectId] = useState<string | null>(
     null,
@@ -2201,6 +2229,11 @@ export const ServiceMatrix: React.FC<ServiceMatrixProps> = ({
     });
   }, [patients, searchTerm, selectedUnit, selectedPPJA, selectedDPJP, selectedStatus, selectedDate, selectedRoomFilter, selectedBedFilter]);
 
+  const paginatedPatients = React.useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredPatients.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredPatients, currentPage, itemsPerPage]);
+
   const doubleBookedMap = React.useMemo(() => {
     const counts: Record<string, string[]> = {};
     const activeDirawatPatients = patients.filter((p) => {
@@ -2401,7 +2434,7 @@ export const ServiceMatrix: React.FC<ServiceMatrixProps> = ({
       }
     } else {
       // Create the new active record
-      const newId = `P-${Date.now()}`;
+      const newId = generatePermanentUUID('P');
       const autoRecord: Patient = {
         ...selectedRetrievalPatient,
         id: newId,
@@ -3058,9 +3091,12 @@ export const ServiceMatrix: React.FC<ServiceMatrixProps> = ({
 
       <div className="space-y-2 flex-1">
         {content ? (
-          <p className="text-[13px] text-slate-800 font-semibold leading-relaxed border-l-2 border-indigo-300 pl-2 whitespace-pre-wrap">
+          <div 
+            className="text-[13px] text-slate-800 font-semibold leading-relaxed border-l-2 border-indigo-300 pl-2 whitespace-pre-wrap"
+            style={{ wordBreak: 'break-word', overflowWrap: 'anywhere', minHeight: 'fit-content' }}
+          >
             <FileText size={12} className="inline mr-1 text-slate-700 opacity-70" /> <span dangerouslySetInnerHTML={{ __html: content }} />
-          </p>
+          </div>
         ) : (
           <div className="text-[11px] font-black uppercase tracking-widest text-slate-400">
             Laporan Kosong
@@ -3069,9 +3105,12 @@ export const ServiceMatrix: React.FC<ServiceMatrixProps> = ({
 
         {therapy && (
           <div className="pt-2 border-t border-slate-200">
-            <p className="text-[12px] text-emerald-800 font-extrabold leading-tight whitespace-pre-wrap">
+            <div 
+              className="text-[12px] text-emerald-800 font-extrabold leading-tight whitespace-pre-wrap"
+              style={{ wordBreak: 'break-word', overflowWrap: 'anywhere', minHeight: 'fit-content' }}
+            >
               <Pill size={11} className="inline mr-1 text-emerald-600" /> {therapy}
-            </p>
+            </div>
           </div>
         )}
       </div>
@@ -3743,7 +3782,7 @@ export const ServiceMatrix: React.FC<ServiceMatrixProps> = ({
             </label>
             <SearchableSelect
               className="w-52"
-              options={["Semua Status"].concat((masterData.refs.statusDataPasien || []).filter(v => v !== "Batal Rawat Inap")).concat(["Batal Rawat Inap"])}
+              options={["Semua Status"].concat((masterData?.refs?.statusDataPasien || []).filter(v => v !== "Batal Rawat Inap")).concat(["Batal Rawat Inap"])}
               value={selectedStatus}
               onChange={(val) => setSelectedStatus(val || 'Semua Status')}
               placeholder="Pilih Status..."
@@ -3809,7 +3848,7 @@ export const ServiceMatrix: React.FC<ServiceMatrixProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredPatients.map((p, idx) => {
+              {paginatedPatients.map((p, idx) => {
                 const report = getReportForPatient(p.id);
                 const isTransferredToday = (p.statusDataPasien === "Pindah Ruangan" || p.statusDataPasien === "Dipindah ke Ruangan Lain" || p.status === "DISCHARGED") && parseToStandardDateString(p.dischargeDate) === selectedDate;
                 const displayRoom = isTransferredToday ? (p.transferRoom || p.ruangan) : p.ruangan;
@@ -3828,7 +3867,7 @@ export const ServiceMatrix: React.FC<ServiceMatrixProps> = ({
                     className={rowBgClass}
                   >
                     <td className={`p-4 w-[60px] min-w-[60px] max-w-[60px] text-center font-black text-slate-850 text-[14px] sticky left-0 transition-all z-20 shadow-[2px_0_5px_rgba(0,0,0,0.05)] border-r border-b border-slate-200 ${stickyBgClass}`}>
-                      {idx + 1}
+                      {(currentPage - 1) * itemsPerPage + idx + 1}
                     </td>
                     <td 
                       className={`p-4 w-[110px] min-w-[110px] max-w-[110px] text-center sticky left-[60px] transition-all border-r border-b border-slate-200 z-20 shadow-[2px_0_5px_rgba(0,0,0,0.05)] cursor-pointer ${stickyBgClass}`}
@@ -4205,7 +4244,7 @@ export const ServiceMatrix: React.FC<ServiceMatrixProps> = ({
                           }
                         }}
                       >
-                        {(masterData.refs.statusDataPasien || []).filter(v => v !== "Batal Rawat Inap").concat(["Batal Rawat Inap"]).map((s) => (
+                        {(masterData?.refs?.statusDataPasien || []).filter(v => v !== "Batal Rawat Inap").concat(["Batal Rawat Inap"]).map((s) => (
                           <option key={s} value={s}>
                             {s}
                           </option>
@@ -4520,6 +4559,62 @@ export const ServiceMatrix: React.FC<ServiceMatrixProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Pagination Controls */}
+      {filteredPatients.length > itemsPerPage && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 px-6 py-4 bg-white border border-slate-150 rounded-3xl shadow-sm">
+          <div className="text-xs font-bold text-slate-500">
+            Menampilkan <span className="font-black text-indigo-600">{(currentPage - 1) * itemsPerPage + 1}-{Math.min(filteredPatients.length, currentPage * itemsPerPage)}</span> dari <span className="font-black text-indigo-600">{filteredPatients.length}</span> pasien
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 disabled:opacity-40 disabled:hover:bg-slate-50 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer select-none border border-slate-200/60"
+            >
+              Sebelumnya
+            </button>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: Math.ceil(filteredPatients.length / itemsPerPage) }).map((_, pageIdx) => {
+                const pageNum = pageIdx + 1;
+                // Only show first, last, and surrounding pages to avoid layout clutter
+                if (
+                  pageNum === 1 ||
+                  pageNum === Math.ceil(filteredPatients.length / itemsPerPage) ||
+                  Math.abs(pageNum - currentPage) <= 1
+                ) {
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={`w-8 h-8 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                        currentPage === pageNum
+                          ? "bg-indigo-600 text-white shadow-md shadow-indigo-100"
+                          : "bg-slate-50 hover:bg-slate-100 text-slate-600"
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                } else if (
+                  (pageNum === 2 && currentPage > 3) ||
+                  (pageNum === Math.ceil(filteredPatients.length / itemsPerPage) - 1 && currentPage < Math.ceil(filteredPatients.length / itemsPerPage) - 2)
+                ) {
+                  return <span key={`dots-${pageNum}`} className="text-slate-400 text-xs px-1">...</span>;
+                }
+                return null;
+              })}
+            </div>
+            <button
+              onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredPatients.length / itemsPerPage), p + 1))}
+              disabled={currentPage === Math.ceil(filteredPatients.length / itemsPerPage)}
+              className="px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 disabled:opacity-40 disabled:hover:bg-slate-50 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer select-none border border-slate-200/60"
+            >
+              Berikutnya
+            </button>
+          </div>
+        </div>
+      )}
       {/* Visite Entry Modal */}
       {editingVisite && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[250] flex items-center justify-center p-6 sm:p-10 animate-fade-in">
@@ -5733,4 +5828,4 @@ export const ServiceMatrix: React.FC<ServiceMatrixProps> = ({
       })()}
     </div>
   );
-};
+});
