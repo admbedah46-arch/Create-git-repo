@@ -113,14 +113,27 @@ const ModuleLoadingFallback = () => (
   </div>
 );
 
+const DEFAULT_SUPER_USER: User = {
+  username: 'admin',
+  password: 'admin',
+  name: 'Super User',
+  role: 'SUPER_ADMIN',
+  position: 'Super Administrator',
+  unit: 'Ruang Bedah'
+};
+
 const App: React.FC = () => {
   const [user, rawSetUser] = useState<User | null>(() => {
     try {
       const savedUser = localStorage.getItem('surgihub_user') || sessionStorage.getItem('surgihub_user');
-      return savedUser ? JSON.parse(savedUser) : null;
+      if (savedUser) {
+        const parsed = JSON.parse(savedUser);
+        if (parsed && parsed.username) return parsed;
+      }
     } catch (e) {
-      return null;
+      // Ignore storage errors and fallback to default super user
     }
+    return DEFAULT_SUPER_USER;
   });
 
   const setUser = (newUser: User | null) => {
@@ -156,7 +169,7 @@ const App: React.FC = () => {
   }, [appData]);
   const [isPatientModalOpen, setIsPatientModalOpen] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
-  const [isReady, setIsReady] = useState(false);
+  const [isReady, setIsReady] = useState(true);
   const [syncStatus, setSyncStatus] = useState<'IDLE' | 'SYNCING' | 'SUCCESS' | 'ERROR'>('IDLE');
   const [bedUnitFilter, setBedUnitFilter] = useState('Ruang Bedah');
   const [isMobile, setIsMobile] = useState(false);
