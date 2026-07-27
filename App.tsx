@@ -1,30 +1,33 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, Suspense, lazy } from 'react';
 import { Layout } from './components/Layout';
 import { Login } from './components/Auth/Login';
-import { DataManagement } from './components/Administrator/DataManagement';
-import { FinanceModule } from './components/Administration/FinanceModule';
-import { IncidentModule } from './components/Incidents/IncidentModule';
-import { IncidentMonthlyReport } from './components/Incidents/IncidentMonthlyReport';
-import { PatientModal } from './components/Patient/PatientModal';
-import { PatientModule } from './components/Patient/PatientModule';
-import { RoomBookingComponent } from './components/Patient/RoomBookingComponent';
-import { CensusAdvanced } from './components/Administrator/CensusAdvanced';
-import { InventoryModule } from './components/Administrator/InventoryModule';
-import { OperationReportModule } from './components/Administrator/OperationReportModule';
-import { ServiceMatrix } from './components/Nursing/ServiceMatrix';
-import { QualityWorksheet } from './components/Quality/QualityWorksheet';
-import { PrintQualityWorksheet } from './components/Quality/PrintQualityWorksheet';
-import { QualityReports } from './components/Quality/QualityReports';
-import { DoctorVisitAdmin } from './components/Finance/DoctorVisitAdmin';
-import { FinanceSummaryView } from './components/Finance/FinanceSummaryView';
-import { AdminRegistrasiModule } from './components/Finance/AdminRegistrasiModule';
-import { AsesmenAwalMedisWorksheet } from './components/Quality/AsesmenAwalMedisWorksheet';
-import { MonitoringPasienKeluarMasuk } from './components/Patient/MonitoringPasienKeluarMasuk';
-import { PatientDetailModal } from './components/Patient/PatientDetailModal';
-import { WorkspaceBar } from './components/GoogleWorkspace/WorkspaceBar';
-import { DocsExportModal } from './components/GoogleWorkspace/DocsExportModal';
-import { CalendarSyncModal } from './components/GoogleWorkspace/CalendarSyncModal';
+import { APP_VERSION } from './firebase';
+
+const DataManagement = lazy(() => import('./components/Administrator/DataManagement').then(m => ({ default: m.DataManagement })));
+const FinanceModule = lazy(() => import('./components/Administration/FinanceModule').then(m => ({ default: m.FinanceModule })));
+const IncidentModule = lazy(() => import('./components/Incidents/IncidentModule').then(m => ({ default: m.IncidentModule })));
+const IncidentMonthlyReport = lazy(() => import('./components/Incidents/IncidentMonthlyReport').then(m => ({ default: m.IncidentMonthlyReport })));
+const PatientModal = lazy(() => import('./components/Patient/PatientModal').then(m => ({ default: m.PatientModal })));
+const PatientModule = lazy(() => import('./components/Patient/PatientModule').then(m => ({ default: m.PatientModule })));
+const RoomBookingComponent = lazy(() => import('./components/Patient/RoomBookingComponent').then(m => ({ default: m.RoomBookingComponent })));
+const CensusAdvanced = lazy(() => import('./components/Administrator/CensusAdvanced').then(m => ({ default: m.CensusAdvanced })));
+const InventoryModule = lazy(() => import('./components/Administrator/InventoryModule').then(m => ({ default: m.InventoryModule })));
+const OperationReportModule = lazy(() => import('./components/Administrator/OperationReportModule').then(m => ({ default: m.OperationReportModule })));
+const ServiceMatrix = lazy(() => import('./components/Nursing/ServiceMatrix').then(m => ({ default: m.ServiceMatrix })));
+const QualityWorksheet = lazy(() => import('./components/Quality/QualityWorksheet').then(m => ({ default: m.QualityWorksheet })));
+const PrintQualityWorksheet = lazy(() => import('./components/Quality/PrintQualityWorksheet').then(m => ({ default: m.PrintQualityWorksheet })));
+const QualityReports = lazy(() => import('./components/Quality/QualityReports').then(m => ({ default: m.QualityReports })));
+const DoctorVisitAdmin = lazy(() => import('./components/Finance/DoctorVisitAdmin').then(m => ({ default: m.DoctorVisitAdmin })));
+const FinanceSummaryView = lazy(() => import('./components/Finance/FinanceSummaryView').then(m => ({ default: m.FinanceSummaryView })));
+const AdminRegistrasiModule = lazy(() => import('./components/Finance/AdminRegistrasiModule').then(m => ({ default: m.AdminRegistrasiModule })));
+const AsesmenAwalMedisWorksheet = lazy(() => import('./components/Quality/AsesmenAwalMedisWorksheet').then(m => ({ default: m.AsesmenAwalMedisWorksheet })));
+const MonitoringPasienKeluarMasuk = lazy(() => import('./components/Patient/MonitoringPasienKeluarMasuk').then(m => ({ default: m.MonitoringPasienKeluarMasuk })));
+const PatientDetailModal = lazy(() => import('./components/Patient/PatientDetailModal').then(m => ({ default: m.PatientDetailModal })));
+const WorkspaceBar = lazy(() => import('./components/GoogleWorkspace/WorkspaceBar').then(m => ({ default: m.WorkspaceBar })));
+const DocsExportModal = lazy(() => import('./components/GoogleWorkspace/DocsExportModal').then(m => ({ default: m.DocsExportModal })));
+const CalendarSyncModal = lazy(() => import('./components/GoogleWorkspace/CalendarSyncModal').then(m => ({ default: m.CalendarSyncModal })));
+
 import { PickedFile } from './googleWorkspace';
 import { Button } from './components/Button';
 import { SearchableSelect } from './components/SearchableSelect';
@@ -102,6 +105,13 @@ const mergeDailyReportItems = (local: any, incoming: any): any => {
 
   return merged;
 };
+
+const ModuleLoadingFallback = () => (
+  <div className="flex flex-col items-center justify-center min-h-[400px] text-slate-400 p-12 bg-white rounded-3xl border border-slate-100 shadow-sm animate-fade-in">
+    <div className="w-10 h-10 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+    <p className="text-xs font-bold text-slate-600 uppercase tracking-widest">Memuat Modul SiMANTAP...</p>
+  </div>
+);
 
 const App: React.FC = () => {
   const [user, rawSetUser] = useState<User | null>(() => {
@@ -4007,67 +4017,69 @@ const App: React.FC = () => {
       lastSyncTime={lastSyncTime}
       settings={safeAppData.masterData.settings}
     >
-      <WorkspaceBar
-        onFilePicked={handleFilePickedFromDrive}
-        onOpenDocsExport={() => handleOpenDocsExport()}
-        onOpenCalendarSync={() => setIsCalendarModalOpen(true)}
-        notify={notify}
-      />
-
-      {renderContent()}
-      
-      <DocsExportModal
-        isOpen={isDocsModalOpen}
-        onClose={() => setIsDocsModalOpen(false)}
-        defaultTitle={docsExportTitle}
-        defaultContent={docsExportContent}
-        notify={notify}
-      />
-
-      <CalendarSyncModal
-        isOpen={isCalendarModalOpen}
-        onClose={() => setIsCalendarModalOpen(false)}
-        operations={allSurgicalOperations}
-        notify={notify}
-      />
-      
-      {isPatientModalOpen && (
-        <PatientModal 
-          masterData={safeAppData.masterData}
-          onClose={() => {
-            if (editingPatient) {
-              const pId = editingPatient.id;
-              const username = user?.username || 'Guest';
-              fetch(`/api/patients/${pId}/unlock`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username })
-              }).catch(() => {});
-            }
-            setIsPatientModalOpen(false);
-            setEditingPatient(null);
-          }}
-          onSave={handleAddPatient}
-          onDelete={handleDeletePatient}
-          currentUser={user}
-          initialData={editingPatient || undefined}
+      <Suspense fallback={<ModuleLoadingFallback />}>
+        <WorkspaceBar
+          onFilePicked={handleFilePickedFromDrive}
+          onOpenDocsExport={() => handleOpenDocsExport()}
+          onOpenCalendarSync={() => setIsCalendarModalOpen(true)}
+          notify={notify}
         />
-      )}
 
-      {(() => {
-        if (!selectedDetailPatientId) return null;
-        const patient = appData.patients?.find(p => p.id === selectedDetailPatientId);
-        if (!patient) return null;
-        return (
-          <PatientDetailModal
-            patient={patient}
-            dailyReports={appData.dailyReports || []}
-            onClose={() => setSelectedDetailPatientId(null)}
-            onSave={handleUpdatePatient}
+        {renderContent()}
+        
+        <DocsExportModal
+          isOpen={isDocsModalOpen}
+          onClose={() => setIsDocsModalOpen(false)}
+          defaultTitle={docsExportTitle}
+          defaultContent={docsExportContent}
+          notify={notify}
+        />
+
+        <CalendarSyncModal
+          isOpen={isCalendarModalOpen}
+          onClose={() => setIsCalendarModalOpen(false)}
+          operations={allSurgicalOperations}
+          notify={notify}
+        />
+        
+        {isPatientModalOpen && (
+          <PatientModal 
             masterData={safeAppData.masterData}
+            onClose={() => {
+              if (editingPatient) {
+                const pId = editingPatient.id;
+                const username = user?.username || 'Guest';
+                fetch(`/api/patients/${pId}/unlock`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ username })
+                }).catch(() => {});
+              }
+              setIsPatientModalOpen(false);
+              setEditingPatient(null);
+            }}
+            onSave={handleAddPatient}
+            onDelete={handleDeletePatient}
+            currentUser={user}
+            initialData={editingPatient || undefined}
           />
-        );
-      })()}
+        )}
+
+        {(() => {
+          if (!selectedDetailPatientId) return null;
+          const patient = appData.patients?.find(p => p.id === selectedDetailPatientId);
+          if (!patient) return null;
+          return (
+            <PatientDetailModal
+              patient={patient}
+              dailyReports={appData.dailyReports || []}
+              onClose={() => setSelectedDetailPatientId(null)}
+              onSave={handleUpdatePatient}
+              masterData={safeAppData.masterData}
+            />
+          );
+        })()}
+      </Suspense>
 
       {/* Custom Delete Confirmation Modal to prevent native confirm iframe block */}
       {deleteConfirmTarget && (

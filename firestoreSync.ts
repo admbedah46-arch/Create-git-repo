@@ -102,8 +102,14 @@ const notifyConnectionCallbacks = (status: boolean) => {
 
 let snapshotDebounceTimer: any = null;
 let latestSnapshotDocs: any[] | null = null;
+let lastProcessedSnapshotHash = '';
 
 const processSnapshotDocs = (docs: any[]) => {
+  const currentHash = JSON.stringify(docs);
+  if (currentHash === lastProcessedSnapshotHash) {
+    return;
+  }
+
   const metaDoc = docs.find((d) => d.type === 'meta');
   if (!metaDoc) return;
 
@@ -132,8 +138,11 @@ const processSnapshotDocs = (docs: any[]) => {
 
   // Deep equality check: ONLY save and notify UI if actual content data changed
   if (hasAppDataChanged(mergedData)) {
+    lastProcessedSnapshotHash = currentHash;
     saveDB(mergedData, true, undefined, true);
     notifyDataCallbacks(mergedData);
+  } else {
+    lastProcessedSnapshotHash = currentHash;
   }
 };
 
@@ -182,7 +191,7 @@ export const initFirestoreRealtimeSync = (): (() => void) => {
           processSnapshotDocs(latestSnapshotDocs);
           latestSnapshotDocs = null;
         }
-      }, 400); // 400ms debounce to prevent re-render thrashing and high CPU load
+      }, 800); // 800ms debounce to prevent re-render thrashing and high CPU load
     },
     (error: any) => {
       console.warn('[Firestore Sync] Chunks snapshot error:', error);

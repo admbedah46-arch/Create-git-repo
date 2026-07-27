@@ -3,6 +3,8 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfigJson from './firebase-applet-config.json';
 
+export const APP_VERSION = '2.0.0-CLEAN';
+
 // Explicit Auto-embedded Firebase configuration (Single Source of Truth for Vercel, Cloud Run, Mobile & Web)
 export const firebaseConfig = {
   projectId: "gen-lang-client-0234581338",

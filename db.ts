@@ -1414,25 +1414,38 @@ export interface SyncDelta {
 
 let cachedDataJson = '';
 
-export const RECONCILE_VERSION_KEY = 'simantap_v2_3_0_zero_lag';
+export const RECONCILE_VERSION_KEY = '2.0.0-CLEAN';
 
 export const checkAndResetCacheOnVersionChange = (): boolean => {
   if (typeof window === 'undefined') return false;
   try {
-    const isVercel = window.location.hostname.includes('vercel.app') || window.location.hostname.includes('simantapbedah');
-    const savedVer = localStorage.getItem('simantap_sync_version_key');
+    const savedVer = localStorage.getItem('APP_VERSION') || localStorage.getItem('simantap_sync_version_key');
 
-    if (savedVer !== RECONCILE_VERSION_KEY || isVercel) {
-      console.log(`[Cache Reset] Version update/Vercel domain detected (${window.location.hostname}). Reconciling state with Cloud Firestore...`);
-      localStorage.setItem('simantap_sync_version_key', RECONCILE_VERSION_KEY);
+    if (savedVer !== RECONCILE_VERSION_KEY) {
+      console.log(`[Version Migration] Version update detected. Clearing stale cache and deleting IndexedDB for version ${RECONCILE_VERSION_KEY}...`);
+      
+      const savedUser = localStorage.getItem('surgihub_user') || sessionStorage.getItem('surgihub_user');
+      
+      try {
+        localStorage.clear();
+      } catch (e) {}
 
-      if (savedVer !== RECONCILE_VERSION_KEY) {
-        // Clear stale legacy storage cache if version mismatched
-        sessionStorage.removeItem(DB_KEY);
-        try {
-          localStorage.removeItem('si_baru_db_stable_production_v5');
-        } catch (e) {}
-      }
+      try {
+        if (window.indexedDB) {
+          window.indexedDB.deleteDatabase('surgihub_offline_db');
+          window.indexedDB.deleteDatabase('pending_uploads');
+        }
+      } catch (e) {}
+
+      try {
+        localStorage.setItem('APP_VERSION', RECONCILE_VERSION_KEY);
+        localStorage.setItem('simantap_sync_version_key', RECONCILE_VERSION_KEY);
+        if (savedUser) {
+          localStorage.setItem('surgihub_user', savedUser);
+          sessionStorage.setItem('surgihub_user', savedUser);
+        }
+      } catch (e) {}
+
       return true;
     }
   } catch (e) {
