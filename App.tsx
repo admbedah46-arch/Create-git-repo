@@ -28,7 +28,7 @@ import { CalendarSyncModal } from './components/GoogleWorkspace/CalendarSyncModa
 import { PickedFile } from './googleWorkspace';
 import { Button } from './components/Button';
 import { SearchableSelect } from './components/SearchableSelect';
-import { getDB, saveDB, uploadDataBackground, mergeData, getApiUrl, saveApiUrl, syncData, uploadData, registerDeletedId, getDeletedIds, getIsCurrentlyUploading, resilientParse, normalizeDatesInDb, triggerOfflineQueueUpload, getLocalSnapshotFromDB, requestPersistentStorage, generatePermanentUUID, getLatestTimestamp, mergeRecordProperties, TAB_ID, setPendingUploadInDB, hasAppDataChanged } from './db';
+import { getDB, saveDB, uploadDataBackground, mergeData, getApiUrl, saveApiUrl, syncData, uploadData, registerDeletedId, getDeletedIds, getIsCurrentlyUploading, resilientParse, normalizeDatesInDb, triggerOfflineQueueUpload, getLocalSnapshotFromDB, requestPersistentStorage, generatePermanentUUID, getLatestTimestamp, mergeRecordProperties, TAB_ID, setPendingUploadInDB, hasAppDataChanged, isAppDataContentEqual, checkAndResetCacheOnVersionChange } from './db';
 import { testFirestoreConnection } from './firebase';
 import { initFirestoreRealtimeSync, subscribeDataChange, subscribeConnectionStatus, pushToFirestore, loadFromFirestore, fetchInitialStateFromFirestore } from './firestoreSync';
 import { INITIAL_DATA } from './constants';
@@ -173,6 +173,9 @@ const App: React.FC = () => {
 
   // Subscribe to Realtime Firestore Delta Updates across all devices
   useEffect(() => {
+    // 0. Auto-check version update and force reconcile state on Vercel
+    checkAndResetCacheOnVersionChange();
+
     // 1. Subscribe to connection status updates
     const unsubConn = subscribeConnectionStatus((online) => {
       setIsFirestoreOnline(online);
@@ -180,18 +183,26 @@ const App: React.FC = () => {
 
     // 2. Subscribe to real-time data changes broadcast from Firestore
     const unsubData = subscribeDataChange((newMergedData) => {
-      if (hasAppDataChanged(newMergedData)) {
-        setAppData(newMergedData);
+      setAppData((prev) => {
+        if (isAppDataContentEqual(prev, newMergedData)) {
+          return prev; // Skips re-rendering if data content is identical
+        }
         setLastSyncTime(new Date());
-      }
+        return newMergedData;
+      });
     });
 
     // 3. Force read & reconcile all chunks on initial load from Firestore (auto-reconciliation)
     setSyncStatus('SYNCING');
     fetchInitialStateFromFirestore().then((resData) => {
-      if (resData && hasAppDataChanged(resData)) {
-        setAppData(resData);
-        setLastSyncTime(new Date());
+      if (resData) {
+        setAppData((prev) => {
+          if (isAppDataContentEqual(prev, resData)) {
+            return prev;
+          }
+          setLastSyncTime(new Date());
+          return resData;
+        });
       }
       setSyncStatus('IDLE');
     }).catch(() => {
@@ -712,7 +723,7 @@ const App: React.FC = () => {
           
           if (payload.type === 'handshake') {
             const serverVersion = payload.version;
-            const CLIENT_VERSION = "2.2.0-recovery-sync";
+            const CLIENT_VERSION = "2.3.0-zero-lag-vercel-sync";
             console.log(`[SSE Handshake] Server Build: ${serverVersion} | Local Build: ${CLIENT_VERSION}`);
             
             // If the server changed versions (user completed code updates in AI Studio), trigger smooth live hot reload!

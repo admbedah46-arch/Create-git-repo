@@ -130,11 +130,9 @@ const processSnapshotDocs = (docs: any[]) => {
   const localData = getDB();
   const mergedData = mergeData(localData, reconstructedData as AppData);
 
-  // Save locally to IndexedDB & RAM without triggering duplicate push loop
-  saveDB(mergedData, true, undefined, true);
-
-  // Notify UI listeners ONLY if data actually changed
+  // Deep equality check: ONLY save and notify UI if actual content data changed
   if (hasAppDataChanged(mergedData)) {
+    saveDB(mergedData, true, undefined, true);
     notifyDataCallbacks(mergedData);
   }
 };
@@ -178,19 +176,13 @@ export const initFirestoreRealtimeSync = (): (() => void) => {
 
       latestSnapshotDocs = snapshot.docs.map((d) => d.data());
 
-      if (isFirstBatch) {
-        isFirstBatch = false;
-        processSnapshotDocs(latestSnapshotDocs);
-        latestSnapshotDocs = null;
-      } else {
-        if (snapshotDebounceTimer) clearTimeout(snapshotDebounceTimer);
-        snapshotDebounceTimer = setTimeout(() => {
-          if (latestSnapshotDocs) {
-            processSnapshotDocs(latestSnapshotDocs);
-            latestSnapshotDocs = null;
-          }
-        }, 50);
-      }
+      if (snapshotDebounceTimer) clearTimeout(snapshotDebounceTimer);
+      snapshotDebounceTimer = setTimeout(() => {
+        if (latestSnapshotDocs) {
+          processSnapshotDocs(latestSnapshotDocs);
+          latestSnapshotDocs = null;
+        }
+      }, 400); // 400ms debounce to prevent re-render thrashing and high CPU load
     },
     (error: any) => {
       console.warn('[Firestore Sync] Chunks snapshot error:', error);
@@ -286,17 +278,8 @@ export const loadFromFirestore = async (): Promise<AppData | null> => {
     const localData = getDB();
     const mergedData = mergeData(localData, reconstructedData as AppData);
 
-    // Save merged result locally without echo broadcast
-    saveDB(mergedData, true);
-
-    // Upload merged result back to cloud if local had newer/additional records
-    if (!isQuotaExceeded) {
-      pushToFirestore(mergedData).catch((err) =>
-        console.warn('[Firestore Sync] Force load push error:', err)
-      );
-    }
-
     if (hasAppDataChanged(mergedData)) {
+      saveDB(mergedData, true, undefined, true);
       notifyDataCallbacks(mergedData);
     }
     notifyConnectionCallbacks(true);

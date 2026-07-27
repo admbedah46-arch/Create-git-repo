@@ -2100,7 +2100,7 @@ export function broadcastEvent(data: any) {
   });
 }
 
-const SERVER_APP_VERSION = "2.2.0-recovery-sync";
+const SERVER_APP_VERSION = "2.3.0-zero-lag-vercel-sync";
 
 app.get('/api/events', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');

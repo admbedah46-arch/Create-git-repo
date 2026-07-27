@@ -1414,24 +1414,61 @@ export interface SyncDelta {
 
 let cachedDataJson = '';
 
-export const isAppDataEqual = (a: AppData, b: AppData): boolean => {
+export const RECONCILE_VERSION_KEY = 'simantap_v2_3_0_zero_lag';
+
+export const checkAndResetCacheOnVersionChange = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  try {
+    const isVercel = window.location.hostname.includes('vercel.app') || window.location.hostname.includes('simantapbedah');
+    const savedVer = localStorage.getItem('simantap_sync_version_key');
+
+    if (savedVer !== RECONCILE_VERSION_KEY || isVercel) {
+      console.log(`[Cache Reset] Version update/Vercel domain detected (${window.location.hostname}). Reconciling state with Cloud Firestore...`);
+      localStorage.setItem('simantap_sync_version_key', RECONCILE_VERSION_KEY);
+
+      if (savedVer !== RECONCILE_VERSION_KEY) {
+        // Clear stale legacy storage cache if version mismatched
+        sessionStorage.removeItem(DB_KEY);
+        try {
+          localStorage.removeItem('si_baru_db_stable_production_v5');
+        } catch (e) {}
+      }
+      return true;
+    }
+  } catch (e) {
+    console.warn('[Cache Reset] Notice:', e);
+  }
+  return false;
+};
+
+export const getAppDataContentHash = (data: AppData | null | undefined): string => {
+  if (!data) return '';
+  try {
+    const { timestamp, ...rest } = data;
+    return JSON.stringify(rest);
+  } catch (e) {
+    return String(Math.random());
+  }
+};
+
+export const isAppDataContentEqual = (a: AppData | null | undefined, b: AppData | null | undefined): boolean => {
   if (a === b) return true;
   if (!a || !b) return false;
-  try {
-    return JSON.stringify(a) === JSON.stringify(b);
-  } catch (e) {
-    return false;
-  }
+  return getAppDataContentHash(a) === getAppDataContentHash(b);
+};
+
+export const isAppDataEqual = (a: AppData, b: AppData): boolean => {
+  return isAppDataContentEqual(a, b);
 };
 
 export const hasAppDataChanged = (newData: AppData): boolean => {
   if (!newData) return false;
   try {
-    const newJson = JSON.stringify(newData);
-    if (newJson === cachedDataJson) {
+    const newHash = getAppDataContentHash(newData);
+    if (newHash === cachedDataJson) {
       return false;
     }
-    cachedDataJson = newJson;
+    cachedDataJson = newHash;
     return true;
   } catch (e) {
     return true;
@@ -1440,7 +1477,7 @@ export const hasAppDataChanged = (newData: AppData): boolean => {
 
 export const setCachedDataJson = (data: AppData) => {
   try {
-    cachedDataJson = JSON.stringify(data);
+    cachedDataJson = getAppDataContentHash(data);
   } catch (e) {}
 };
 
@@ -1492,7 +1529,7 @@ export const saveDB = (data: AppData, skipBroadcast: boolean = false, delta?: Sy
   inMemoryDB = cleanData;
 
   try {
-    cachedDataJson = JSON.stringify(cleanData);
+    cachedDataJson = getAppDataContentHash(cleanData);
   } catch (e) {}
 
   // Backup raw base64 images into sessionStorage (NOT localStorage to preserve 5MB quota)

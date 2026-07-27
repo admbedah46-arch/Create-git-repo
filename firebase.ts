@@ -5,13 +5,13 @@ import firebaseConfigJson from './firebase-applet-config.json';
 
 // Explicit Auto-embedded Firebase configuration (Single Source of Truth for Vercel, Cloud Run, Mobile & Web)
 export const firebaseConfig = {
-  projectId: firebaseConfigJson?.projectId || "gen-lang-client-0234581338",
-  appId: firebaseConfigJson?.appId || "1:359469612868:web:0bc4678953dc87e42da111",
-  apiKey: firebaseConfigJson?.apiKey || "AIzaSyC-IQHifzM2wjL6wjM1v-uN52-M6yws-Oo",
-  authDomain: firebaseConfigJson?.authDomain || "gen-lang-client-0234581338.firebaseapp.com",
-  firestoreDatabaseId: firebaseConfigJson?.firestoreDatabaseId || "ai-studio-simantapbedah-c6a38a36-4082-4d85-9040-78110b8f6ff4",
-  storageBucket: firebaseConfigJson?.storageBucket || "gen-lang-client-0234581338.firebasestorage.app",
-  messagingSenderId: firebaseConfigJson?.messagingSenderId || "359469612868",
+  projectId: "gen-lang-client-0234581338",
+  appId: "1:359469612868:web:0bc4678953dc87e42da111",
+  apiKey: "AIzaSyC-IQHifzM2wjL6wjM1v-uN52-M6yws-Oo",
+  authDomain: "gen-lang-client-0234581338.firebaseapp.com",
+  firestoreDatabaseId: "ai-studio-simantapbedah-c6a38a36-4082-4d85-9040-78110b8f6ff4",
+  storageBucket: "gen-lang-client-0234581338.firebasestorage.app",
+  messagingSenderId: "359469612868",
   measurementId: firebaseConfigJson?.measurementId || "",
   oAuthClientId: firebaseConfigJson?.oAuthClientId || "359469612868-5j1nvgfd6um2vjaqa81pvcnpblvgipbu.apps.googleusercontent.com",
   recaptchaSiteKey: firebaseConfigJson?.recaptchaSiteKey || ""
