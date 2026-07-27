@@ -948,7 +948,7 @@ const App: React.FC = () => {
   // BroadcastChannel listener for instant zero-latency tab-to-tab & device sync
   useEffect(() => {
     if (typeof BroadcastChannel === 'undefined') return;
-    const channelNames = ['simantap_global_sync', 'simantap_sync_channel'];
+    const channelNames = ['simantap_global_sync', 'simantap_sync_channel', 'simantap_data_sync'];
     const activeChannels: BroadcastChannel[] = [];
     let bcDebounceTimer: any = null;
 
@@ -960,7 +960,9 @@ const App: React.FC = () => {
             event.data &&
             (event.data.type === 'SIMANTAP_GLOBAL_SYNC' ||
               event.data.type === 'LOCAL_TAB_SYNC' ||
-              event.data.type === 'LOCAL_DATA_UPDATE')
+              event.data.type === 'LOCAL_DATA_UPDATE' ||
+              event.data.type === 'SIMANTAP_DATA_NOTIFY' ||
+              event.data.type === 'SIMANTAP_RE_FETCH')
           ) {
             if (event.data.senderId === TAB_ID) return; // Prevent echo loop from origin tab
 

@@ -1496,8 +1496,10 @@ export const setCachedDataJson = (data: AppData) => {
 
 const BROADCAST_CHANNEL_NAME = 'simantap_global_sync';
 const LEGACY_BROADCAST_CHANNEL_NAME = 'simantap_sync_channel';
+const DATA_SYNC_CHANNEL_NAME = 'simantap_data_sync';
 let localBroadcastChannel: BroadcastChannel | null = null;
 let legacyBroadcastChannel: BroadcastChannel | null = null;
+let dataSyncBroadcastChannel: BroadcastChannel | null = null;
 
 export const broadcastLocalTabSync = (data: AppData, delta?: SyncDelta) => {
   if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
@@ -1509,6 +1511,11 @@ export const broadcastLocalTabSync = (data: AppData, delta?: SyncDelta) => {
     if (!legacyBroadcastChannel) {
       try {
         legacyBroadcastChannel = new BroadcastChannel(LEGACY_BROADCAST_CHANNEL_NAME);
+      } catch (e) {}
+    }
+    if (!dataSyncBroadcastChannel) {
+      try {
+        dataSyncBroadcastChannel = new BroadcastChannel(DATA_SYNC_CHANNEL_NAME);
       } catch (e) {}
     }
 
@@ -1528,6 +1535,11 @@ export const broadcastLocalTabSync = (data: AppData, delta?: SyncDelta) => {
     if (legacyBroadcastChannel) {
       try {
         legacyBroadcastChannel.postMessage({ ...payload, type: 'LOCAL_TAB_SYNC' });
+      } catch (e) {}
+    }
+    if (dataSyncBroadcastChannel) {
+      try {
+        dataSyncBroadcastChannel.postMessage({ ...payload, type: 'SIMANTAP_DATA_NOTIFY' });
       } catch (e) {}
     }
   }

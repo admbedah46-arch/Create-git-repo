@@ -1,7 +1,7 @@
 import { doc, collection, onSnapshot, setDoc, deleteDoc, getDocs, serverTimestamp, disableNetwork, enableNetwork } from 'firebase/firestore';
 import { db } from './firebase';
 import { AppData } from './types';
-import { getDB, saveDB, mergeData, cleanAndDeduplicate, hasAppDataChanged } from './db';
+import { getDB, saveDB, mergeData, cleanAndDeduplicate, hasAppDataChanged, TAB_ID } from './db';
 
 const FIRESTORE_DOC_PATH = doc(db, 'appData', 'shared_state');
 const CHUNKS_COLLECTION = collection(db, 'appData_chunks');
@@ -19,6 +19,60 @@ const ARRAY_COLLECTIONS: (keyof AppData)[] = [
   'operationReports',
   'roomBookings'
 ];
+
+const PRIMARY_COLLECTIONS: { firestoreName: string; appDataKey: keyof AppData }[] = [
+  { firestoreName: 'patients', appDataKey: 'patients' },
+  { firestoreName: 'booking_ruangan', appDataKey: 'roomBookings' },
+  { firestoreName: 'roomBookings', appDataKey: 'roomBookings' },
+  { firestoreName: 'financial_reports', appDataKey: 'financeRecords' },
+  { firestoreName: 'financeRecords', appDataKey: 'financeRecords' },
+  { firestoreName: 'quality_indicators', appDataKey: 'qualityMeasurements' },
+  { firestoreName: 'qualityMeasurements', appDataKey: 'qualityMeasurements' }
+];
+
+export const DATA_SYNC_CHANNEL_NAME = 'simantap_data_sync';
+let simantapDataSyncBc: BroadcastChannel | null = null;
+
+const getSimantapDataSyncChannel = (): BroadcastChannel | null => {
+  if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
+    if (!simantapDataSyncBc) {
+      try {
+        simantapDataSyncBc = new BroadcastChannel(DATA_SYNC_CHANNEL_NAME);
+        simantapDataSyncBc.onmessage = (event) => {
+          if (event.data && event.data.senderId !== TAB_ID) {
+            const payloadData = event.data.data;
+            if (payloadData) {
+              const localData = getDB();
+              const merged = mergeData(localData, payloadData);
+              if (hasAppDataChanged(merged)) {
+                saveDB(merged, true, undefined, true);
+                notifyDataCallbacks(merged);
+              }
+            } else {
+              notifyDataCallbacks(getDB());
+            }
+          }
+        };
+      } catch (e) {}
+    }
+  }
+  return simantapDataSyncBc;
+};
+
+export const broadcastCrossTabHydration = (data?: AppData, extraInfo?: any) => {
+  const bc = getSimantapDataSyncChannel();
+  if (bc) {
+    try {
+      bc.postMessage({
+        type: 'SIMANTAP_DATA_NOTIFY',
+        senderId: TAB_ID,
+        timestamp: Date.now(),
+        data: data || getDB(),
+        extraInfo
+      });
+    } catch (e) {}
+  }
+};
 
 const CHUNK_SIZE = 100;
 
@@ -77,6 +131,7 @@ const isResourceOrQuotaError = (err: any): boolean => {
 
 let unsubscribeChunksListener: (() => void) | null = null;
 let unsubscribeLegacyListener: (() => void) | null = null;
+let primaryUnsubscribes: (() => void)[] = [];
 let isConnected = false;
 let isQuotaExceeded = checkInitialQuotaExceeded();
 
@@ -90,7 +145,6 @@ let pendingDataToPush: AppData | null = null;
 let pushDebounceTimer: any = null;
 let isWriting = false;
 
-// Store stringified hashes of last pushed chunks to prevent redundant Firestore writes
 const lastPushedHashes: Record<string, string> = loadPushedHashes();
 let previousChunkCounts: Record<string, number> = {};
 
@@ -144,7 +198,6 @@ const processSnapshotDocs = (docs: any[]) => {
   const metaDoc = docs.find((d) => d.type === 'meta');
   if (!metaDoc) return;
 
-  // Fast lightweight version check to prevent expensive stringification
   const docVersionHash = `${metaDoc.timestamp || metaDoc.updatedAt || ''}_${docs.length}`;
   if (docVersionHash === lastProcessedSnapshotHash) {
     return;
@@ -175,31 +228,35 @@ const processSnapshotDocs = (docs: any[]) => {
 
   lastProcessedSnapshotHash = docVersionHash;
 
-  // Deep equality check: ONLY save and notify UI if actual content data changed
   if (hasAppDataChanged(mergedData)) {
     saveDB(mergedData, true, undefined, true);
     notifyDataCallbacks(mergedData);
+    broadcastCrossTabHydration(mergedData, { source: 'chunks' });
   }
 };
 
 /**
- * Initializes real-time listener for Firestore chunked state
+ * Initializes real-time listener for Firestore global state with includeMetadataChanges: true
  */
 export const initFirestoreRealtimeSync = (): (() => void) => {
   if (isQuotaExceeded) {
     return () => {};
   }
 
+  getSimantapDataSyncChannel();
+
   if (unsubscribeChunksListener) {
     return unsubscribeChunksListener;
   }
 
-  console.log('[Firestore Sync] Starting real-time snapshot listener on /appData_chunks...');
+  console.log('[Firestore Sync] Starting real-time snapshot listeners with includeMetadataChanges: true...');
 
   let isFirstBatch = true;
 
+  // 1. Chunks listener
   unsubscribeChunksListener = onSnapshot(
     CHUNKS_COLLECTION,
+    { includeMetadataChanges: true },
     (snapshot) => {
       notifyConnectionCallbacks(true);
 
@@ -214,7 +271,6 @@ export const initFirestoreRealtimeSync = (): (() => void) => {
         return;
       }
 
-      // Avoid infinite write-back loop when local device produced the write
       if (snapshot.metadata.hasPendingWrites) {
         return;
       }
@@ -227,7 +283,7 @@ export const initFirestoreRealtimeSync = (): (() => void) => {
           processSnapshotDocs(latestSnapshotDocs);
           latestSnapshotDocs = null;
         }
-      }, 800); // 800ms debounce to prevent re-render thrashing and high CPU load
+      }, 400);
     },
     (error: any) => {
       console.warn('[Firestore Sync] Chunks snapshot error:', error);
@@ -239,9 +295,56 @@ export const initFirestoreRealtimeSync = (): (() => void) => {
     }
   );
 
-  // Fallback legacy listener on shared_state doc for initial migration
+  // 2. Primary collections global listeners (patients, booking_ruangan, roomBookings, financial_reports, quality_indicators, etc.)
+  PRIMARY_COLLECTIONS.forEach(({ firestoreName, appDataKey }) => {
+    try {
+      const colRef = collection(db, firestoreName);
+      const unsub = onSnapshot(
+        colRef,
+        { includeMetadataChanges: true },
+        (snapshot) => {
+          notifyConnectionCallbacks(true);
+          if (snapshot.empty) return;
+          if (snapshot.metadata.hasPendingWrites) return;
+
+          const items: any[] = [];
+          snapshot.docs.forEach((d) => {
+            const item = d.data();
+            if (item) {
+              items.push({ id: d.id, ...item });
+            }
+          });
+
+          if (items.length > 0) {
+            const localData = getDB();
+            const incomingPartial: any = { [appDataKey]: items };
+            const mergedData = mergeData(localData, incomingPartial as AppData);
+
+            if (hasAppDataChanged(mergedData)) {
+              saveDB(mergedData, true, undefined, true);
+              notifyDataCallbacks(mergedData);
+              broadcastCrossTabHydration(mergedData, { sourceCollection: firestoreName });
+            }
+          }
+        },
+        (error: any) => {
+          if (isResourceOrQuotaError(error)) {
+            handleQuotaExceeded();
+          } else {
+            console.warn(`[Firestore Sync] Realtime listener error on ${firestoreName}:`, error);
+          }
+        }
+      );
+      primaryUnsubscribes.push(unsub);
+    } catch (e) {
+      console.warn(`[Firestore Sync] Failed to attach listener to ${firestoreName}:`, e);
+    }
+  });
+
+  // 3. Fallback legacy listener on shared_state doc
   unsubscribeLegacyListener = onSnapshot(
     FIRESTORE_DOC_PATH,
+    { includeMetadataChanges: true },
     (snapshot) => {
       if (!isFirstBatch || !snapshot.exists()) return;
       if (snapshot.metadata.hasPendingWrites) return;
@@ -249,12 +352,13 @@ export const initFirestoreRealtimeSync = (): (() => void) => {
       const remoteData = snapshot.data() as AppData;
       if (!remoteData || typeof remoteData !== 'object') return;
 
-      console.log('[Firestore Sync] Legacy shared_state snapshot received for migration.');
+      console.log('[Firestore Sync] Legacy shared_state snapshot received.');
       const localData = getDB();
       const mergedData = mergeData(localData, remoteData);
-      saveDB(mergedData, true);
+      saveDB(mergedData, true, undefined, true);
       if (hasAppDataChanged(mergedData)) {
         notifyDataCallbacks(mergedData);
+        broadcastCrossTabHydration(mergedData, { source: 'legacy' });
       }
     },
     (err: any) => {
@@ -276,6 +380,10 @@ export const initFirestoreRealtimeSync = (): (() => void) => {
       try { unsubscribeLegacyListener(); } catch (e) {}
       unsubscribeLegacyListener = null;
     }
+    primaryUnsubscribes.forEach((unsub) => {
+      try { unsub(); } catch (e) {}
+    });
+    primaryUnsubscribes = [];
   };
 };
 
@@ -326,6 +434,7 @@ export const loadFromFirestore = async (): Promise<AppData | null> => {
     if (hasAppDataChanged(mergedData)) {
       saveDB(mergedData, true, undefined, true);
       notifyDataCallbacks(mergedData);
+      broadcastCrossTabHydration(mergedData, { source: 'loadFromFirestore' });
     }
     notifyConnectionCallbacks(true);
     return mergedData;
@@ -343,7 +452,7 @@ export const fetchInitialStateFromFirestore = loadFromFirestore;
 
 const handleQuotaExceeded = () => {
   if (!isQuotaExceeded) {
-    console.warn('[Firestore Sync] Firestore daily write/read quota or write stream limit reached. Switched to 100% safe Local IndexedDB & Broadcast Sync Mode.');
+    console.warn('[Firestore Sync] Firestore quota reached. Switched to safe Local IndexedDB & Broadcast Sync Mode.');
     isQuotaExceeded = true;
     try {
       if (typeof window !== 'undefined') {
@@ -361,15 +470,18 @@ const handleQuotaExceeded = () => {
       try { unsubscribeLegacyListener(); } catch (e) {}
       unsubscribeLegacyListener = null;
     }
+    primaryUnsubscribes.forEach((unsub) => {
+      try { unsub(); } catch (e) {}
+    });
+    primaryUnsubscribes = [];
 
-    // Disable Firestore network connectivity to silence retry loops & write stream buffer exhaustion
     disableNetwork(db).catch(() => {});
     notifyConnectionCallbacks(false);
   }
 };
 
 /**
- * Asynchronously pushes local updates to Firestore with chunking, smart hash diffing, and quota protection
+ * Asynchronously pushes local updates to Firestore with chunking and entity push
  */
 export const pushToFirestore = (data: AppData): Promise<void> => {
   pendingDataToPush = data;
@@ -386,7 +498,7 @@ export const pushToFirestore = (data: AppData): Promise<void> => {
     pushDebounceTimer = setTimeout(async () => {
       await processPushQueue();
       resolve();
-    }, 2000); // 2000ms debounce to prevent exhausting write streams
+    }, 1500);
   });
 };
 
@@ -403,7 +515,6 @@ const processPushQueue = async () => {
     const newChunkCounts: Record<string, number> = {};
     const manifest: Record<string, number> = {};
 
-    // 1. Calculate chunk counts
     ARRAY_COLLECTIONS.forEach((colKey) => {
       const arr = (cleanData[colKey] as any[]) || [];
       const chunkCount = Math.ceil(arr.length / CHUNK_SIZE) || 1;
@@ -411,7 +522,6 @@ const processPushQueue = async () => {
       newChunkCounts[colKey] = chunkCount;
     });
 
-    // 2. Hash check for meta WITHOUT timestamp so unchanged data doesn't trigger setDoc on every push
     const metaPayloadForHash = {
       type: 'meta',
       masterData: cleanData.masterData,
@@ -437,7 +547,6 @@ const processPushQueue = async () => {
       lastPushedHashes['meta'] = metaHash;
     }
 
-    // 3. Write ONLY array collection chunks that have actually changed
     ARRAY_COLLECTIONS.forEach((colKey) => {
       const arr = (cleanData[colKey] as any[]) || [];
       const chunkCount = manifest[colKey];
@@ -447,7 +556,6 @@ const processPushQueue = async () => {
         const chunkKey = `${colKey}_${i}`;
         const chunkHash = JSON.stringify(chunkItems);
 
-        // Diff check: Only issue setDoc if items in this chunk changed
         if (lastPushedHashes[chunkKey] !== chunkHash) {
           const chunkRef = doc(db, 'appData_chunks', chunkKey);
           writeOperations.push(
@@ -467,7 +575,6 @@ const processPushQueue = async () => {
         }
       }
 
-      // Clean up obsolete chunk documents if count decreased
       const prevCount = previousChunkCounts[colKey] || 0;
       for (let i = chunkCount; i < prevCount; i++) {
         const obsoleteKey = `${colKey}_${i}`;
@@ -476,6 +583,54 @@ const processPushQueue = async () => {
         delete lastPushedHashes[obsoleteKey];
       }
     });
+
+    // Write individual docs for primary collections ONLY if hash changed
+    const pushIfItemChanged = (colName: string, id: string, itemData: any) => {
+      const key = `${colName}_item_${id}`;
+      const hash = JSON.stringify(itemData);
+      if (lastPushedHashes[key] !== hash) {
+        lastPushedHashes[key] = hash;
+        writeOperations.push(
+          pushItemToFirestoreCollection(colName, id, itemData).catch(() => {})
+        );
+      }
+    };
+
+    if (cleanData.roomBookings && Array.isArray(cleanData.roomBookings)) {
+      const recentBookings = cleanData.roomBookings.slice(-20);
+      recentBookings.forEach((b) => {
+        if (b && b.id) {
+          pushIfItemChanged('roomBookings', b.id, b);
+          pushIfItemChanged('booking_ruangan', b.id, b);
+        }
+      });
+    }
+    if (cleanData.patients && Array.isArray(cleanData.patients)) {
+      const recentPatients = cleanData.patients.slice(-20);
+      recentPatients.forEach((p) => {
+        if (p && p.id) {
+          pushIfItemChanged('patients', p.id, p);
+        }
+      });
+    }
+    if (cleanData.financeRecords && Array.isArray(cleanData.financeRecords)) {
+      const recentFinance = cleanData.financeRecords.slice(-20);
+      recentFinance.forEach((f) => {
+        if (f && f.id) {
+          pushIfItemChanged('financeRecords', f.id, f);
+          pushIfItemChanged('financial_reports', f.id, f);
+        }
+      });
+    }
+    if (cleanData.qualityMeasurements && Array.isArray(cleanData.qualityMeasurements)) {
+      const recentQuality = cleanData.qualityMeasurements.slice(-20);
+      recentQuality.forEach((q) => {
+        if (q && q.id) {
+          pushIfItemChanged('qualityMeasurements', q.id, q);
+          pushIfItemChanged('quality_indicators', q.id, q);
+        }
+      });
+    }
 
     previousChunkCounts = newChunkCounts;
     savePushedHashes(lastPushedHashes);
@@ -486,6 +641,7 @@ const processPushQueue = async () => {
     }
 
     notifyConnectionCallbacks(true);
+    broadcastCrossTabHydration(cleanData, { source: 'push' });
   } catch (err: any) {
     if (isResourceOrQuotaError(err)) {
       handleQuotaExceeded();
@@ -529,4 +685,3 @@ export const pushItemToFirestoreCollection = async (
     }
   }
 };
-
