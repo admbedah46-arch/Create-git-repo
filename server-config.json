@@ -1,4 +1,19 @@
 {
-  "appsScriptUrl": "",
-  "enableGoogleSheets": false
+  "appsScriptUrl": "https://script.google.com/macros/s/AKfycbydRSS_JBTGeJryBc0uTckoEjJ1-kQY65ntUbYxLwuuBn80QNNwXreuFj0MVYqF3Q-GLw/exec",
+  "enableGoogleSheets": true,
+  "googleSpreadsheetId": "1R2yjyUUPJheGomLpSWnUW3FvkIlLsZxoCHn_bGaqPDw/edit?gid=80730661#gid=80730661",
+  "appName": "SiMANTAP BEDAH",
+  "appSlogan": "Manajemen Laporan Terpadu & Akurat Ruang Bedah",
+  "logoUrl": "https://lh3.googleusercontent.com/d/14QIUps80b4vgDCL5iaiJpSq5jq_WMM6g",
+  "logoLetterLeftUrl": "",
+  "logoLetterRightUrl": "",
+  "loginWallpaperUrl": "https://lh3.googleusercontent.com/d/1ZyNuBQ7YAVV_iiR3IgR7nUokMfVPZyww",
+  "appWallpaperUrl": "https://lh3.googleusercontent.com/d/1fXUqPGQU2BfOuJnGclJjc-B4_qs1I7UG",
+  "themeColor": "#83dce2",
+  "fontColor": "#000000",
+  "isSidebarAutohide": false,
+  "spreadsheetSyncEnabled": true,
+  "backupIntervalHours": 24,
+  "firebaseFirestoreEnabled": true,
+  "autoBackupToGoogleSheets": true
 }
