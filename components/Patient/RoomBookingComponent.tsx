@@ -87,9 +87,22 @@ const RoomBookingInner: React.FC<RoomBookingProps> = ({
   
   // Safe normalization of data & props
   const safeMasterData = appData?.masterData || masterData || {};
-  const safeBookings = Array.isArray(appData?.roomBookings)
-    ? appData.roomBookings
-    : (Array.isArray(bookings) ? bookings : []);
+  const safeBookings = useMemo(() => {
+    const rawList = [
+      ...(Array.isArray(appData?.booking_ruangan) ? appData.booking_ruangan : []),
+      ...(Array.isArray(appData?.roomBookings) ? appData.roomBookings : []),
+      ...(Array.isArray(bookings) ? bookings : [])
+    ];
+    const seenMap = new Map<string, RoomBooking>();
+    rawList.forEach(b => {
+      if (!b || typeof b !== 'object') return;
+      const key = b.id || (b.noRM && b.bookingDate ? `${b.noRM}_${b.bookingDate}` : null);
+      if (key && !seenMap.has(key)) {
+        seenMap.set(key, b);
+      }
+    });
+    return Array.from(seenMap.values());
+  }, [appData?.booking_ruangan, appData?.roomBookings, bookings]);
 
   const safeOnSaveBooking = onSaveBooking || (() => {});
   const safeOnUpdateStatus = onUpdateBookingStatus || onUpdateStatus || (() => {});
@@ -199,6 +212,15 @@ const RoomBookingInner: React.FC<RoomBookingProps> = ({
     };
 
     safeOnSaveBooking(newBooking);
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('simantap_force_sync'));
+      try {
+        const bc = new BroadcastChannel('simantap_data_sync');
+        bc.postMessage({ type: 'simantap_force_sync', senderId: 'booking_form' });
+        bc.close();
+      } catch (e) {}
+    }
 
     // Reset Form
     setPatientName('');

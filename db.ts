@@ -696,7 +696,7 @@ export const mergeData = (rawLocal: AppData, rawCloud: AppData): AppData => {
     const local = normalizeDatesInDb(JSON.parse(JSON.stringify(rawLocal)));
     const cloud = normalizeDatesInDb(JSON.parse(JSON.stringify(rawCloud)));
     
-    const majorKeys: (keyof AppData)[] = ['patients', 'financeRecords', 'dailyReports', 'nursingReports', 'operations', 'incidentReports', 'operationReports', 'instruments', 'doctorVisits', 'qualityMeasurements', 'roomBookings'];
+    const majorKeys: (keyof AppData)[] = ['patients', 'financeRecords', 'dailyReports', 'nursingReports', 'operations', 'incidentReports', 'operationReports', 'instruments', 'doctorVisits', 'qualityMeasurements', 'roomBookings', 'booking_ruangan'];
     
     majorKeys.forEach(key => {
         if (!Array.isArray(cloud[key])) {
@@ -743,6 +743,7 @@ export const mergeData = (rawLocal: AppData, rawCloud: AppData): AppData => {
         if (item[key] !== undefined && item[key] !== null && String(item[key]).trim() !== '') return String(item[key]);
         if (item.id !== undefined && item.id !== null && String(item.id).trim() !== '') return String(item.id);
         if (item.patientId && item.date) return `${item.patientId}_${item.date}`;
+        if (item.noRM && item.bookingDate) return `${item.noRM}_${item.bookingDate}`;
         return null;
     };
 
@@ -934,7 +935,16 @@ export const mergeData = (rawLocal: AppData, rawCloud: AppData): AppData => {
     const mergedDoctorVisits = mergeList(local.doctorVisits || [], cloud.doctorVisits || []);
     const mergedNursingReports = mergeList(local.nursingReports || [], cloud.nursingReports || []);
     const mergedOperations = mergeList(local.operations || [], cloud.operations || []);
-    const mergedRoomBookings = mergeList(local.roomBookings || [], cloud.roomBookings || []);
+    
+    const localBookings = [
+        ...(Array.isArray(local.roomBookings) ? local.roomBookings : []),
+        ...(Array.isArray((local as any).booking_ruangan) ? (local as any).booking_ruangan : [])
+    ];
+    const cloudBookings = [
+        ...(Array.isArray(cloud.roomBookings) ? cloud.roomBookings : []),
+        ...(Array.isArray((cloud as any).booking_ruangan) ? (cloud as any).booking_ruangan : [])
+    ];
+    const mergedRoomBookings = mergeList(localBookings, cloudBookings);
 
     let finalUsers: any[] = [];
     if (localTs > cloudTs) {
@@ -1047,6 +1057,7 @@ export const mergeData = (rawLocal: AppData, rawCloud: AppData): AppData => {
         financeRecords: mergedFinanceRecords,
         doctorVisits: mergedDoctorVisits,
         roomBookings: mergedRoomBookings,
+        booking_ruangan: mergedRoomBookings,
         deletedIds: mergedDeletedIds,
         masterData: { 
             ...mergedMasterData,
@@ -1248,6 +1259,20 @@ export const cleanAndDeduplicate = (data: AppData): AppData => {
         return true;
     });
 
+    // Deduplicate room bookings
+    const rawBookings = [
+        ...(Array.isArray(data.roomBookings) ? data.roomBookings : []),
+        ...(Array.isArray(data.booking_ruangan) ? data.booking_ruangan : [])
+    ];
+    const seenBookings = new Set<string>();
+    const cleanRoomBookings = rawBookings.filter(b => {
+        if (!b || typeof b !== 'object') return false;
+        const key = b.id || (b.noRM && b.bookingDate ? `${b.noRM}_${b.bookingDate}` : null);
+        if (!key || seenBookings.has(key)) return false;
+        seenBookings.add(key);
+        return true;
+    });
+
     return { 
         ...data, 
         patients: cleanPatients,
@@ -1259,6 +1284,8 @@ export const cleanAndDeduplicate = (data: AppData): AppData => {
         operations: cleanOps,
         incidentReports: cleanIncidents,
         doctorVisits: cleanVisits,
+        roomBookings: cleanRoomBookings,
+        booking_ruangan: cleanRoomBookings,
         masterData: {
             ...data.masterData,
             nurses: cleanNursesList,

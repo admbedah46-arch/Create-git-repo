@@ -791,7 +791,7 @@ function serverMergeData(rawLocal: any, rawCloud: any): any {
 
   // Loosened Data Shield on server-side: only guard if cloudList is completely missing or not an array.
   // If the cloudList is present as an array (even if empty), we accept it as-is!
-  const majorKeys = ['patients', 'financeRecords', 'dailyReports', 'nursingReports', 'operations', 'incidentReports', 'operationReports', 'instruments', 'doctorVisits', 'qualityMeasurements'];
+  const majorKeys = ['patients', 'financeRecords', 'dailyReports', 'nursingReports', 'operations', 'incidentReports', 'operationReports', 'instruments', 'doctorVisits', 'qualityMeasurements', 'roomBookings', 'booking_ruangan'];
   majorKeys.forEach(key => {
     const localList = local[key];
     const cloudList = cloud[key];
@@ -822,6 +822,7 @@ function serverMergeData(rawLocal: any, rawCloud: any): any {
     if (item.id !== undefined && item.id !== null && String(item.id).trim() !== '') return String(item.id);
     if (item.patientId && item.date) return `${item.patientId}_${item.date}`;
     if (item.indicatorId && item.date) return `${item.indicatorId}_${item.date}`;
+    if (item.noRM && item.bookingDate) return `${item.noRM}_${item.bookingDate}`;
     return null;
   };
 
@@ -1069,6 +1070,16 @@ function serverMergeData(rawLocal: any, rawCloud: any): any {
   const mergedDoctorVisits = mergeList(local.doctorVisits || [], cloud.doctorVisits || []);
   const mergedNursingReports = mergeList(local.nursingReports || [], cloud.nursingReports || []);
   const mergedOperations = mergeList(local.operations || [], cloud.operations || []);
+
+  const localBookings = [
+    ...(Array.isArray(local.roomBookings) ? local.roomBookings : []),
+    ...(Array.isArray(local.booking_ruangan) ? local.booking_ruangan : [])
+  ];
+  const cloudBookings = [
+    ...(Array.isArray(cloud.roomBookings) ? cloud.roomBookings : []),
+    ...(Array.isArray(cloud.booking_ruangan) ? cloud.booking_ruangan : [])
+  ];
+  const mergedRoomBookings = mergeList(localBookings, cloudBookings);
 
   let finalUsers: any[] = [];
   if (localTs > cloudTs) {
@@ -1362,6 +1373,8 @@ function serverMergeMasterData(local: any, cloud: any): any {
     operationReports: mergedOperationReports,
     financeRecords: mergedFinanceRecords,
     doctorVisits: mergedDoctorVisits,
+    roomBookings: mergedRoomBookings,
+    booking_ruangan: mergedRoomBookings,
     deletedIds: mergedDeletedIds,
     masterData: { 
       ...mergedMasterData,

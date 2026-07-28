@@ -1,38 +1,38 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer, enableIndexedDbPersistence } from 'firebase/firestore';
-import firebaseConfigJson from './firebase-applet-config.json';
+import { doc, getDocFromServer } from 'firebase/firestore';
+import { 
+  dbPasien, 
+  dbMutu, 
+  dbMaster, 
+  db, 
+  auth, 
+  firebaseConfig, 
+  supabase, 
+  CLOUDFLARE_D1_API, 
+  POCKETBASE_URL, 
+  APPS_SCRIPT_URL,
+  uploadToPocketBase,
+  syncToGoogleAppsScript,
+  fetchFromCloudflareD1
+} from './services/databaseConfig';
 
-export const APP_VERSION = '2.0.0-CLEAN';
+export const APP_VERSION = '2.0.0-HYBRID-CLEAN';
 
-// Explicit Auto-embedded Firebase configuration (Single Source of Truth for Vercel, Cloud Run, Mobile & Web)
-export const firebaseConfig = {
-  projectId: "gen-lang-client-0234581338",
-  appId: "1:359469612868:web:0bc4678953dc87e42da111",
-  apiKey: "AIzaSyC-IQHifzM2wjL6wjM1v-uN52-M6yws-Oo",
-  authDomain: "gen-lang-client-0234581338.firebaseapp.com",
-  firestoreDatabaseId: "ai-studio-simantapbedah-c6a38a36-4082-4d85-9040-78110b8f6ff4",
-  storageBucket: "gen-lang-client-0234581338.firebasestorage.app",
-  messagingSenderId: "359469612868",
-  measurementId: firebaseConfigJson?.measurementId || "",
-  oAuthClientId: firebaseConfigJson?.oAuthClientId || "359469612868-5j1nvgfd6um2vjaqa81pvcnpblvgipbu.apps.googleusercontent.com",
-  recaptchaSiteKey: firebaseConfigJson?.recaptchaSiteKey || ""
+export { 
+  dbPasien, 
+  dbMutu, 
+  dbMaster, 
+  db, 
+  auth, 
+  firebaseConfig, 
+  supabase, 
+  CLOUDFLARE_D1_API, 
+  POCKETBASE_URL, 
+  APPS_SCRIPT_URL,
+  uploadToPocketBase,
+  syncToGoogleAppsScript,
+  fetchFromCloudflareD1
 };
 
-const app = initializeApp(firebaseConfig);
-const dbId = firebaseConfig.firestoreDatabaseId;
-export const db = getFirestore(app, dbId);
-export const auth = getAuth(app);
-
-if (typeof window !== 'undefined') {
-  enableIndexedDbPersistence(db).catch((err) => {
-    if (err.code === 'failed-precondition') {
-      console.warn('[Firestore] Offline persistence warning: Multiple tabs open simultaneously.');
-    } else if (err.code === 'unimplemented') {
-      console.warn('[Firestore] Offline persistence not supported in this browser environment.');
-    }
-  });
-}
 
 export enum OperationType {
   CREATE = 'create',

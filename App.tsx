@@ -33,7 +33,7 @@ import { Button } from './components/Button';
 import { SearchableSelect } from './components/SearchableSelect';
 import { getDB, saveDB, uploadDataBackground, mergeData, getApiUrl, saveApiUrl, syncData, uploadData, registerDeletedId, getDeletedIds, getIsCurrentlyUploading, resilientParse, normalizeDatesInDb, triggerOfflineQueueUpload, getLocalSnapshotFromDB, requestPersistentStorage, generatePermanentUUID, getLatestTimestamp, mergeRecordProperties, TAB_ID, setPendingUploadInDB, hasAppDataChanged, isAppDataContentEqual, checkAndResetCacheOnVersionChange } from './db';
 import { testFirestoreConnection } from './firebase';
-import { initFirestoreRealtimeSync, subscribeDataChange, subscribeConnectionStatus, pushToFirestore, loadFromFirestore, fetchInitialStateFromFirestore } from './firestoreSync';
+import { initFirestoreRealtimeSync, subscribeDataChange, subscribeConnectionStatus, pushToFirestore, loadFromFirestore, fetchInitialStateFromFirestore, broadcastCrossTabHydration, fetchLatestFromFirestore } from './firestoreSync';
 import { INITIAL_DATA } from './constants';
 import { AppData, User, FinanceRecord, IncidentReport, Patient, DailyReportEntry, QualityMeasurement, DependencyLevel, Instrument, OperationReport, DoctorVisitRecord, RoomBooking, getRoomBedStyles, getPaymentMethodStyles, getShiftFromTime } from './types';
 import { 
@@ -239,6 +239,42 @@ const App: React.FC = () => {
       unsubConn();
       unsubData();
       stopFirestoreSync();
+    };
+  }, []);
+
+  // 5. Force re-hydration triggers for tab switching, window focus, and manual force sync events
+  useEffect(() => {
+    const triggerForceSync = () => {
+      console.log('[Sync] Force re-hydration triggered!');
+      loadFromFirestore().then((freshData) => {
+        if (freshData) {
+          setAppData((prev) => {
+            if (isAppDataContentEqual(prev, freshData)) return prev;
+            setLastSyncTime(new Date());
+            return freshData;
+          });
+        }
+      }).catch((e) => console.warn('[Sync] Force re-hydration error:', e));
+    };
+
+    window.addEventListener('simantap_force_sync', triggerForceSync);
+    window.addEventListener('focus', triggerForceSync);
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        triggerForceSync();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Background interval to continuously sync with Firestore every 15 seconds
+    const intervalId = setInterval(triggerForceSync, 15000);
+
+    return () => {
+      window.removeEventListener('simantap_force_sync', triggerForceSync);
+      window.removeEventListener('focus', triggerForceSync);
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(intervalId);
     };
   }, []);
 
@@ -1295,20 +1331,26 @@ const App: React.FC = () => {
       createdByUsername: user?.username || 'user'
     };
 
-    const currentBookings = appData.roomBookings || [];
+    const currentBookings = appData.roomBookings || appData.booking_ruangan || [];
     const updatedBookings = [newBooking, ...currentBookings];
 
     const newData: AppData = {
       ...appData,
-      roomBookings: updatedBookings
+      roomBookings: updatedBookings,
+      booking_ruangan: updatedBookings
     };
 
     handleUpdateAppData(newData, true);
+    pushToFirestore(newData);
+    broadcastCrossTabHydration(newData, { type: 'ROOM_BOOKING_SAVED', bookingId: newBooking.id });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('simantap_force_sync'));
+    }
     notify('Booking ruangan berhasil dibuat!');
   };
 
   const handleUpdateBookingStatus = (id: string, status: RoomBooking['status'], cancellationReason?: string) => {
-    const currentBookings = appData.roomBookings || [];
+    const currentBookings = appData.roomBookings || appData.booking_ruangan || [];
     const updatedBookings = currentBookings.map(b => {
       if (b.id === id) {
         return {
@@ -1323,25 +1365,37 @@ const App: React.FC = () => {
 
     const newData: AppData = {
       ...appData,
-      roomBookings: updatedBookings
+      roomBookings: updatedBookings,
+      booking_ruangan: updatedBookings
     };
 
     handleUpdateAppData(newData, true);
+    pushToFirestore(newData);
+    broadcastCrossTabHydration(newData, { type: 'ROOM_BOOKING_UPDATED', bookingId: id });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('simantap_force_sync'));
+    }
     notify(`Status booking berhasil diperbarui ke: ${status}`);
   };
 
   const handleDeleteRoomBooking = (id: string) => {
-    const currentBookings = appData.roomBookings || [];
+    const currentBookings = appData.roomBookings || appData.booking_ruangan || [];
     const updatedBookings = currentBookings.filter(b => b.id !== id);
 
     registerDeletedId(id);
 
     const newData: AppData = {
       ...appData,
-      roomBookings: updatedBookings
+      roomBookings: updatedBookings,
+      booking_ruangan: updatedBookings
     };
 
     handleUpdateAppData(newData, true);
+    pushToFirestore(newData);
+    broadcastCrossTabHydration(newData, { type: 'ROOM_BOOKING_DELETED', bookingId: id });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('simantap_force_sync'));
+    }
     notify('Data booking ruangan berhasil dihapus.');
   };
 
@@ -2345,7 +2399,7 @@ const App: React.FC = () => {
         return (
           <RoomBookingComponent
             appData={appData}
-            bookings={appData?.roomBookings || []}
+            bookings={appData?.booking_ruangan || appData?.roomBookings || []}
             masterData={safeAppData?.masterData}
             currentUser={user}
             onSaveBooking={handleSaveRoomBooking}

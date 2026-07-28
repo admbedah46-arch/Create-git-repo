@@ -1,10 +1,23 @@
 import { doc, collection, onSnapshot, setDoc, deleteDoc, getDocs, serverTimestamp, disableNetwork, enableNetwork } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, dbPasien, dbMutu, dbMaster } from './firebase';
 import { AppData } from './types';
 import { getDB, saveDB, mergeData, cleanAndDeduplicate, hasAppDataChanged, TAB_ID } from './db';
 
-const FIRESTORE_DOC_PATH = doc(db, 'appData', 'shared_state');
-const CHUNKS_COLLECTION = collection(db, 'appData_chunks');
+export const getDbForCollection = (colName: string) => {
+  if (['patients', 'booking_ruangan', 'roomBookings', 'dailyReports', 'operations', 'nursingReports'].includes(colName)) {
+    return dbPasien;
+  }
+  if (['qualityMeasurements', 'quality_indicators', 'doctorVisits', 'incidentReports', 'operationReports'].includes(colName)) {
+    return dbMutu;
+  }
+  if (['masterData', 'users', 'instruments', 'appData_chunks', 'appData'].includes(colName)) {
+    return dbMaster;
+  }
+  return dbPasien;
+};
+
+const FIRESTORE_DOC_PATH = doc(dbMaster, 'appData', 'shared_state');
+const CHUNKS_COLLECTION = collection(dbMaster, 'appData_chunks');
 
 const ARRAY_COLLECTIONS: (keyof AppData)[] = [
   'patients',
@@ -17,11 +30,13 @@ const ARRAY_COLLECTIONS: (keyof AppData)[] = [
   'qualityMeasurements',
   'instruments',
   'operationReports',
-  'roomBookings'
+  'roomBookings',
+  'booking_ruangan'
 ];
 
 const PRIMARY_COLLECTIONS: { firestoreName: string; appDataKey: keyof AppData }[] = [
   { firestoreName: 'patients', appDataKey: 'patients' },
+  { firestoreName: 'booking_ruangan', appDataKey: 'booking_ruangan' },
   { firestoreName: 'booking_ruangan', appDataKey: 'roomBookings' },
   { firestoreName: 'roomBookings', appDataKey: 'roomBookings' },
   { firestoreName: 'financial_reports', appDataKey: 'financeRecords' },
@@ -137,7 +152,9 @@ let isQuotaExceeded = checkInitialQuotaExceeded();
 
 if (isQuotaExceeded) {
   try {
-    disableNetwork(db).catch(() => {});
+    disableNetwork(dbPasien).catch(() => {});
+    disableNetwork(dbMutu).catch(() => {});
+    disableNetwork(dbMaster).catch(() => {});
   } catch (e) {}
 }
 
@@ -298,7 +315,8 @@ export const initFirestoreRealtimeSync = (): (() => void) => {
   // 2. Primary collections global listeners (patients, booking_ruangan, roomBookings, financial_reports, quality_indicators, etc.)
   PRIMARY_COLLECTIONS.forEach(({ firestoreName, appDataKey }) => {
     try {
-      const colRef = collection(db, firestoreName);
+      const targetDb = getDbForCollection(firestoreName);
+      const colRef = collection(targetDb, firestoreName);
       const unsub = onSnapshot(
         colRef,
         { includeMetadataChanges: true },
@@ -317,7 +335,10 @@ export const initFirestoreRealtimeSync = (): (() => void) => {
 
           if (items.length > 0) {
             const localData = getDB();
-            const incomingPartial: any = { [appDataKey]: items };
+            const incomingPartial: any = {
+              [appDataKey]: items,
+              ...(firestoreName === 'booking_ruangan' || firestoreName === 'roomBookings' ? { booking_ruangan: items, roomBookings: items } : {})
+            };
             const mergedData = mergeData(localData, incomingPartial as AppData);
 
             if (hasAppDataChanged(mergedData)) {
@@ -532,7 +553,7 @@ const processPushQueue = async () => {
 
     if (lastPushedHashes['meta'] !== metaHash) {
       const nowIso = new Date().toISOString();
-      const metaRef = doc(db, 'appData_chunks', 'meta');
+      const metaRef = doc(dbMaster, 'appData_chunks', 'meta');
       writeOperations.push(
         setDoc(
           metaRef,
@@ -550,6 +571,7 @@ const processPushQueue = async () => {
     ARRAY_COLLECTIONS.forEach((colKey) => {
       const arr = (cleanData[colKey] as any[]) || [];
       const chunkCount = manifest[colKey];
+      const targetDb = getDbForCollection(colKey);
 
       for (let i = 0; i < chunkCount; i++) {
         const chunkItems = arr.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
@@ -557,7 +579,7 @@ const processPushQueue = async () => {
         const chunkHash = JSON.stringify(chunkItems);
 
         if (lastPushedHashes[chunkKey] !== chunkHash) {
-          const chunkRef = doc(db, 'appData_chunks', chunkKey);
+          const chunkRef = doc(targetDb, 'appData_chunks', chunkKey);
           writeOperations.push(
             setDoc(
               chunkRef,
@@ -578,7 +600,7 @@ const processPushQueue = async () => {
       const prevCount = previousChunkCounts[colKey] || 0;
       for (let i = chunkCount; i < prevCount; i++) {
         const obsoleteKey = `${colKey}_${i}`;
-        const obsoleteRef = doc(db, 'appData_chunks', obsoleteKey);
+        const obsoleteRef = doc(targetDb, 'appData_chunks', obsoleteKey);
         writeOperations.push(deleteDoc(obsoleteRef).catch(() => {}));
         delete lastPushedHashes[obsoleteKey];
       }
@@ -596,15 +618,18 @@ const processPushQueue = async () => {
       }
     };
 
-    if (cleanData.roomBookings && Array.isArray(cleanData.roomBookings)) {
-      const recentBookings = cleanData.roomBookings.slice(-20);
-      recentBookings.forEach((b) => {
-        if (b && b.id) {
-          pushIfItemChanged('roomBookings', b.id, b);
-          pushIfItemChanged('booking_ruangan', b.id, b);
-        }
-      });
-    }
+    const combinedBookings = [
+      ...(Array.isArray(cleanData.booking_ruangan) ? cleanData.booking_ruangan : []),
+      ...(Array.isArray(cleanData.roomBookings) ? cleanData.roomBookings : [])
+    ];
+    const seenBookingIds = new Set<string>();
+    combinedBookings.forEach((b) => {
+      if (b && b.id && !seenBookingIds.has(b.id)) {
+        seenBookingIds.add(b.id);
+        pushIfItemChanged('booking_ruangan', b.id, b);
+        pushIfItemChanged('roomBookings', b.id, b);
+      }
+    });
     if (cleanData.patients && Array.isArray(cleanData.patients)) {
       const recentPatients = cleanData.patients.slice(-20);
       recentPatients.forEach((p) => {
@@ -667,7 +692,8 @@ export const pushItemToFirestoreCollection = async (
 ): Promise<void> => {
   if (isQuotaExceeded) return;
   try {
-    const itemRef = doc(db, collectionName, itemId);
+    const targetDb = getDbForCollection(collectionName);
+    const itemRef = doc(targetDb, collectionName, itemId);
     await setDoc(
       itemRef,
       {
@@ -685,3 +711,5 @@ export const pushItemToFirestoreCollection = async (
     }
   }
 };
+
+export const fetchLatestFromFirestore = loadFromFirestore;

@@ -177,6 +177,9 @@ export interface RolePermission {
   };
 }
 
+export type DoctorVisit = DoctorVisitRecord;
+export type InventoryItem = Instrument;
+
 export interface MasterData {
   doctors: string[];
   doctorMetadata: Record<string, { ksm: string, category?: DoctorCategory }>;
@@ -194,6 +197,9 @@ export interface MasterData {
   customFields: CustomField[];
   qualityIndicators: QualityIndicator[];
   instrumentCategories?: string[];
+  icd10List?: { code: string; name: string }[];
+  dpjpList?: string[];
+  kamarList?: string[];
   settings?: AppSettings;
   restrictedDrugs?: { drugName: string; maxDays: number; }[];
   rolePermissions?: Record<string, RolePermission>;
@@ -224,6 +230,7 @@ export interface AppData {
   instruments?: Instrument[];
   operationReports?: OperationReport[];
   roomBookings?: RoomBooking[];
+  booking_ruangan?: RoomBooking[];
   deletedIds?: string[];
 }
 
