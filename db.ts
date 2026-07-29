@@ -691,10 +691,11 @@ export const mergeRecordProperties = (primaryItem: any, secondaryItem: any): any
  */
 export const mergeData = (rawLocal: AppData, rawCloud: AppData): AppData => {
     if (!rawCloud) return rawLocal;
+    if (!rawLocal) return rawCloud;
 
-    // Standardize all dates immediately in both datasets to prevent key misalignment and accidental filtering out of items!
-    const local = normalizeDatesInDb(JSON.parse(JSON.stringify(rawLocal)));
-    const cloud = normalizeDatesInDb(JSON.parse(JSON.stringify(rawCloud)));
+    // Use direct object references instead of heavy deep JSON serialization
+    const local = rawLocal;
+    const cloud = rawCloud;
     
     const majorKeys: (keyof AppData)[] = ['patients', 'financeRecords', 'dailyReports', 'nursingReports', 'operations', 'incidentReports', 'operationReports', 'instruments', 'doctorVisits', 'qualityMeasurements', 'roomBookings', 'booking_ruangan'];
     
@@ -836,7 +837,7 @@ export const mergeData = (rawLocal: AppData, rawCloud: AppData): AppData => {
     safeCloudReports.forEach(cr => {
         if (cr && cr.patientId && cr.date) {
             const patientIdStr = String(cr.patientId);
-            if (mergedDeletedIds.includes(patientIdStr) || cr.isDeleted || cr.deleted) {
+            if (mergedDeletedIds.includes(patientIdStr) || cr.isDeleted || (cr as any).deleted) {
                 return;
             }
             const key = `${patientIdStr}_${cr.date}`;
@@ -849,7 +850,7 @@ export const mergeData = (rawLocal: AppData, rawCloud: AppData): AppData => {
     safeLocalReports.forEach(lr => {
         if (lr && lr.patientId && lr.date) {
             const patientIdStr = String(lr.patientId);
-            if (mergedDeletedIds.includes(patientIdStr) || lr.isDeleted || lr.deleted) {
+            if (mergedDeletedIds.includes(patientIdStr) || lr.isDeleted || (lr as any).deleted) {
                 return;
             }
 
@@ -1297,7 +1298,7 @@ export const cleanAndDeduplicate = (data: AppData): AppData => {
 
 export const getDB = (): AppData => {
   if (inMemoryDB) {
-    return JSON.parse(JSON.stringify(inMemoryDB));
+    return inMemoryDB;
   }
   let existing = localStorage.getItem(DB_KEY);
   if (!existing) {
@@ -1380,7 +1381,7 @@ export const getDB = (): AppData => {
       }
 
       inMemoryDB = cleanAndDeduplicate(baseData);
-      return JSON.parse(JSON.stringify(inMemoryDB));
+      return inMemoryDB;
     } catch (e) {
       console.error("Critical error parsing local database cache, trying to rescue data:", e);
       // Attempt to retrieve from sessionStorage backup
@@ -1449,20 +1450,9 @@ export const checkAndResetCacheOnVersionChange = (): boolean => {
     const savedVer = localStorage.getItem('APP_VERSION') || localStorage.getItem('simantap_sync_version_key');
 
     if (savedVer !== RECONCILE_VERSION_KEY) {
-      console.log(`[Version Migration] Version update detected. Clearing stale cache and deleting IndexedDB for version ${RECONCILE_VERSION_KEY}...`);
+      console.log(`[Version Migration] Version update detected (${savedVer} -> ${RECONCILE_VERSION_KEY}). Preserving all medical data and updating version keys...`);
       
       const savedUser = localStorage.getItem('surgihub_user') || sessionStorage.getItem('surgihub_user');
-      
-      try {
-        localStorage.clear();
-      } catch (e) {}
-
-      try {
-        if (window.indexedDB) {
-          window.indexedDB.deleteDatabase('surgihub_offline_db');
-          window.indexedDB.deleteDatabase('pending_uploads');
-        }
-      } catch (e) {}
 
       try {
         localStorage.setItem('APP_VERSION', RECONCILE_VERSION_KEY);
@@ -1476,7 +1466,7 @@ export const checkAndResetCacheOnVersionChange = (): boolean => {
       return true;
     }
   } catch (e) {
-    console.warn('[Cache Reset] Notice:', e);
+    console.warn('[Version Migration] Notice:', e);
   }
   return false;
 };
@@ -1572,99 +1562,104 @@ export const broadcastLocalTabSync = (data: AppData, delta?: SyncDelta) => {
   }
 };
 
+let saveDbPersistTimer: any = null;
+
 export const saveDB = (data: AppData, skipBroadcast: boolean = false, delta?: SyncDelta, skipFirestorePush: boolean = false): void => {
   data.timestamp = new Date().toISOString();
 
-  const cleanData = cleanAndDeduplicate(data);
-
-  // Save to active state in-memory database
-  inMemoryDB = cleanData;
+  // Instant in-memory reference update (0ms latency for UI)
+  inMemoryDB = data;
 
   try {
-    cachedDataJson = getAppDataContentHash(cleanData);
+    cachedDataJson = getAppDataContentHash(data);
   } catch (e) {}
-
-  // Backup raw base64 images into sessionStorage (NOT localStorage to preserve 5MB quota)
-  if (data.masterData?.settings) {
-    const appWp = data.masterData.settings.appWallpaperUrl;
-    if (appWp && appWp.startsWith('data:image/')) {
-      try { sessionStorage.setItem('surgihub_app_wallpaper_backup', appWp); } catch (e) {}
-    }
-    const loginWp = data.masterData.settings.loginWallpaperUrl;
-    if (loginWp && loginWp.startsWith('data:image/')) {
-      try { sessionStorage.setItem('surgihub_login_wallpaper_backup', loginWp); } catch (e) {}
-    }
-  }
-
-  // Always lock & persist complete snapshot in IndexedDB (no 5MB quota limit!)
-  setLocalSnapshotInDB(cleanData).catch(() => {});
-
-  // Prepare lightweight version for localStorage (strip heavy base64 images)
-  let storageData: AppData = cleanData;
-  if (cleanData.masterData?.settings) {
-    const s = cleanData.masterData.settings;
-    if (s.appWallpaperUrl?.startsWith('data:image/') || s.loginWallpaperUrl?.startsWith('data:image/')) {
-      storageData = {
-        ...cleanData,
-        masterData: {
-          ...cleanData.masterData,
-          settings: {
-            ...cleanData.masterData.settings,
-            appWallpaperUrl: s.appWallpaperUrl?.startsWith('data:image/') ? '' : s.appWallpaperUrl,
-            loginWallpaperUrl: s.loginWallpaperUrl?.startsWith('data:image/') ? '' : s.loginWallpaperUrl
-          }
-        }
-      };
-    }
-  }
-
-  const serialized = JSON.stringify(storageData);
-
-  // Backup in sessionStorage with zero device read/write lag
-  try {
-    sessionStorage.setItem(DB_KEY, serialized);
-  } catch (e) {}
-
-  // Save to localStorage with automatic emergency cleanup & trimming if quota is exceeded
-  try {
-    localStorage.setItem(DB_KEY, serialized);
-  } catch (error: any) {
-    console.warn('LocalStorage save failed, running emergency purge of obsolete keys:', error);
-    purgeOldLocalStorageQuota();
-
-    try {
-      localStorage.setItem(DB_KEY, serialized);
-    } catch (retryError) {
-      // If full dataset exceeds browser localStorage quota (~5MB), save a trimmed lightweight fallback copy in localStorage.
-      // Full data remains 100% intact in IndexedDB, sessionStorage, RAM, and Google Sheets.
-      try {
-        const trimmedData: AppData = {
-          ...storageData,
-          patients: (storageData.patients || []).slice(-150),
-          dailyReports: (storageData.dailyReports || []).slice(-200),
-          nursingReports: (storageData.nursingReports || []).slice(-150),
-          financeRecords: (storageData.financeRecords || []).slice(-150),
-          deletedIds: (storageData.deletedIds || []).slice(-50)
-        };
-        localStorage.setItem(DB_KEY, JSON.stringify(trimmedData));
-        console.info('Saved trimmed database fallback to LocalStorage. Full database safely persisted in IndexedDB.');
-      } catch (finalError) {
-        console.warn('LocalStorage quota exhausted; full database state is safely persisted in IndexedDB.');
-      }
-    }
-  }
 
   // Broadcast instant tab-to-tab sync
   if (!skipBroadcast) {
-    broadcastLocalTabSync(cleanData, delta);
+    broadcastLocalTabSync(data, delta);
   }
 
-  // Push real-time update to Firebase Firestore unless specifically instructed to skip (e.g. from incoming snapshot)
-  if (!skipFirestorePush) {
-    pushToFirestore(cleanData).catch((err) =>
-      console.warn('[Firestore Sync] Non-blocking push error:', err)
-    );
+  // Schedule heavy disk & cloud persistence (debounced to keep main thread 100% free)
+  if (saveDbPersistTimer) {
+    clearTimeout(saveDbPersistTimer);
   }
+
+  saveDbPersistTimer = setTimeout(() => {
+    try {
+      const cleanData = cleanAndDeduplicate(data);
+      inMemoryDB = cleanData;
+
+      // Backup raw base64 images into sessionStorage
+      if (cleanData.masterData?.settings) {
+        const appWp = cleanData.masterData.settings.appWallpaperUrl;
+        if (appWp && appWp.startsWith('data:image/')) {
+          try { sessionStorage.setItem('surgihub_app_wallpaper_backup', appWp); } catch (e) {}
+        }
+        const loginWp = cleanData.masterData.settings.loginWallpaperUrl;
+        if (loginWp && loginWp.startsWith('data:image/')) {
+          try { sessionStorage.setItem('surgihub_login_wallpaper_backup', loginWp); } catch (e) {}
+        }
+      }
+
+      // Always lock & persist complete snapshot in IndexedDB
+      setLocalSnapshotInDB(cleanData).catch(() => {});
+
+      // Prepare lightweight version for localStorage
+      let storageData: AppData = cleanData;
+      if (cleanData.masterData?.settings) {
+        const s = cleanData.masterData.settings;
+        if (s.appWallpaperUrl?.startsWith('data:image/') || s.loginWallpaperUrl?.startsWith('data:image/')) {
+          storageData = {
+            ...cleanData,
+            masterData: {
+              ...cleanData.masterData,
+              settings: {
+                ...cleanData.masterData.settings,
+                appWallpaperUrl: s.appWallpaperUrl?.startsWith('data:image/') ? '' : s.appWallpaperUrl,
+                loginWallpaperUrl: s.loginWallpaperUrl?.startsWith('data:image/') ? '' : s.loginWallpaperUrl
+              }
+            }
+          };
+        }
+      }
+
+      const serialized = JSON.stringify(storageData);
+
+      try {
+        sessionStorage.setItem(DB_KEY, serialized);
+      } catch (e) {}
+
+      try {
+        localStorage.setItem(DB_KEY, serialized);
+      } catch (error: any) {
+        purgeOldLocalStorageQuota();
+
+        try {
+          localStorage.setItem(DB_KEY, serialized);
+        } catch (retryError) {
+          try {
+            const trimmedData: AppData = {
+              ...storageData,
+              patients: (storageData.patients || []).slice(-150),
+              dailyReports: (storageData.dailyReports || []).slice(-200),
+              nursingReports: (storageData.nursingReports || []).slice(-150),
+              financeRecords: (storageData.financeRecords || []).slice(-150),
+              deletedIds: (storageData.deletedIds || []).slice(-50)
+            };
+            localStorage.setItem(DB_KEY, JSON.stringify(trimmedData));
+          } catch (finalError) {}
+        }
+      }
+
+      if (!skipFirestorePush) {
+        pushToFirestore(cleanData).catch((err) =>
+          console.warn('[Firestore Sync] Non-blocking push error:', err)
+        );
+      }
+    } catch (err) {
+      console.warn('[saveDB] Async persistence error:', err);
+    }
+  }, 250);
 };
 
 const getFriendlyErrorMessage = (error: any): string => {

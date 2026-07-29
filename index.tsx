@@ -59,10 +59,9 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
   private handleResetCache = () => {
     try {
-      localStorage.clear();
-      sessionStorage.clear();
+      console.log("[Recovery Mode] Reloading application without clearing medical storage.");
     } catch (e) {
-      console.warn("Could not clear storage:", e);
+      console.warn("Could not handle recovery reload:", e);
     }
     window.location.reload();
   };

@@ -496,6 +496,9 @@ const handleQuotaExceeded = () => {
     });
     primaryUnsubscribes = [];
 
+    disableNetwork(dbPasien).catch(() => {});
+    disableNetwork(dbMutu).catch(() => {});
+    disableNetwork(dbMaster).catch(() => {});
     disableNetwork(db).catch(() => {});
     notifyConnectionCallbacks(false);
   }
@@ -519,7 +522,7 @@ export const pushToFirestore = (data: AppData): Promise<void> => {
     pushDebounceTimer = setTimeout(async () => {
       await processPushQueue();
       resolve();
-    }, 1500);
+    }, 2500);
   });
 };
 
@@ -563,7 +566,9 @@ const processPushQueue = async () => {
             updatedAt: serverTimestamp()
           },
           { merge: true }
-        )
+        ).catch((err) => {
+          if (isResourceOrQuotaError(err)) handleQuotaExceeded();
+        })
       );
       lastPushedHashes['meta'] = metaHash;
     }
@@ -591,7 +596,9 @@ const processPushQueue = async () => {
                 updatedAt: serverTimestamp()
               },
               { merge: true }
-            )
+            ).catch((err) => {
+              if (isResourceOrQuotaError(err)) handleQuotaExceeded();
+            })
           );
           lastPushedHashes[chunkKey] = chunkHash;
         }
@@ -605,57 +612,6 @@ const processPushQueue = async () => {
         delete lastPushedHashes[obsoleteKey];
       }
     });
-
-    // Write individual docs for primary collections ONLY if hash changed
-    const pushIfItemChanged = (colName: string, id: string, itemData: any) => {
-      const key = `${colName}_item_${id}`;
-      const hash = JSON.stringify(itemData);
-      if (lastPushedHashes[key] !== hash) {
-        lastPushedHashes[key] = hash;
-        writeOperations.push(
-          pushItemToFirestoreCollection(colName, id, itemData).catch(() => {})
-        );
-      }
-    };
-
-    const combinedBookings = [
-      ...(Array.isArray(cleanData.booking_ruangan) ? cleanData.booking_ruangan : []),
-      ...(Array.isArray(cleanData.roomBookings) ? cleanData.roomBookings : [])
-    ];
-    const seenBookingIds = new Set<string>();
-    combinedBookings.forEach((b) => {
-      if (b && b.id && !seenBookingIds.has(b.id)) {
-        seenBookingIds.add(b.id);
-        pushIfItemChanged('booking_ruangan', b.id, b);
-        pushIfItemChanged('roomBookings', b.id, b);
-      }
-    });
-    if (cleanData.patients && Array.isArray(cleanData.patients)) {
-      const recentPatients = cleanData.patients.slice(-20);
-      recentPatients.forEach((p) => {
-        if (p && p.id) {
-          pushIfItemChanged('patients', p.id, p);
-        }
-      });
-    }
-    if (cleanData.financeRecords && Array.isArray(cleanData.financeRecords)) {
-      const recentFinance = cleanData.financeRecords.slice(-20);
-      recentFinance.forEach((f) => {
-        if (f && f.id) {
-          pushIfItemChanged('financeRecords', f.id, f);
-          pushIfItemChanged('financial_reports', f.id, f);
-        }
-      });
-    }
-    if (cleanData.qualityMeasurements && Array.isArray(cleanData.qualityMeasurements)) {
-      const recentQuality = cleanData.qualityMeasurements.slice(-20);
-      recentQuality.forEach((q) => {
-        if (q && q.id) {
-          pushIfItemChanged('qualityMeasurements', q.id, q);
-          pushIfItemChanged('quality_indicators', q.id, q);
-        }
-      });
-    }
 
     previousChunkCounts = newChunkCounts;
     savePushedHashes(lastPushedHashes);

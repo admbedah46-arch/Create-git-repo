@@ -16,23 +16,13 @@ export const firebaseConfig = {
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
-// Splitting 3 Database Firestore (AI Shared Quota Multi-Database)
-export const dbPasien = getFirestore(
-  app, 
-  "ai-studio-simantapbedah-c6a38a36-4082-4d85-9040-78110b8f6ff4"
-);
+// Primary Database Firestore Instance
+const primaryDbId = firebaseConfigJson.firestoreDatabaseId || "ai-studio-simantapbedah-c6a38a36-4082-4d85-9040-78110b8f6ff4";
 
-export const dbMutu = getFirestore(
-  app, 
-  "ai-studio-c6a38a36-4082-4d85-9040-78110b8f6ff4"
-);
-
-export const dbMaster = getFirestore(
-  app, 
-  "ai-studio-81a1db97-a7cf-47ba-b04d-289357d49630"
-);
-
-export const db = dbPasien; // Default Fallback
+export const dbPasien = getFirestore(app, primaryDbId);
+export const dbMutu = dbPasien;
+export const dbMaster = dbPasien;
+export const db = dbPasien;
 export const auth = getAuth(app);
 
 // Enable persistence safely on primary db

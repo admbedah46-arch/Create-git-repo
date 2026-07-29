@@ -237,6 +237,7 @@ export interface AppData {
 export interface Patient {
   id: string;
   lastModified?: string;
+  updatedAt?: string;
   noRegister: string;
   noRM: string;
   name: string;
