@@ -1,54 +1,154 @@
 import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore, doc, getDocFromServer, enableIndexedDbPersistence } from 'firebase/firestore';
+import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { createClient } from '@supabase/supabase-js';
 import firebaseConfigJson from '../firebase-applet-config.json';
 
-// 1. Firebase Multi-Database Initialization
-export const firebaseConfig = {
-  apiKey: (import.meta as any).env?.VITE_FIREBASE_API_KEY || "AIzaSyC-IQHifzM2wjL6wjM1v-uN52-M6yws-Oo",
-  authDomain: (import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN || "gen-lang-client-0234581338.firebaseapp.com",
-  projectId: (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID || "gen-lang-client-0234581338",
-  storageBucket: (import.meta as any).env?.VITE_FIREBASE_STORAGE_BUCKET || "gen-lang-client-0234581338.firebasestorage.app",
-  messagingSenderId: (import.meta as any).env?.VITE_FIREBASE_MESSAGING_SENDER_ID || "359469612868",
-  appId: (import.meta as any).env?.VITE_FIREBASE_APP_ID || "1:359469612868:web:0bc4678953dc87e42da111"
+// Helper to safely extract environment properties without crashing
+const getEnvVar = (key: string, fallback: string = ''): string => {
+  try {
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+      const val = (import.meta as any).env[key];
+      if (val && typeof val === 'string' && val.trim() !== '') {
+        return val.trim();
+      }
+    }
+    if (typeof process !== 'undefined' && process.env) {
+      const val = process.env[key];
+      if (val && typeof val === 'string' && val.trim() !== '') {
+        return val.trim();
+      }
+    }
+  } catch (e) {}
+  return fallback;
 };
 
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+// 4 PILAR SERVER & DIRECT ENGINE DATABASE CONFIGURATION
+export const DATABASE_CONFIG = {
+  // PILAR 1: Google Spreadsheet Utama & Apps Script
+  GAS: {
+    SPREADSHEET_ID: getEnvVar('VITE_GOOGLE_SPREADSHEET_ID', '1R2yjyUUPJheGomLpSWnUW3FvkIlLsZxoCHn_bGaqPDw'),
+    WEB_APP_URL: getEnvVar('VITE_GAS_URL', getEnvVar('VITE_APPS_SCRIPT_URL', 'https://script.google.com/macros/s/AKfycbydRSS_JBTGeJryBc0uTckoEjJ1-kQY65ntUbYxLwuuBn80QNNwXreuFj0MVYqF3Q-GLw/exec')),
+  },
+
+  // PILAR 2: Firebase (Realtime Database & Authentication)
+  FIREBASE: {
+    apiKey: getEnvVar('VITE_FIREBASE_API_KEY', (firebaseConfigJson as any)?.apiKey || 'AIzaSyC-IQHifzM2wjL6wjM1v-uN52-M6yws-Oo'),
+    authDomain: getEnvVar('VITE_FIREBASE_AUTH_DOMAIN', (firebaseConfigJson as any)?.authDomain || 'gen-lang-client-0234581338.firebaseapp.com'),
+    projectId: getEnvVar('VITE_FIREBASE_PROJECT_ID', (firebaseConfigJson as any)?.projectId || 'gen-lang-client-0234581338'),
+    storageBucket: getEnvVar('VITE_FIREBASE_STORAGE_BUCKET', (firebaseConfigJson as any)?.storageBucket || 'gen-lang-client-0234581338.firebasestorage.app'),
+    messagingSenderId: getEnvVar('VITE_FIREBASE_MESSAGING_SENDER_ID', (firebaseConfigJson as any)?.messagingSenderId || '359469612868'),
+    appId: getEnvVar('VITE_FIREBASE_APP_ID', (firebaseConfigJson as any)?.appId || '1:359469612868:web:0bc4678953dc87e42da111'),
+  },
+
+  // PILAR 3: Supabase (Relational Cloud Database)
+  SUPABASE: {
+    url: getEnvVar('VITE_SUPABASE_URL', 'https://flreglddjsyxypjfalqz.supabase.co'),
+    anonKey: getEnvVar('VITE_SUPABASE_ANON_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZscmVnbGRkanN5eHlwamZhbHF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUyNzM2OTMsImV4cCI6MjEwMDg0OTY5M30.N3gwF73WxPTEyrV6WBk2FHADa42fQVRxh22Dqh5pnpM'),
+  },
+
+  // PILAR 4: Direct Google AI Studio Execution
+  AI_STUDIO: {
+    apiKey: getEnvVar('GEMINI_API_KEY', getEnvVar('VITE_GEMINI_API_KEY', '')),
+    model: 'gemini-2.5-flash',
+  }
+};
+
+// 1. Firebase Multi-Database Initialization
+export const firebaseConfig = DATABASE_CONFIG.FIREBASE;
+
+let app: any = null;
+try {
+  app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+} catch (error) {
+  console.warn('[databaseConfig] Firebase app initialization error fallback:', error);
+}
 
 // Primary Database Firestore Instance
-const primaryDbId = firebaseConfigJson.firestoreDatabaseId || "ai-studio-simantapbedah-c6a38a36-4082-4d85-9040-78110b8f6ff4";
+let primaryDbId = "ai-studio-simantapbedah-c6a38a36-4082-4d85-9040-78110b8f6ff4";
+try {
+  if (firebaseConfigJson && (firebaseConfigJson as any).firestoreDatabaseId) {
+    primaryDbId = (firebaseConfigJson as any).firestoreDatabaseId;
+  }
+} catch (e) {}
 
-export const dbPasien = getFirestore(app, primaryDbId);
+let firestoreInstance: any = null;
+try {
+  firestoreInstance = app ? getFirestore(app, primaryDbId) : getFirestore();
+} catch (error) {
+  console.warn('[databaseConfig] getFirestore with custom db ID failed, trying default:', error);
+  try {
+    firestoreInstance = app ? getFirestore(app) : getFirestore();
+  } catch (err2) {
+    console.warn('[databaseConfig] getFirestore fallback failed:', err2);
+    firestoreInstance = {} as any;
+  }
+}
+
+export const dbPasien = firestoreInstance;
 export const dbMutu = dbPasien;
 export const dbMaster = dbPasien;
 export const db = dbPasien;
-export const auth = getAuth(app);
+
+let authInstance: any = null;
+try {
+  authInstance = app ? getAuth(app) : ({} as any);
+} catch (error) {
+  console.warn('[databaseConfig] getAuth initialization fallback:', error);
+  authInstance = {} as any;
+}
+export const auth = authInstance;
 
 // Enable persistence safely on primary db
-if (typeof window !== 'undefined') {
-  enableIndexedDbPersistence(dbPasien).catch((err) => {
-    if (err.code === 'failed-precondition') {
-      console.warn('[Firestore dbPasien] Offline persistence warning: Multiple tabs open.');
-    } else if (err.code === 'unimplemented') {
-      console.warn('[Firestore dbPasien] Persistence not supported.');
-    }
-  });
+if (typeof window !== 'undefined' && dbPasien && typeof dbPasien.type === 'string') {
+  try {
+    enableIndexedDbPersistence(dbPasien).catch((err) => {
+      if (err.code === 'failed-precondition') {
+        console.warn('[Firestore dbPasien] Offline persistence warning: Multiple tabs open.');
+      } else if (err.code === 'unimplemented') {
+        console.warn('[Firestore dbPasien] Persistence not supported.');
+      }
+    });
+  } catch (err) {
+    console.warn('[Firestore dbPasien] Persistence setup warning:', err);
+  }
 }
 
-// 2. Supabase Client Initialization (Core Auth & Primary Relational DB)
-const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || "https://your-supabase-url.supabase.co";
-const supabaseAnonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "your-anon-key";
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// 2. Supabase Client Initialization with robust fallback mock
+let supabaseClient: any = null;
+try {
+  if (DATABASE_CONFIG.SUPABASE.url && DATABASE_CONFIG.SUPABASE.anonKey) {
+    supabaseClient = createClient(DATABASE_CONFIG.SUPABASE.url, DATABASE_CONFIG.SUPABASE.anonKey);
+  }
+} catch (error) {
+  console.warn('[databaseConfig] Supabase initialization fallback:', error);
+}
 
-// 3. Cloudflare D1 / Worker Endpoint (High-Traffic Read-Heavy API)
-export const CLOUDFLARE_D1_API = (import.meta as any).env?.VITE_CLOUDFLARE_D1_URL || "https://your-worker.workers.dev";
+if (!supabaseClient) {
+  supabaseClient = {
+    from: () => ({
+      select: () => Promise.resolve({ data: [], error: null }),
+      insert: () => Promise.resolve({ data: null, error: null }),
+      update: () => Promise.resolve({ data: null, error: null }),
+      delete: () => Promise.resolve({ data: null, error: null }),
+    }),
+    auth: {
+      getUser: () => Promise.resolve({ data: { user: null }, error: null }),
+      getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+    }
+  };
+}
 
-// 4. PocketBase Storage Endpoint (File Storage & Attachments)
-export const POCKETBASE_URL = (import.meta as any).env?.VITE_POCKETBASE_URL || "https://your-pocketbase.fly.dev";
+export const supabase = supabaseClient;
 
-// 5. Google Apps Script Web App Endpoint (Export, Reports & Live Spreadsheet Backup)
-export const GOOGLE_APPS_SCRIPT_URL = (import.meta as any).env?.VITE_GAS_URL || (import.meta as any).env?.VITE_APPS_SCRIPT_URL || "https://script.google.com/macros/s/your-script-id/exec";
+// 3. Cloudflare D1 / Worker Endpoint
+export const CLOUDFLARE_D1_API = getEnvVar('VITE_CLOUDFLARE_D1_URL', "https://your-worker.workers.dev");
+
+// 4. PocketBase Storage Endpoint
+export const POCKETBASE_URL = getEnvVar('VITE_POCKETBASE_URL', "https://your-pocketbase.fly.dev");
+
+// 5. Google Apps Script Web App Endpoint
+export const GOOGLE_APPS_SCRIPT_URL = DATABASE_CONFIG.GAS.WEB_APP_URL;
 export const APPS_SCRIPT_URL = GOOGLE_APPS_SCRIPT_URL;
 
 // Utility helper for Cloudflare D1 Worker requests

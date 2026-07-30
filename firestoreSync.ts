@@ -117,7 +117,8 @@ const checkInitialQuotaExceeded = (): boolean => {
       const val = localStorage.getItem('simantap_firestore_quota_exceeded') || sessionStorage.getItem('simantap_firestore_quota_exceeded');
       if (val) {
         const timestamp = parseInt(val, 10);
-        if (Date.now() - timestamp < 12 * 3600 * 1000) {
+        // Quota resets daily (24 hours)
+        if (Date.now() - timestamp < 24 * 3600 * 1000) {
           return true;
         } else {
           localStorage.removeItem('simantap_firestore_quota_exceeded');
@@ -134,13 +135,15 @@ const isResourceOrQuotaError = (err: any): boolean => {
   const str = (String(err?.code || '') + ' ' + String(err?.message || '') + ' ' + String(err || '')).toLowerCase();
   return (
     str.includes('resource-exhausted') ||
+    str.includes('resource_exhausted') ||
     str.includes('quota') ||
     str.includes('exhausted') ||
     str.includes('overloading') ||
     str.includes('write stream') ||
     str.includes('limit exceeded') ||
     str.includes('free daily write') ||
-    str.includes('359469612868')
+    str.includes('359469612868') ||
+    str.includes('429')
   );
 };
 
@@ -155,6 +158,7 @@ if (isQuotaExceeded) {
     disableNetwork(dbPasien).catch(() => {});
     disableNetwork(dbMutu).catch(() => {});
     disableNetwork(dbMaster).catch(() => {});
+    disableNetwork(db).catch(() => {});
   } catch (e) {}
 }
 
@@ -534,8 +538,7 @@ const processPushQueue = async () => {
 
   try {
     const cleanData = cleanAndDeduplicate(currentData);
-
-    const writeOperations: Promise<void>[] = [];
+    let writtenCount = 0;
     const newChunkCounts: Record<string, number> = {};
     const manifest: Record<string, number> = {};
 
@@ -554,11 +557,11 @@ const processPushQueue = async () => {
     };
     const metaHash = JSON.stringify(metaPayloadForHash);
 
-    if (lastPushedHashes['meta'] !== metaHash) {
+    if (lastPushedHashes['meta'] !== metaHash && !isQuotaExceeded) {
       const nowIso = new Date().toISOString();
       const metaRef = doc(dbMaster, 'appData_chunks', 'meta');
-      writeOperations.push(
-        setDoc(
+      try {
+        await setDoc(
           metaRef,
           {
             ...metaPayloadForHash,
@@ -566,27 +569,33 @@ const processPushQueue = async () => {
             updatedAt: serverTimestamp()
           },
           { merge: true }
-        ).catch((err) => {
-          if (isResourceOrQuotaError(err)) handleQuotaExceeded();
-        })
-      );
-      lastPushedHashes['meta'] = metaHash;
+        );
+        lastPushedHashes['meta'] = metaHash;
+        writtenCount++;
+      } catch (err: any) {
+        if (isResourceOrQuotaError(err)) {
+          handleQuotaExceeded();
+          return;
+        }
+      }
     }
 
-    ARRAY_COLLECTIONS.forEach((colKey) => {
+    for (const colKey of ARRAY_COLLECTIONS) {
+      if (isQuotaExceeded) break;
       const arr = (cleanData[colKey] as any[]) || [];
       const chunkCount = manifest[colKey];
       const targetDb = getDbForCollection(colKey);
 
       for (let i = 0; i < chunkCount; i++) {
+        if (isQuotaExceeded) break;
         const chunkItems = arr.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
         const chunkKey = `${colKey}_${i}`;
         const chunkHash = JSON.stringify(chunkItems);
 
         if (lastPushedHashes[chunkKey] !== chunkHash) {
           const chunkRef = doc(targetDb, 'appData_chunks', chunkKey);
-          writeOperations.push(
-            setDoc(
+          try {
+            await setDoc(
               chunkRef,
               {
                 type: colKey,
@@ -596,33 +605,46 @@ const processPushQueue = async () => {
                 updatedAt: serverTimestamp()
               },
               { merge: true }
-            ).catch((err) => {
-              if (isResourceOrQuotaError(err)) handleQuotaExceeded();
-            })
-          );
-          lastPushedHashes[chunkKey] = chunkHash;
+            );
+            lastPushedHashes[chunkKey] = chunkHash;
+            writtenCount++;
+          } catch (err: any) {
+            if (isResourceOrQuotaError(err)) {
+              handleQuotaExceeded();
+              break;
+            }
+          }
         }
       }
 
       const prevCount = previousChunkCounts[colKey] || 0;
       for (let i = chunkCount; i < prevCount; i++) {
+        if (isQuotaExceeded) break;
         const obsoleteKey = `${colKey}_${i}`;
         const obsoleteRef = doc(targetDb, 'appData_chunks', obsoleteKey);
-        writeOperations.push(deleteDoc(obsoleteRef).catch(() => {}));
-        delete lastPushedHashes[obsoleteKey];
+        try {
+          await deleteDoc(obsoleteRef);
+          delete lastPushedHashes[obsoleteKey];
+        } catch (err: any) {
+          if (isResourceOrQuotaError(err)) {
+            handleQuotaExceeded();
+            break;
+          }
+        }
       }
-    });
+    }
 
     previousChunkCounts = newChunkCounts;
     savePushedHashes(lastPushedHashes);
 
-    if (writeOperations.length > 0) {
-      await Promise.all(writeOperations);
-      console.log(`[Firestore Sync] Smart push executed: ${writeOperations.length} changed chunk(s) written.`);
+    if (writtenCount > 0) {
+      console.log(`[Firestore Sync] Smart push executed: ${writtenCount} changed chunk(s) written.`);
     }
 
-    notifyConnectionCallbacks(true);
-    broadcastCrossTabHydration(cleanData, { source: 'push' });
+    if (!isQuotaExceeded) {
+      notifyConnectionCallbacks(true);
+      broadcastCrossTabHydration(cleanData, { source: 'push' });
+    }
   } catch (err: any) {
     if (isResourceOrQuotaError(err)) {
       handleQuotaExceeded();

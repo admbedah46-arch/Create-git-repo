@@ -93,8 +93,13 @@ export async function testFirestoreConnection() {
     console.log('[Firestore] Successfully verified connection to Cloud Firestore.');
   } catch (error) {
     const msg = String(error || '').toLowerCase();
-    if (msg.includes('offline') || msg.includes('quota') || msg.includes('resource-exhausted')) {
+    if (msg.includes('offline') || msg.includes('quota') || msg.includes('resource-exhausted') || msg.includes('limit exceeded') || msg.includes('359469612868') || msg.includes('429')) {
       console.log('[Firestore] Network offline or quota limit reached; operating in local mode.');
+      try {
+        const nowStr = Date.now().toString();
+        localStorage.setItem('simantap_firestore_quota_exceeded', nowStr);
+        sessionStorage.setItem('simantap_firestore_quota_exceeded', nowStr);
+      } catch (e) {}
     } else {
       console.warn('[Firestore] Connection test notice:', error);
     }

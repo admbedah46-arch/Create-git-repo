@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@google/genai": "^2.8.0",
+    "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.110.9",
     "@tailwindcss/vite": "^4.2.4",
     "@types/cors": "^2.8.19",
@@ -25,6 +26,7 @@
     "firebase": "^12.16.0",
     "google-auth-library": "^10.6.2",
     "google-spreadsheet": "^5.2.0",
+    "idb": "^8.0.3",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "lucide-react": "^0.562.0",

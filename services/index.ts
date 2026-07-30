@@ -7,4 +7,6 @@ export * from './patientService';
 export * from './bookingService';
 export * from './mutuService';
 export * from './masterDataService';
-
+export * from './aiService';
+export * from './indexedDbService';
+export * from './realtimeSyncService';

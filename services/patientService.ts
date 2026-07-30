@@ -2,10 +2,11 @@ import { Patient } from '../types';
 import { getDB, saveDB, registerDeletedId, uploadDataBackground } from '../db';
 import { pushItemToFirestoreCollection } from '../firestoreSync';
 import { googleAppsScriptService } from './googleAppsScriptService';
+import { pushRealtimeUpdateDebounced } from './realtimeSyncService';
 
 /**
  * Patient Service with Zero Data Loss 3-Layer Hybrid Persistence Architecture
- * Lapis 1: Realtime write to Firestore Cloud
+ * Lapis 1: Realtime write to Firestore Cloud & Realtime Database Signal
  * Lapis 2: Offline-First IndexedDB & Local Storage Cache (Merge-Only)
  * Lapis 3: Persistent Background Sync Queue
  * Auto-Backup: Realtime background push to Google Sheets
@@ -45,6 +46,9 @@ export const patientService = {
     db.patients.push(newPatient);
     saveDB(db);
 
+    // Broadcast instant multi-device Realtime signal
+    pushRealtimeUpdateDebounced('sensus_bedah/patients', { patient: newPatient, action: 'CREATE' }, 300);
+
     // Lapis 1: Realtime Push to Cloud Firestore (Single Entity Write with Merge)
     try {
       await pushItemToFirestoreCollection('patients', newPatient.id, newPatient);
@@ -82,6 +86,9 @@ export const patientService = {
     db.patients[idx] = updatedPatient;
     saveDB(db);
 
+    // Broadcast instant multi-device Realtime signal
+    pushRealtimeUpdateDebounced('sensus_bedah/patients', { patient: updatedPatient, action: 'UPDATE' }, 300);
+
     // Lapis 1: Realtime Push to Cloud Firestore
     try {
       await pushItemToFirestoreCollection('patients', updatedPatient.id, updatedPatient);
@@ -109,7 +116,11 @@ export const patientService = {
     db.patients = db.patients.filter((p) => String(p.id) !== String(id));
     saveDB(db);
 
+    // Broadcast instant multi-device Realtime signal
+    pushRealtimeUpdateDebounced('sensus_bedah/patients', { patientId: id, action: 'DELETE' }, 300);
+
     uploadDataBackground();
     return true;
   }
 };
+

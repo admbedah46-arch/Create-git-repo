@@ -2,6 +2,7 @@ import { RoomBooking } from '../types';
 import { getDB, saveDB, registerDeletedId, uploadDataBackground } from '../db';
 import { pushItemToFirestoreCollection } from '../firestoreSync';
 import { googleAppsScriptService } from './googleAppsScriptService';
+import { pushRealtimeUpdateDebounced } from './realtimeSyncService';
 
 /**
  * Booking Service with Zero Data Loss 3-Layer Hybrid Persistence Architecture
@@ -41,6 +42,9 @@ export const bookingService = {
 
     // Lapis 2: Save Local Cache
     saveDB(db);
+
+    // Broadcast instant multi-device Realtime signal
+    pushRealtimeUpdateDebounced('sensus_bedah/room_bookings', { booking: newBooking, action: 'CREATE' }, 300);
 
     // Lapis 1: Realtime write to Firestore
     try {
@@ -86,6 +90,9 @@ export const bookingService = {
     // Lapis 2: Local Cache
     saveDB(db);
 
+    // Broadcast instant multi-device Realtime signal
+    pushRealtimeUpdateDebounced('sensus_bedah/room_bookings', { booking: updatedBooking, action: 'UPDATE' }, 300);
+
     // Lapis 1: Firestore Realtime
     try {
       await pushItemToFirestoreCollection('booking_ruangan', updatedBooking.id, updatedBooking);
@@ -115,7 +122,12 @@ export const bookingService = {
     }
 
     saveDB(db);
+
+    // Broadcast instant multi-device Realtime signal
+    pushRealtimeUpdateDebounced('sensus_bedah/room_bookings', { bookingId: id, action: 'DELETE' }, 300);
+
     uploadDataBackground();
     return true;
   }
 };
+

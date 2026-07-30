@@ -1,5 +1,5 @@
 
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React, { Component, ErrorInfo, ReactNode, Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
@@ -53,6 +53,26 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     console.error("Uncaught error in SiMANTAP app:", error, errorInfo);
   }
 
+  componentDidMount() {
+    window.addEventListener('error', this.handleWindowError);
+    window.addEventListener('unhandledrejection', this.handleUnhandledRejection);
+  }
+
+  componentWillUnmount() {
+    window.removeEventListener('error', this.handleWindowError);
+    window.removeEventListener('unhandledrejection', this.handleUnhandledRejection);
+  }
+
+  private handleWindowError = (event: ErrorEvent) => {
+    if (event.error) {
+      console.warn('[Global Error Handler]', event.error);
+    }
+  };
+
+  private handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+    console.warn('[Unhandled Promise Rejection]', event.reason);
+  };
+
   private handleReload = () => {
     window.location.reload();
   };
@@ -60,6 +80,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   private handleResetCache = () => {
     try {
       console.log("[Recovery Mode] Reloading application without clearing medical storage.");
+      sessionStorage.clear();
     } catch (e) {
       console.warn("Could not handle recovery reload:", e);
     }
@@ -166,6 +187,31 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 }
 
+const LoadingFallback = () => (
+  <div style={{
+    minHeight: '100vh',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8fafc',
+    fontFamily: 'system-ui, -apple-system, sans-serif'
+  }}>
+    <div style={{
+      width: '40px',
+      height: '40px',
+      border: '4px solid #e2e8f0',
+      borderTopColor: '#0284c7',
+      borderRadius: '50%',
+      animation: 'spin 1s linear infinite'
+    }} />
+    <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+    <p style={{ marginTop: '1rem', color: '#64748b', fontSize: '0.875rem', fontWeight: 600 }}>
+      Memuat SiMANTAP Bedah...
+    </p>
+  </div>
+);
+
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error("Could not find root element to mount to");
@@ -175,7 +221,9 @@ const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
     <ErrorBoundary>
-      <App />
+      <Suspense fallback={<LoadingFallback />}>
+        <App />
+      </Suspense>
     </ErrorBoundary>
   </React.StrictMode>
 );
