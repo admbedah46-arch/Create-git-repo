@@ -1,16 +1,16 @@
-import { doc, collection, onSnapshot, setDoc, deleteDoc, getDocs, serverTimestamp, disableNetwork, enableNetwork } from 'firebase/firestore';
-import { db, dbPasien, dbMutu, dbMaster } from './firebase';
+import { doc, collection, onSnapshot, setDoc, deleteDoc, getDocs, getDoc, serverTimestamp, disableNetwork, enableNetwork } from 'firebase/firestore';
+import { db, dbPasien, dbMutu, dbMaster, enableFirestoreNetwork, disableFirestoreNetwork } from './firebase';
 import { AppData } from './types';
-import { getDB, saveDB, mergeData, cleanAndDeduplicate, hasAppDataChanged, TAB_ID } from './db';
+import { getDB, saveDB, mergeData, cleanAndDeduplicate, hasAppDataChanged, TAB_ID, syncData } from './db';
 
 export const getDbForCollection = (colName: string) => {
   if (['patients', 'booking_ruangan', 'roomBookings', 'dailyReports', 'operations', 'nursingReports'].includes(colName)) {
     return dbPasien;
   }
-  if (['qualityMeasurements', 'quality_indicators', 'doctorVisits', 'incidentReports', 'operationReports'].includes(colName)) {
+  if (['qualityMeasurements', 'quality_indicators', 'doctorVisits', 'incidentReports', 'operationReports', 'financial_reports', 'financeRecords'].includes(colName)) {
     return dbMutu;
   }
-  if (['masterData', 'users', 'instruments', 'appData_chunks', 'appData'].includes(colName)) {
+  if (['masterData', 'master_data', 'users', 'instruments', 'appData_chunks', 'appData'].includes(colName)) {
     return dbMaster;
   }
   return dbPasien;
@@ -34,16 +34,34 @@ const ARRAY_COLLECTIONS: (keyof AppData)[] = [
   'booking_ruangan'
 ];
 
-const PRIMARY_COLLECTIONS: { firestoreName: string; appDataKey: keyof AppData }[] = [
-  { firestoreName: 'patients', appDataKey: 'patients' },
-  { firestoreName: 'booking_ruangan', appDataKey: 'booking_ruangan' },
-  { firestoreName: 'booking_ruangan', appDataKey: 'roomBookings' },
-  { firestoreName: 'roomBookings', appDataKey: 'roomBookings' },
-  { firestoreName: 'financial_reports', appDataKey: 'financeRecords' },
-  { firestoreName: 'financeRecords', appDataKey: 'financeRecords' },
-  { firestoreName: 'quality_indicators', appDataKey: 'qualityMeasurements' },
-  { firestoreName: 'qualityMeasurements', appDataKey: 'qualityMeasurements' }
+const UNIQUE_COLLECTIONS: { firestoreName: string; appDataKeys: (keyof AppData)[] }[] = [
+  { firestoreName: 'patients', appDataKeys: ['patients'] },
+  { firestoreName: 'booking_ruangan', appDataKeys: ['booking_ruangan', 'roomBookings'] },
+  { firestoreName: 'roomBookings', appDataKeys: ['roomBookings', 'booking_ruangan'] },
+  { firestoreName: 'financial_reports', appDataKeys: ['financeRecords'] },
+  { firestoreName: 'financeRecords', appDataKeys: ['financeRecords'] },
+  { firestoreName: 'quality_indicators', appDataKeys: ['qualityMeasurements'] },
+  { firestoreName: 'qualityMeasurements', appDataKeys: ['qualityMeasurements'] },
+  { firestoreName: 'dailyReports', appDataKeys: ['dailyReports'] },
+  { firestoreName: 'nursingReports', appDataKeys: ['nursingReports'] },
+  { firestoreName: 'operations', appDataKeys: ['operations'] },
+  { firestoreName: 'doctorVisits', appDataKeys: ['doctorVisits'] },
+  { firestoreName: 'incidentReports', appDataKeys: ['incidentReports'] },
+  { firestoreName: 'operationReports', appDataKeys: ['operationReports'] },
+  { firestoreName: 'instruments', appDataKeys: ['instruments'] },
+  { firestoreName: 'masterData', appDataKeys: ['masterData'] },
+  { firestoreName: 'master_data', appDataKeys: ['masterData'] }
 ];
+
+const uniqueCollectionMap = new Map<string, (keyof AppData)[]>();
+UNIQUE_COLLECTIONS.forEach(({ firestoreName, appDataKeys }) => {
+  const existing = uniqueCollectionMap.get(firestoreName) || [];
+  uniqueCollectionMap.set(firestoreName, Array.from(new Set([...existing, ...appDataKeys])));
+});
+
+const PRIMARY_COLLECTIONS: { firestoreName: string; appDataKey: keyof AppData }[] = UNIQUE_COLLECTIONS.flatMap(
+  item => item.appDataKeys.map(appDataKey => ({ firestoreName: item.firestoreName, appDataKey }))
+);
 
 export const DATA_SYNC_CHANNEL_NAME = 'simantap_data_sync';
 let simantapDataSyncBc: BroadcastChannel | null = null;
@@ -112,27 +130,18 @@ const savePushedHashes = (hashes: Record<string, string>) => {
 };
 
 const checkInitialQuotaExceeded = (): boolean => {
-  try {
-    if (typeof window !== 'undefined') {
-      const val = localStorage.getItem('simantap_firestore_quota_exceeded') || sessionStorage.getItem('simantap_firestore_quota_exceeded');
-      if (val) {
-        const timestamp = parseInt(val, 10);
-        // Quota resets daily (24 hours)
-        if (Date.now() - timestamp < 24 * 3600 * 1000) {
-          return true;
-        } else {
-          localStorage.removeItem('simantap_firestore_quota_exceeded');
-          sessionStorage.removeItem('simantap_firestore_quota_exceeded');
-        }
-      }
-    }
-  } catch (e) {}
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem('simantap_firestore_quota_exceeded');
+      sessionStorage.removeItem('simantap_firestore_quota_exceeded');
+    } catch (e) {}
+  }
   return false;
 };
 
 const isResourceOrQuotaError = (err: any): boolean => {
   if (!err) return false;
-  const str = (String(err?.code || '') + ' ' + String(err?.message || '') + ' ' + String(err || '')).toLowerCase();
+  const str = (String(err?.code || '') + ' ' + String(err?.message || '') + ' ' + String(err || '') + ' ' + String(err?.stack || '')).toLowerCase();
   return (
     str.includes('resource-exhausted') ||
     str.includes('resource_exhausted') ||
@@ -143,7 +152,13 @@ const isResourceOrQuotaError = (err: any): boolean => {
     str.includes('limit exceeded') ||
     str.includes('free daily write') ||
     str.includes('359469612868') ||
-    str.includes('429')
+    str.includes('429') ||
+    str.includes('unexpected state') ||
+    str.includes('c050') ||
+    str.includes('b815') ||
+    str.includes('ca9') ||
+    str.includes('assertion') ||
+    str.includes('targetstate')
   );
 };
 
@@ -153,14 +168,7 @@ let primaryUnsubscribes: (() => void)[] = [];
 let isConnected = false;
 let isQuotaExceeded = checkInitialQuotaExceeded();
 
-if (isQuotaExceeded) {
-  try {
-    disableNetwork(dbPasien).catch(() => {});
-    disableNetwork(dbMutu).catch(() => {});
-    disableNetwork(dbMaster).catch(() => {});
-    disableNetwork(db).catch(() => {});
-  } catch (e) {}
-}
+enableFirestoreNetwork().catch(() => {});
 
 let pendingDataToPush: AppData | null = null;
 let pushDebounceTimer: any = null;
@@ -200,8 +208,11 @@ const notifyDataCallbacks = (data: AppData) => {
   });
 };
 
-const notifyConnectionCallbacks = (status: boolean) => {
+const notifyConnectionCallbacks = (status: boolean, quotaExceeded?: boolean) => {
   isConnected = status;
+  if (quotaExceeded !== undefined) {
+    isQuotaExceeded = quotaExceeded;
+  }
   connectionCallbacks.forEach((cb) => {
     try {
       cb(status, isQuotaExceeded);
@@ -260,9 +271,14 @@ const processSnapshotDocs = (docs: any[]) => {
  * Initializes real-time listener for Firestore global state with includeMetadataChanges: true
  */
 export const initFirestoreRealtimeSync = (): (() => void) => {
-  if (isQuotaExceeded) {
-    return () => {};
+  if (typeof window !== 'undefined') {
+    try {
+      if (sessionStorage.getItem('simantap_firestore_quota_exceeded') === 'true') {
+        isQuotaExceeded = true;
+      }
+    } catch (e) {}
   }
+  enableFirestoreNetwork().catch(() => {});
 
   getSimantapDataSyncChannel();
 
@@ -270,93 +286,117 @@ export const initFirestoreRealtimeSync = (): (() => void) => {
     return unsubscribeChunksListener;
   }
 
-  console.log('[Firestore Sync] Starting real-time snapshot listeners with includeMetadataChanges: true...');
+  console.log('[Firestore Sync] Starting real-time snapshot listeners...');
+
+  primaryUnsubscribes.forEach((unsub) => {
+    try { unsub(); } catch (e) {}
+  });
+  primaryUnsubscribes = [];
 
   let isFirstBatch = true;
 
   // 1. Chunks listener
   unsubscribeChunksListener = onSnapshot(
     CHUNKS_COLLECTION,
-    { includeMetadataChanges: true },
     (snapshot) => {
-      notifyConnectionCallbacks(true);
+      try {
+        notifyConnectionCallbacks(true);
 
-      if (snapshot.empty) {
-        console.log('[Firestore Sync] appData_chunks is empty. Initializing with local DB...');
-        if (!isQuotaExceeded) {
-          const localData = getDB();
-          pushToFirestore(localData).catch((err) =>
-            console.warn('[Firestore Sync] Initial chunk push failed:', err)
-          );
+        if (snapshot.empty) {
+          console.log('[Firestore Sync] appData_chunks is empty. Initializing with local DB...');
+          if (!isQuotaExceeded) {
+            const localData = getDB();
+            pushToFirestore(localData).catch((err) =>
+              console.warn('[Firestore Sync] Initial chunk push failed:', err)
+            );
+          }
+          return;
         }
-        return;
-      }
 
-      if (snapshot.metadata.hasPendingWrites) {
-        return;
-      }
-
-      latestSnapshotDocs = snapshot.docs.map((d) => d.data());
-
-      if (snapshotDebounceTimer) clearTimeout(snapshotDebounceTimer);
-      snapshotDebounceTimer = setTimeout(() => {
-        if (latestSnapshotDocs) {
-          processSnapshotDocs(latestSnapshotDocs);
-          latestSnapshotDocs = null;
+        if (snapshot.metadata?.hasPendingWrites) {
+          return;
         }
-      }, 400);
+
+        latestSnapshotDocs = snapshot.docs.map((d) => d.data());
+
+        if (snapshotDebounceTimer) clearTimeout(snapshotDebounceTimer);
+        snapshotDebounceTimer = setTimeout(() => {
+          if (latestSnapshotDocs) {
+            processSnapshotDocs(latestSnapshotDocs);
+            latestSnapshotDocs = null;
+          }
+        }, 600);
+      } catch (e) {
+        console.warn('[Firestore Sync] Chunk snapshot callback error:', e);
+      }
     },
     (error: any) => {
       console.warn('[Firestore Sync] Chunks snapshot error:', error);
       if (isResourceOrQuotaError(error)) {
-        handleQuotaExceeded();
+        handleQuotaExceeded(error);
       } else {
         notifyConnectionCallbacks(false);
       }
     }
   );
 
-  // 2. Primary collections global listeners (patients, booking_ruangan, roomBookings, financial_reports, quality_indicators, etc.)
-  PRIMARY_COLLECTIONS.forEach(({ firestoreName, appDataKey }) => {
+  // 2. Primary collections deduplicated listeners
+  const collectionDebounceTimers = new Map<string, any>();
+  uniqueCollectionMap.forEach((appDataKeys, firestoreName) => {
     try {
       const targetDb = getDbForCollection(firestoreName);
       const colRef = collection(targetDb, firestoreName);
       const unsub = onSnapshot(
         colRef,
-        { includeMetadataChanges: true },
         (snapshot) => {
-          notifyConnectionCallbacks(true);
-          if (snapshot.empty) return;
-          if (snapshot.metadata.hasPendingWrites) return;
+          try {
+            notifyConnectionCallbacks(true);
+            if (snapshot.empty) return;
+            if (snapshot.metadata?.hasPendingWrites) return;
 
-          const items: any[] = [];
-          snapshot.docs.forEach((d) => {
-            const item = d.data();
-            if (item) {
-              items.push({ id: d.id, ...item });
+            const items: any[] = [];
+            snapshot.docs.forEach((d) => {
+              const item = d.data();
+              if (item) {
+                items.push({ id: d.id, ...item });
+              }
+            });
+
+            if (items.length > 0) {
+              const existingTimer = collectionDebounceTimers.get(firestoreName);
+              if (existingTimer) clearTimeout(existingTimer);
+
+              collectionDebounceTimers.set(
+                firestoreName,
+                setTimeout(() => {
+                  try {
+                    const localData = getDB();
+                    const incomingPartial: any = {};
+                    appDataKeys.forEach((key) => {
+                      incomingPartial[key] = items;
+                    });
+                    const mergedData = mergeData(localData, incomingPartial as AppData);
+
+                    if (hasAppDataChanged(mergedData)) {
+                      saveDB(mergedData, true, undefined, true);
+                      notifyDataCallbacks(mergedData);
+                      broadcastCrossTabHydration(mergedData, { sourceCollection: firestoreName });
+                    }
+                  } catch (e) {
+                    console.warn(`[Firestore Sync] Error merging collection ${firestoreName}:`, e);
+                  }
+                }, 600)
+              );
             }
-          });
-
-          if (items.length > 0) {
-            const localData = getDB();
-            const incomingPartial: any = {
-              [appDataKey]: items,
-              ...(firestoreName === 'booking_ruangan' || firestoreName === 'roomBookings' ? { booking_ruangan: items, roomBookings: items } : {})
-            };
-            const mergedData = mergeData(localData, incomingPartial as AppData);
-
-            if (hasAppDataChanged(mergedData)) {
-              saveDB(mergedData, true, undefined, true);
-              notifyDataCallbacks(mergedData);
-              broadcastCrossTabHydration(mergedData, { sourceCollection: firestoreName });
-            }
+          } catch (e) {
+            console.warn(`[Firestore Sync] Callback error on ${firestoreName}:`, e);
           }
         },
         (error: any) => {
           if (isResourceOrQuotaError(error)) {
-            handleQuotaExceeded();
+            handleQuotaExceeded(error);
           } else {
-            console.warn(`[Firestore Sync] Realtime listener error on ${firestoreName}:`, error);
+            console.warn(`[Firestore Sync] Realtime listener error on ${firestoreName}:`, error?.message || error);
           }
         }
       );
@@ -369,26 +409,29 @@ export const initFirestoreRealtimeSync = (): (() => void) => {
   // 3. Fallback legacy listener on shared_state doc
   unsubscribeLegacyListener = onSnapshot(
     FIRESTORE_DOC_PATH,
-    { includeMetadataChanges: true },
     (snapshot) => {
-      if (!isFirstBatch || !snapshot.exists()) return;
-      if (snapshot.metadata.hasPendingWrites) return;
+      try {
+        if (!isFirstBatch || !snapshot.exists()) return;
+        if (snapshot.metadata?.hasPendingWrites) return;
 
-      const remoteData = snapshot.data() as AppData;
-      if (!remoteData || typeof remoteData !== 'object') return;
+        const remoteData = snapshot.data() as AppData;
+        if (!remoteData || typeof remoteData !== 'object') return;
 
-      console.log('[Firestore Sync] Legacy shared_state snapshot received.');
-      const localData = getDB();
-      const mergedData = mergeData(localData, remoteData);
-      saveDB(mergedData, true, undefined, true);
-      if (hasAppDataChanged(mergedData)) {
-        notifyDataCallbacks(mergedData);
-        broadcastCrossTabHydration(mergedData, { source: 'legacy' });
+        console.log('[Firestore Sync] Legacy shared_state snapshot received.');
+        const localData = getDB();
+        const mergedData = mergeData(localData, remoteData);
+        saveDB(mergedData, true, undefined, true);
+        if (hasAppDataChanged(mergedData)) {
+          notifyDataCallbacks(mergedData);
+          broadcastCrossTabHydration(mergedData, { source: 'legacy' });
+        }
+      } catch (e) {
+        console.warn('[Firestore Sync] Legacy snapshot callback error:', e);
       }
     },
     (err: any) => {
       if (isResourceOrQuotaError(err)) {
-        handleQuotaExceeded();
+        handleQuotaExceeded(err);
       } else {
         console.warn('[Firestore Sync] Legacy snapshot warning:', err);
       }
@@ -416,96 +459,163 @@ export const initFirestoreRealtimeSync = (): (() => void) => {
  * Force load and reconcile all chunks directly on application load or manual trigger
  */
 export const loadFromFirestore = async (): Promise<AppData | null> => {
-  if (isQuotaExceeded) return getDB();
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem('simantap_firestore_quota_exceeded');
+      sessionStorage.removeItem('simantap_firestore_quota_exceeded');
+    } catch (e) {}
+  }
+  isQuotaExceeded = false;
+  enableFirestoreNetwork().catch(() => {});
+
   try {
-    console.log('[Firestore Sync] Force reading and reconciling all chunks from /appData_chunks...');
-    const snapshot = await getDocs(CHUNKS_COLLECTION);
-    if (snapshot.empty) {
-      console.log('[Firestore Sync] appData_chunks is empty. Initializing with local DB...');
-      const localData = getDB();
-      if (!isQuotaExceeded) {
-        pushToFirestore(localData).catch(() => {});
+    console.log('[Firestore Sync] Force reading and reconciling all collections and chunks from Cloud Firestore...');
+    const combinedData: Partial<AppData> = {};
+
+    // 1. Read single document shared_state fallback if present
+    try {
+      const singleDocSnap = await getDoc(FIRESTORE_DOC_PATH);
+      if (singleDocSnap.exists()) {
+        const singleData = singleDocSnap.data() as AppData;
+        if (singleData && typeof singleData === 'object') {
+          ARRAY_COLLECTIONS.forEach((colKey) => {
+            if (Array.isArray(singleData[colKey]) && singleData[colKey].length > 0) {
+              const existing = (combinedData as any)[colKey] || [];
+              const map = new Map(existing.map((x: any) => [x.id || JSON.stringify(x), x]));
+              singleData[colKey].forEach((it: any) => {
+                if (it) {
+                  const key = it.id || JSON.stringify(it);
+                  map.set(key, { ...((map.get(key) as any) || {}), ...it });
+                }
+              });
+              (combinedData as any)[colKey] = Array.from(map.values());
+            }
+          });
+          if (singleData.masterData) {
+            combinedData.masterData = { ...(combinedData.masterData || {}), ...singleData.masterData } as any;
+          }
+        }
       }
-      return localData;
+    } catch (singleErr) {
+      console.warn('[Firestore Sync] Single doc read notice:', singleErr);
     }
 
-    const docs = snapshot.docs.map((d) => d.data());
-    const metaDoc = docs.find((d) => d.type === 'meta');
-    if (!metaDoc) return getDB();
-
-    const reconstructedData: any = {
-      masterData: metaDoc.masterData,
-      deletedIds: metaDoc.deletedIds || [],
-      timestamp: metaDoc.timestamp
-    };
-
-    ARRAY_COLLECTIONS.forEach((colKey) => {
-      const colDocs = docs
-        .filter((d) => d.type === colKey)
-        .sort((a, b) => (a.chunkIndex || 0) - (b.chunkIndex || 0));
-
-      const allItems: any[] = [];
-      colDocs.forEach((cd) => {
-        if (Array.isArray(cd.items)) {
-          allItems.push(...cd.items);
+    // 2. Read chunks
+    try {
+      const snapshot = await getDocs(CHUNKS_COLLECTION);
+      if (!snapshot.empty) {
+        const docs = snapshot.docs.map((d) => d.data());
+        const metaDoc = docs.find((d) => d.type === 'meta');
+        if (metaDoc) {
+          combinedData.masterData = { ...(combinedData.masterData || {}), ...metaDoc.masterData };
+          combinedData.deletedIds = metaDoc.deletedIds || [];
+          combinedData.timestamp = metaDoc.timestamp;
         }
-      });
-      reconstructedData[colKey] = allItems;
+
+        ARRAY_COLLECTIONS.forEach((colKey) => {
+          const colDocs = docs
+            .filter((d) => d.type === colKey)
+            .sort((a, b) => (a.chunkIndex || 0) - (b.chunkIndex || 0));
+
+          const allItems: any[] = [];
+          colDocs.forEach((cd) => {
+            if (Array.isArray(cd.items)) {
+              allItems.push(...cd.items);
+            }
+          });
+          if (allItems.length > 0) {
+            const existing = (combinedData as any)[colKey] || [];
+            const map = new Map(existing.map((x: any) => [x.id || JSON.stringify(x), x]));
+            allItems.forEach((it: any) => {
+              if (it) {
+                const key = it.id || JSON.stringify(it);
+                map.set(key, { ...((map.get(key) as any) || {}), ...it });
+              }
+            });
+            (combinedData as any)[colKey] = Array.from(map.values());
+          }
+        });
+      }
+    } catch (chunkErr) {
+      console.warn('[Firestore Sync] Chunks read notice:', chunkErr);
+    }
+
+    // 2. Read directly from primary collections
+    const primaryFetchTasks = PRIMARY_COLLECTIONS.map(async ({ firestoreName, appDataKey }) => {
+      try {
+        const targetDb = getDbForCollection(firestoreName);
+        const colRef = collection(targetDb, firestoreName);
+        const snap = await getDocs(colRef);
+        if (!snap.empty) {
+          const items: any[] = [];
+          snap.docs.forEach((d) => {
+            const item = d.data();
+            if (item) {
+              items.push({ id: d.id, ...item });
+            }
+          });
+
+          if (items.length > 0) {
+            if (firestoreName === 'masterData' || firestoreName === 'master_data') {
+              const firstData = snap.docs[0].data();
+              if (firstData && typeof firstData === 'object') {
+                combinedData.masterData = { ...(combinedData.masterData || {}), ...firstData } as any;
+              }
+            } else {
+              const existing = (combinedData as any)[appDataKey] || [];
+              const existingMap = new Map(existing.map((x: any) => [x.id, x]));
+              items.forEach((it: any) => existingMap.set(it.id, { ...((existingMap.get(it.id) as any) || {}), ...it }));
+              (combinedData as any)[appDataKey] = Array.from(existingMap.values());
+
+              if (firestoreName === 'booking_ruangan' || firestoreName === 'roomBookings') {
+                combinedData.booking_ruangan = Array.from(existingMap.values()) as any;
+                combinedData.roomBookings = Array.from(existingMap.values()) as any;
+              }
+            }
+          }
+        }
+      } catch (colErr) {
+        console.warn(`[Firestore Sync] Direct fetch notice for ${firestoreName}:`, colErr);
+      }
     });
 
-    const localData = getDB();
-    const mergedData = mergeData(localData, reconstructedData as AppData);
+    await Promise.allSettled(primaryFetchTasks);
 
-    if (hasAppDataChanged(mergedData)) {
-      saveDB(mergedData, true, undefined, true);
-      notifyDataCallbacks(mergedData);
-      broadcastCrossTabHydration(mergedData, { source: 'loadFromFirestore' });
+    // Also fetch from Google Sheets Primary Server to ensure full historical patient data (28-30 July 2026) is complete
+    try {
+      await syncData(true);
+    } catch (sheetErr) {
+      console.warn('[Firestore Sync] Secondary Sheet hydration notice:', sheetErr);
     }
+
+    const localData = getDB();
+    const mergedData = mergeData(localData, combinedData as AppData);
+
+    saveDB(mergedData, true, undefined, true);
+    notifyDataCallbacks(mergedData);
+    broadcastCrossTabHydration(mergedData, { source: 'loadFromFirestore' });
     notifyConnectionCallbacks(true);
     return mergedData;
   } catch (err: any) {
-    if (isResourceOrQuotaError(err)) {
-      handleQuotaExceeded();
-    } else {
-      console.warn('[Firestore Sync] loadFromFirestore error:', err);
-    }
+    console.warn('[Firestore Sync] loadFromFirestore error:', err);
     return getDB();
   }
 };
 
 export const fetchInitialStateFromFirestore = loadFromFirestore;
 
-const handleQuotaExceeded = () => {
-  if (!isQuotaExceeded) {
-    console.warn('[Firestore Sync] Firestore quota reached. Switched to safe Local IndexedDB & Broadcast Sync Mode.');
-    isQuotaExceeded = true;
-    try {
-      if (typeof window !== 'undefined') {
-        const nowStr = Date.now().toString();
-        localStorage.setItem('simantap_firestore_quota_exceeded', nowStr);
-        sessionStorage.setItem('simantap_firestore_quota_exceeded', nowStr);
-      }
-    } catch (e) {}
+let quotaExceededTimer: any = null;
 
-    if (unsubscribeChunksListener) {
-      try { unsubscribeChunksListener(); } catch (e) {}
-      unsubscribeChunksListener = null;
-    }
-    if (unsubscribeLegacyListener) {
-      try { unsubscribeLegacyListener(); } catch (e) {}
-      unsubscribeLegacyListener = null;
-    }
-    primaryUnsubscribes.forEach((unsub) => {
-      try { unsub(); } catch (e) {}
-    });
-    primaryUnsubscribes = [];
+const handleQuotaExceeded = (err?: any) => {
+  console.warn('[Firestore Sync] Quota limit or write stream capacity reached. Pausing Firestore push writes temporarily while preserving local IndexedDB, Supabase, and Sheets operations.', err);
+  isQuotaExceeded = true;
+  notifyConnectionCallbacks(true, true);
 
-    disableNetwork(dbPasien).catch(() => {});
-    disableNetwork(dbMutu).catch(() => {});
-    disableNetwork(dbMaster).catch(() => {});
-    disableNetwork(db).catch(() => {});
-    notifyConnectionCallbacks(false);
-  }
+  if (quotaExceededTimer) clearTimeout(quotaExceededTimer);
+  quotaExceededTimer = setTimeout(() => {
+    isQuotaExceeded = false;
+    console.log('[Firestore Sync] Quota backoff window cleared. Retrying Firestore sync.');
+  }, 45000);
 };
 
 /**
@@ -686,6 +796,41 @@ export const pushItemToFirestoreCollection = async (
       handleQuotaExceeded();
     } else {
       console.warn(`[Firestore Sync] Failed to update ${collectionName}/${itemId}:`, err);
+    }
+  }
+};
+
+/**
+ * Hard delete entity from Cloud Firestore collection
+ */
+export const deleteItemFromFirestoreCollection = async (
+  collectionName: string,
+  itemId: string
+): Promise<void> => {
+  if (isQuotaExceeded || !itemId) return;
+  try {
+    const targetDb = getDbForCollection(collectionName);
+    const itemRef = doc(targetDb, collectionName, itemId);
+    await deleteDoc(itemRef);
+
+    if (collectionName === 'booking_ruangan' || collectionName === 'roomBookings') {
+      const aliasName = collectionName === 'booking_ruangan' ? 'roomBookings' : 'booking_ruangan';
+      const aliasRef = doc(getDbForCollection(aliasName), aliasName, itemId);
+      await deleteDoc(aliasRef).catch(() => {});
+    } else if (collectionName === 'qualityMeasurements' || collectionName === 'quality_indicators') {
+      const aliasName = collectionName === 'qualityMeasurements' ? 'quality_indicators' : 'qualityMeasurements';
+      const aliasRef = doc(getDbForCollection(aliasName), aliasName, itemId);
+      await deleteDoc(aliasRef).catch(() => {});
+    } else if (collectionName === 'financeRecords' || collectionName === 'financial_reports') {
+      const aliasName = collectionName === 'financeRecords' ? 'financial_reports' : 'financeRecords';
+      const aliasRef = doc(getDbForCollection(aliasName), aliasName, itemId);
+      await deleteDoc(aliasRef).catch(() => {});
+    }
+  } catch (err: any) {
+    if (isResourceOrQuotaError(err)) {
+      handleQuotaExceeded();
+    } else {
+      console.warn(`[Firestore Sync] Failed to delete ${collectionName}/${itemId}:`, err);
     }
   }
 };

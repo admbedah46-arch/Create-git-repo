@@ -2,6 +2,7 @@
 import { AppData, Patient, User, DailyReportEntry, parseToStandardDateString } from './types';
 import { INITIAL_DATA } from './constants';
 import { pushToFirestore } from './firestoreSync';
+import { syncToSupabase, syncToGoogleAppsScript } from './services/databaseConfig';
 
 // Kunci database permanen untuk mencegah data hilang saat update kode
 const DB_KEY = 'si_baru_db_stable_production_v5';
@@ -425,6 +426,343 @@ export function resilientParse(jsonStr: string): any {
   }
 }
 
+export interface RestoreParseResult {
+  success: boolean;
+  data: AppData | null;
+  counts: {
+    patients?: number;
+    dailyReports?: number;
+    financeRecords?: number;
+    incidentReports?: number;
+    operationReports?: number;
+    operations?: number;
+    doctorVisits?: number;
+    qualityMeasurements?: number;
+    roomBookings?: number;
+    nursingReports?: number;
+    instruments?: number;
+    users?: number;
+  };
+  totalCount: number;
+  detailsString: string;
+  error?: string;
+}
+
+export function parseAndMapRestoreJson(input: string | any): RestoreParseResult {
+  if (!input) {
+    return {
+      success: false,
+      data: null,
+      counts: {},
+      totalCount: 0,
+      detailsString: '',
+      error: 'File JSON kosong atau tidak dapat dibaca.'
+    };
+  }
+
+  let parsedRaw: any = null;
+
+  if (typeof input === 'string') {
+    parsedRaw = resilientParse(input);
+    if (!parsedRaw) {
+      try {
+        parsedRaw = JSON.parse(input);
+      } catch (e1) {
+        try {
+          parsedRaw = JSON.parse(sanitizeJsonString(input));
+        } catch (e2) {
+          return {
+            success: false,
+            data: null,
+            counts: {},
+            totalCount: 0,
+            detailsString: '',
+            error: 'Format sintaks JSON tidak valid atau rusak.'
+          };
+        }
+      }
+    }
+  } else {
+    parsedRaw = input;
+  }
+
+  if (!parsedRaw || (typeof parsedRaw !== 'object')) {
+    return {
+      success: false,
+      data: null,
+      counts: {},
+      totalCount: 0,
+      detailsString: '',
+      error: 'Isi file JSON bukan berupa Object atau Array yang valid.'
+    };
+  }
+
+  // Base constructed AppData matching INITIAL_DATA structure
+  const baseApp = JSON.parse(JSON.stringify(INITIAL_DATA)) as AppData;
+  baseApp.patients = [];
+  baseApp.dailyReports = [];
+  baseApp.financeRecords = [];
+  baseApp.incidentReports = [];
+  baseApp.operationReports = [];
+  baseApp.operations = [];
+  baseApp.doctorVisits = [];
+  baseApp.qualityMeasurements = [];
+  baseApp.roomBookings = [];
+  baseApp.nursingReports = [];
+  baseApp.instruments = [];
+  if (!baseApp.masterData) baseApp.masterData = JSON.parse(JSON.stringify(INITIAL_DATA.masterData));
+  if (!baseApp.masterData.users) baseApp.masterData.users = [];
+
+  // Helper classification for array items
+  const classifyItem = (item: any): string => {
+    if (!item || typeof item !== 'object') return 'unknown';
+
+    // Patient indicators
+    if (item.nama_pasien || item.no_rm || item.noRM || item.tanggal_mrs || item.kelas_rawat || item.kelasRawat || item.unit_tujuan || item.unitTujuan || item.diagnosaUtama || item.diagnosa_utama) {
+      return 'patient';
+    }
+    // Daily report indicators
+    if (item.morningReport || item.morning_report || item.afternoonReport || item.afternoon_report || item.nightReport || item.night_report || item.surgeryProcedure || item.surgery_procedure) {
+      return 'dailyReport';
+    }
+    // Finance indicators
+    if (item.noKwitansi || item.no_kwitansi || item.jumlah_biaya || item.amount || item.jasa_dokter || item.fee || item.biaya_tindakan) {
+      return 'financeRecord';
+    }
+    // Incident indicators
+    if (item.incidentType || item.tipe_insiden || item.incidentDescription || item.deskripsi_insiden || item.kronologi || item.chronology) {
+      return 'incidentReport';
+    }
+    // Operation report indicators
+    if (item.diagnosisPreOp || item.diagnosa_pra_bedah || item.scrubNurse || item.perawat_instrumen || item.anesthetist) {
+      return 'operationReport';
+    }
+    // Operation schedule indicators
+    if (item.surgeryDate || item.tanggal_operasi || item.jam_operasi || item.surgeryStatus || item.status_operasi) {
+      return 'operation';
+    }
+    // Doctor visit indicators
+    if (item.ksm || item.smf || item.visitRole || item.peran_visite || item.attendanceStatus || item.status_kehadiran) {
+      return 'doctorVisit';
+    }
+    // Quality indicator
+    if (item.indicatorId || item.id_indikator || item.numeratorValue !== undefined || item.nilai_pembilang !== undefined) {
+      return 'qualityMeasurement';
+    }
+    // Room booking
+    if (item.bookingDate || item.tanggal_booking || item.plannedRoom || item.ruangan_rencana) {
+      return 'roomBooking';
+    }
+    // Nursing report
+    if (item.catatan_perawat || item.nursingNote || item.shift_perawat) {
+      return 'nursingReport';
+    }
+    // Instrument
+    if (item.instrumentCode || item.kode_alat || item.instrumentName || item.nama_alat) {
+      return 'instrument';
+    }
+    // User
+    if (item.username && (item.role || item.position || item.nip)) {
+      return 'user';
+    }
+
+    // Fallback based on keys
+    const keys = Object.keys(item).map(k => k.toLowerCase());
+    if (keys.some(k => k.includes('pasien') || k.includes('patient') || k.includes('rm'))) return 'patient';
+    if (keys.some(k => k.includes('laporan') || k.includes('report') || k.includes('shift'))) return 'dailyReport';
+    if (keys.some(k => k.includes('bayar') || k.includes('biaya') || k.includes('kwitansi') || k.includes('finance'))) return 'financeRecord';
+
+    return 'unknown';
+  };
+
+  const mapPatient = (p: any): Patient => {
+    const pId = String(p.id || p.patient_id || p.patientId || p.no_rm || p.noRM || generatePermanentUUID('PAT'));
+    return {
+      id: pId,
+      noRegister: String(p.noRegister || p.no_register || p.no_reg || p.noReg || `REG-${Date.now()}`),
+      noRM: String(p.noRM || p.no_rm || p.norm || p.rm || `RM-${Math.floor(Math.random() * 100000)}`),
+      name: String(p.name || p.nama || p.nama_pasien || p.patientName || p.patient_name || 'Pasien Tanpa Nama').trim().toUpperCase(),
+      gender: (p.gender || p.jenis_kelamin || p.jk || 'L').toString().toUpperCase().startsWith('P') ? 'P' : 'L',
+      birthDate: parseToStandardDateString(p.birthDate || p.birth_date || p.tanggal_lahir || p.tgl_lahir || ''),
+      address: p.address || p.alamat || '',
+      entryDate: parseToStandardDateString(p.entryDate || p.entry_date || p.tanggal_mrs || p.tgl_mrs || p.tanggal_masuk || new Date().toISOString().split('T')[0]),
+      entryTime: p.entryTime || p.entry_time || p.jam_masuk || '',
+      origin: p.origin || p.asal_masuk || p.asalMasuk || 'IGD',
+      originUnit: p.originUnit || p.unit_asal || '',
+      unitTujuan: p.unitTujuan || p.unit_tujuan || p.ruangan || 'Ruang Bedah',
+      kelasRawat: p.kelasRawat || p.kelas_rawat || p.kelas || 'Kelas 3',
+      ruangan: p.ruangan || p.room || 'Bedah Utama',
+      nomorBed: String(p.nomorBed || p.nomor_bed || p.bed || '01'),
+      statusDataPasien: p.statusDataPasien || p.status_data || 'Lengkap',
+      diagnosaUtama: p.diagnosaUtama || p.diagnosa_utama || p.diagnosa || 'Diagnosa Belum Diisi',
+      diagnosaSekunder: p.diagnosaSekunder || p.diagnosa_sekunder || '',
+      tindakanProsedur: p.tindakanProsedur || p.tindakan_prosedur || p.tindakan || '',
+      dpjpList: Array.isArray(p.dpjpList || p.dpjp_list) ? (p.dpjpList || p.dpjp_list) : (p.dpjp ? [p.dpjp] : []),
+      paymentMethod: Array.isArray(p.paymentMethod || p.payment_method) ? (p.paymentMethod || p.payment_method) : [(p.paymentMethod || p.cara_bayar || 'BPJS')],
+      noSEP: p.noSEP || p.no_sep || '',
+      statusSEP: p.statusSEP || p.status_sep || 'Valid',
+      jenisKLL: p.jenisKLL || p.jenis_kll || 'Bukan KLL',
+      noLP: p.noLP || p.no_lp || '',
+      perawatPrimer: p.perawatPrimer || p.perawat_primer || '',
+      catatanKhusus: p.catatanKhusus || p.catatan_khusus || p.catatan || '',
+      status: p.status || p.status_pasien || 'ADMITTED',
+      dischargeDate: parseToStandardDateString(p.dischargeDate || p.discharge_date || p.tanggal_krs || ''),
+      dischargeTime: p.dischargeTime || p.discharge_time || p.jam_krs || '',
+      lastModified: p.lastModified || p.last_modified || new Date().toISOString()
+    };
+  };
+
+  const mapDailyReport = (r: any): DailyReportEntry => {
+    return {
+      patientId: String(r.patientId || r.patient_id || r.id || ''),
+      date: parseToStandardDateString(r.date || r.tanggal || r.tanggal_laporan || new Date().toISOString().split('T')[0]),
+      morningReport: r.morningReport || r.morning_report || r.pagi || '',
+      afternoonReport: r.afternoonReport || r.afternoon_report || r.sore || '',
+      nightReport: r.nightReport || r.night_report || r.malam || '',
+      morningDependency: r.morningDependency || r.morning_dependency || 'MINIMAL',
+      afternoonDependency: r.afternoonDependency || r.afternoon_dependency || 'MINIMAL',
+      nightDependency: r.nightDependency || r.night_dependency || 'MINIMAL',
+      morningTherapy: r.morningTherapy || r.morning_therapy || '',
+      afternoonTherapy: r.afternoonTherapy || r.afternoon_therapy || '',
+      nightTherapy: r.nightTherapy || r.night_therapy || '',
+      surgeryProcedure: r.surgeryProcedure || r.surgery_procedure || r.prosedur_operasi || '',
+      surgeryOperator: r.surgeryOperator || r.surgery_operator || r.operator || '',
+      surgeryDate: parseToStandardDateString(r.surgeryDate || r.surgery_date || r.tanggal_operasi || ''),
+      adminNote: r.adminNote || r.admin_note || r.catatan_admin || '',
+      diagnosis: r.diagnosis || r.diagnosa || '',
+      lastModified: r.lastModified || r.last_modified || new Date().toISOString()
+    };
+  };
+
+  // 1. Process Array Input directly [...]
+  if (Array.isArray(parsedRaw)) {
+    parsedRaw.forEach(item => {
+      const type = classifyItem(item);
+      if (type === 'patient') baseApp.patients.push(mapPatient(item));
+      else if (type === 'dailyReport') baseApp.dailyReports.push(mapDailyReport(item));
+      else if (type === 'financeRecord') (baseApp.financeRecords = baseApp.financeRecords || []).push({ id: item.id || generatePermanentUUID('FIN'), ...item });
+      else if (type === 'incidentReport') (baseApp.incidentReports = baseApp.incidentReports || []).push({ id: item.id || generatePermanentUUID('INC'), ...item });
+      else if (type === 'operationReport') (baseApp.operationReports = baseApp.operationReports || []).push({ id: item.id || generatePermanentUUID('OPR'), ...item });
+      else if (type === 'operation') baseApp.operations.push({ id: item.id || generatePermanentUUID('OPS'), ...item });
+      else if (type === 'doctorVisit') (baseApp.doctorVisits = baseApp.doctorVisits || []).push({ id: item.id || generatePermanentUUID('VIS'), ...item });
+      else if (type === 'qualityMeasurement') (baseApp.qualityMeasurements = baseApp.qualityMeasurements || []).push({ id: item.id || generatePermanentUUID('QLT'), ...item });
+      else if (type === 'roomBooking') (baseApp.roomBookings = baseApp.roomBookings || []).push({ id: item.id || generatePermanentUUID('BOK'), ...item });
+      else if (type === 'nursingReport') baseApp.nursingReports.push({ id: item.id || generatePermanentUUID('NRS'), ...item });
+      else if (type === 'instrument') (baseApp.instruments = baseApp.instruments || []).push({ id: item.id || generatePermanentUUID('INS'), ...item });
+      else if (type === 'user') baseApp.masterData.users.push(item);
+      else {
+        // Fallback: If it has name or RM or ID, push to patients
+        if (item && (item.name || item.nama || item.noRM || item.no_rm)) {
+          baseApp.patients.push(mapPatient(item));
+        }
+      }
+    });
+  } else {
+    // 2. Process Object Input {...} with aliases
+    const findCollection = (...keys: string[]): any[] => {
+      for (const k of keys) {
+        if (Array.isArray(parsedRaw[k])) return parsedRaw[k];
+      }
+      return [];
+    };
+
+    const rawPatients = findCollection('patients', 'pasien', 'data_pasien', 'patientsList', 'Patient');
+    const rawDaily = findCollection('dailyReports', 'daily_reports', 'laporan_harian', 'laporanHarian', 'DailyReports');
+    const rawFinance = findCollection('financeRecords', 'financial_reports', 'finance_records', 'keuangan', 'laporan_keuangan', 'FinanceRecords');
+    const rawIncidents = findCollection('incidentReports', 'incident_reports', 'insiden', 'laporan_insiden', 'IncidentReports');
+    const rawOpReports = findCollection('operationReports', 'operation_reports', 'laporan_operasi', 'OperationReports');
+    const rawOps = findCollection('operations', 'operasi', 'jadwal_operasi', 'Operations');
+    const rawVisits = findCollection('doctorVisits', 'doctor_visits', 'visite', 'visite_dokter', 'DoctorVisits');
+    const rawQuality = findCollection('qualityMeasurements', 'quality_measurements', 'mutu', 'indikator_mutu', 'QualityMeasurements');
+    const rawBookings = findCollection('roomBookings', 'room_bookings', 'booking_ruangan', 'booking', 'RoomBookings');
+    const rawNursing = findCollection('nursingReports', 'nursing_reports', 'keperawatan', 'NursingReports');
+    const rawInstruments = findCollection('instruments', 'alat', 'instrumen', 'Instruments');
+
+    baseApp.patients = rawPatients.map(mapPatient);
+    baseApp.dailyReports = rawDaily.map(mapDailyReport);
+    baseApp.financeRecords = rawFinance.map(i => ({ id: i.id || generatePermanentUUID('FIN'), ...i }));
+    baseApp.incidentReports = rawIncidents.map(i => ({ id: i.id || generatePermanentUUID('INC'), ...i }));
+    baseApp.operationReports = rawOpReports.map(i => ({ id: i.id || generatePermanentUUID('OPR'), ...i }));
+    baseApp.operations = rawOps.map(i => ({ id: i.id || generatePermanentUUID('OPS'), ...i }));
+    baseApp.doctorVisits = rawVisits.map(i => ({ id: i.id || generatePermanentUUID('VIS'), ...i }));
+    baseApp.qualityMeasurements = rawQuality.map(i => ({ id: i.id || generatePermanentUUID('QLT'), ...i }));
+    baseApp.roomBookings = rawBookings.map(i => ({ id: i.id || generatePermanentUUID('BOK'), ...i }));
+    baseApp.nursingReports = rawNursing.map(i => ({ id: i.id || generatePermanentUUID('NRS'), ...i }));
+    baseApp.instruments = rawInstruments.map(i => ({ id: i.id || generatePermanentUUID('INS'), ...i }));
+
+    // MasterData merging
+    if (parsedRaw.masterData || parsedRaw.master_data) {
+      const m = parsedRaw.masterData || parsedRaw.master_data;
+      if (m && typeof m === 'object') {
+        baseApp.masterData = {
+          ...baseApp.masterData,
+          ...m
+        };
+      }
+    }
+
+    if (Array.isArray(parsedRaw.users)) {
+      baseApp.masterData.users = parsedRaw.users;
+    }
+  }
+
+  // Calculate counts
+  const counts = {
+    patients: baseApp.patients.length,
+    dailyReports: baseApp.dailyReports.length,
+    financeRecords: (baseApp.financeRecords || []).length,
+    incidentReports: (baseApp.incidentReports || []).length,
+    operationReports: (baseApp.operationReports || []).length,
+    operations: baseApp.operations.length,
+    doctorVisits: (baseApp.doctorVisits || []).length,
+    qualityMeasurements: (baseApp.qualityMeasurements || []).length,
+    roomBookings: (baseApp.roomBookings || []).length,
+    nursingReports: baseApp.nursingReports.length,
+    instruments: (baseApp.instruments || []).length,
+    users: (baseApp.masterData?.users || []).length
+  };
+
+  const totalCount = Object.values(counts).reduce((a, b) => a + b, 0);
+
+  if (totalCount === 0) {
+    return {
+      success: false,
+      data: null,
+      counts: {},
+      totalCount: 0,
+      detailsString: '',
+      error: 'Format file JSON tidak berisi data rekam medis, pasien, atau laporan yang dapat diproses.'
+    };
+  }
+
+  const parts: string[] = [];
+  if (counts.patients) parts.push(`${counts.patients} Data Pasien`);
+  if (counts.dailyReports) parts.push(`${counts.dailyReports} Laporan Harian`);
+  if (counts.financeRecords) parts.push(`${counts.financeRecords} Catatan Keuangan`);
+  if (counts.incidentReports) parts.push(`${counts.incidentReports} Laporan Insiden`);
+  if (counts.operationReports) parts.push(`${counts.operationReports} Laporan Operasi`);
+  if (counts.operations) parts.push(`${counts.operations} Jadwal Operasi`);
+  if (counts.doctorVisits) parts.push(`${counts.doctorVisits} Visite Dokter`);
+  if (counts.qualityMeasurements) parts.push(`${counts.qualityMeasurements} Indikator Mutu`);
+  if (counts.roomBookings) parts.push(`${counts.roomBookings} Booking Ruangan`);
+  if (counts.nursingReports) parts.push(`${counts.nursingReports} Catatan Keperawatan`);
+  if (counts.instruments) parts.push(`${counts.instruments} Alat & Instrumen`);
+  if (counts.users) parts.push(`${counts.users} Akun Pengguna`);
+
+  const detailsString = parts.join(', ');
+
+  // Standardize dates
+  const finalApp = normalizeDatesInDb(baseApp);
+
+  return {
+    success: true,
+    data: finalApp,
+    counts,
+    totalCount,
+    detailsString
+  };
+}
+
 /**
  * Registry for deleted record IDs to prevent resurrection during sync
  */
@@ -661,8 +999,8 @@ export const mergeRecordProperties = (primaryItem: any, secondaryItem: any): any
     const primaryLm = getLatestTimestamp(primaryItem);
     const secondaryLm = getLatestTimestamp(secondaryItem);
 
-    // Give primaryItem a 30s advantage window for incoming edits
-    const primaryIsNewer = (primaryLm + 30000) >= secondaryLm;
+    // Strict timestamp order without artificial advantage window
+    const primaryIsNewer = primaryLm > secondaryLm;
     const newerItem = primaryIsNewer ? primaryItem : secondaryItem;
     const olderItem = primaryIsNewer ? secondaryItem : primaryItem;
 
@@ -699,21 +1037,15 @@ export const mergeData = (rawLocal: AppData, rawCloud: AppData): AppData => {
     
     const majorKeys: (keyof AppData)[] = ['patients', 'financeRecords', 'dailyReports', 'nursingReports', 'operations', 'incidentReports', 'operationReports', 'instruments', 'doctorVisits', 'qualityMeasurements', 'roomBookings', 'booking_ruangan'];
     
-    majorKeys.forEach(key => {
-        if (!Array.isArray(cloud[key])) {
-            (cloud as any)[key] = [];
-        }
-    });
-
     const localSettings = migrateSettings(local.masterData?.settings || INITIAL_DATA.masterData.settings) || INITIAL_DATA.masterData.settings;
-    const cloudSettings = migrateSettings(cloud.masterData?.settings) || INITIAL_DATA.masterData.settings;
+    const cloudSettings = cloud?.masterData?.settings ? migrateSettings(cloud.masterData.settings) : undefined;
     const localTs = new Date(localSettings.settingsTimestamp || '2000-01-01').getTime();
-    const cloudTs = new Date(cloudSettings.settingsTimestamp || '2000-01-01').getTime();
+    const cloudTs = new Date(cloudSettings?.settingsTimestamp || '2000-01-01').getTime();
 
     // Deleted IDs must ALWAYS be the UNION of local, cloud, and local device registry (tombstone pattern)
     let mergedDeletedIds: string[] = Array.from(new Set([
         ...(Array.isArray(local.deletedIds) ? local.deletedIds : []),
-        ...(Array.isArray(cloud.deletedIds) ? cloud.deletedIds : []),
+        ...(Array.isArray(cloud?.deletedIds) ? cloud.deletedIds : []),
         ...getDeletedIds()
     ]));
 
@@ -724,6 +1056,35 @@ export const mergeData = (rawLocal: AppData, rawCloud: AppData): AppData => {
             mergedDeletedIds.push(id);
         }
     });
+
+    // Self-healing: Un-tombstone any active records that are present in local or cloud and NOT explicitly flagged isDeleted
+    const activeItemIds = new Set<string>();
+    const collectActive = (list: any[] | undefined) => {
+        if (!Array.isArray(list)) return;
+        list.forEach(item => {
+            if (item && !item.isDeleted && !item.deleted) {
+                if (item.id) activeItemIds.add(String(item.id));
+                if (item.patientId) activeItemIds.add(String(item.patientId));
+                if (item.noRM) activeItemIds.add(String(item.noRM));
+                if (item.patientId && item.date) activeItemIds.add(`${item.patientId}_${item.date}`);
+                if (item.indicatorId && item.date) {
+                    const stdDate = parseToStandardDateString(item.date) || item.date;
+                    activeItemIds.add(`${item.indicatorId}_${stdDate}`);
+                }
+                if (item.noRM && item.bookingDate) activeItemIds.add(`${item.noRM}_${item.bookingDate}`);
+            }
+        });
+    };
+
+    majorKeys.forEach(k => {
+        collectActive(local[k] as any[]);
+        if (cloud && cloud[k] !== undefined) {
+            collectActive(cloud[k] as any[]);
+        }
+    });
+
+    // Un-tombstone active records
+    mergedDeletedIds = mergedDeletedIds.filter(id => !activeItemIds.has(id));
 
     // Protect super administrator from deletion
     mergedDeletedIds = mergedDeletedIds.filter(id => id !== 'USER_administrator');
@@ -748,7 +1109,11 @@ export const mergeData = (rawLocal: AppData, rawCloud: AppData): AppData => {
         return null;
     };
 
-    const mergeList = (localList: any[], cloudList: any[], key: string = 'id') => {
+    const mergeList = (localList: any[], cloudList: any[] | undefined, key: string = 'id') => {
+        if (cloudList === undefined) {
+            // Partial cloud payload: Preserve local list as-is
+            return Array.isArray(localList) ? localList : [];
+        }
         const safeLocal = (Array.isArray(localList) ? localList : []).filter(item => item && getItemKey(item, key) !== null);
         const safeCloud = (Array.isArray(cloudList) ? cloudList : []).filter(item => item && getItemKey(item, key) !== null);
 
@@ -806,28 +1171,26 @@ export const mergeData = (rawLocal: AppData, rawCloud: AppData): AppData => {
             }
 
             if (localItem && cloudItem) {
-                // STRICT LOCAL TRUTH FOR USER EDITS & STATUS UPDATES
                 const localStatusUpper = (localItem.statusDataPasien || localItem.status || '').toUpperCase();
                 const isLocalDischarged = localItem.status === 'DISCHARGED' || 
                   ['BPL', 'RUJUK', 'DIRUJUK', 'PINDAH', 'DIPINDAH', 'MENINGGAL', 'APS', 'BATAL', 'KRS'].some(s => localStatusUpper.includes(s));
 
-                const mergedRecord = mergeRecordProperties(localItem, cloudItem);
+                const mergedRecord = mergeRecordProperties(cloudItem, localItem);
                 if (isLocalDischarged) {
                     mergedRecord.status = 'DISCHARGED';
                 }
                 mergedMap.set(itemId, mergedRecord);
-            } else if (localItem && !localIsDeleted) {
-                // Local item exists, cloud does not have it yet. PRESERVE LOCAL ITEM ALWAYS (SINGLE SOURCE OF TRUTH)!
-                mergedMap.set(itemId, localItem);
             } else if (cloudItem && !cloudIsDeleted) {
                 mergedMap.set(itemId, cloudItem);
+            } else if (localItem && !localIsDeleted) {
+                mergedMap.set(itemId, localItem);
             }
         });
 
         return Array.from(mergedMap.values());
     };
 
-    const mergedPatients = mergeList(local.patients || [], cloud.patients || []);
+    const mergedPatients = mergeList(local.patients || [], cloud?.patients);
     const activePatientIds = new Set(mergedPatients.map(p => String(p.id)));
     
     const mergedDailyReportsMap = new Map<string, DailyReportEntry>();
@@ -928,23 +1291,24 @@ export const mergeData = (rawLocal: AppData, rawCloud: AppData): AppData => {
 
     const mergedDailyReports = Array.from(mergedDailyReportsMap.values());
 
-    const mergedIncidentReports = mergeList(local.incidentReports || [], cloud.incidentReports || []);
-    const mergedQualityMeasurements = mergeList(local.qualityMeasurements || [], cloud.qualityMeasurements || []);
-    const mergedInstruments = mergeList(local.instruments || [], cloud.instruments || []);
-    const mergedOperationReports = mergeList(local.operationReports || [], cloud.operationReports || []);
-    const mergedFinanceRecords = mergeList(local.financeRecords || [], cloud.financeRecords || []);
-    const mergedDoctorVisits = mergeList(local.doctorVisits || [], cloud.doctorVisits || []);
-    const mergedNursingReports = mergeList(local.nursingReports || [], cloud.nursingReports || []);
-    const mergedOperations = mergeList(local.operations || [], cloud.operations || []);
+    const mergedIncidentReports = mergeList(local.incidentReports || [], cloud?.incidentReports);
+    const mergedQualityMeasurements = mergeList(local.qualityMeasurements || [], cloud?.qualityMeasurements);
+    const mergedInstruments = mergeList(local.instruments || [], cloud?.instruments);
+    const mergedOperationReports = mergeList(local.operationReports || [], cloud?.operationReports);
+    const mergedFinanceRecords = mergeList(local.financeRecords || [], cloud?.financeRecords);
+    const mergedDoctorVisits = mergeList(local.doctorVisits || [], cloud?.doctorVisits);
+    const mergedNursingReports = mergeList(local.nursingReports || [], cloud?.nursingReports);
+    const mergedOperations = mergeList(local.operations || [], cloud?.operations);
     
     const localBookings = [
         ...(Array.isArray(local.roomBookings) ? local.roomBookings : []),
         ...(Array.isArray((local as any).booking_ruangan) ? (local as any).booking_ruangan : [])
     ];
-    const cloudBookings = [
+    const cloudHasBookings = cloud && (cloud.roomBookings !== undefined || (cloud as any).booking_ruangan !== undefined);
+    const cloudBookings = cloudHasBookings ? [
         ...(Array.isArray(cloud.roomBookings) ? cloud.roomBookings : []),
         ...(Array.isArray((cloud as any).booking_ruangan) ? (cloud as any).booking_ruangan : [])
-    ];
+    ] : undefined;
     const mergedRoomBookings = mergeList(localBookings, cloudBookings);
 
     let finalUsers: any[] = [];
@@ -1041,7 +1405,7 @@ export const mergeData = (rawLocal: AppData, rawCloud: AppData): AppData => {
         } catch (e) {}
     }
 
-    const mergedMasterData = mergeMasterData(local.masterData, cloud.masterData);
+    const mergedMasterData = cloud?.masterData ? mergeMasterData(local.masterData, cloud.masterData) : (local.masterData || INITIAL_DATA.masterData);
 
     return {
         ...local,
@@ -1311,39 +1675,58 @@ export const getDB = (): AppData => {
       const parsed = resilientParse(existing);
 
       // HEAL BLOCK: Purge corrupted predefined users from deletedIds
-      if (parsed && Array.isArray(parsed.deletedIds)) {
-        const initialUsers = INITIAL_DATA.masterData?.users || [];
-        const initialUsernames = new Set(initialUsers.map((u: any) => u.username));
-        parsed.deletedIds = parsed.deletedIds.filter((id: string) => {
-          if (id && id.startsWith('USER_')) {
-            const uName = id.replace('USER_', '');
-            if (initialUsernames.has(uName) && uName !== 'demo') {
-              return false; // Restore predefined clinical users
-            }
-          }
-          return true;
-        });
-      }
-
-      // Also clean up local device deletedIds database file backup registry
-      if (typeof window !== 'undefined') {
-        try {
-          const lDeleted = JSON.parse(localStorage.getItem('surgihub_deleted_ids') || '[]');
-          if (Array.isArray(lDeleted)) {
-            const initialUsers = INITIAL_DATA.masterData?.users || [];
-            const initialUsernames = new Set(initialUsers.map((u: any) => u.username));
-            const filteredLDeleted = lDeleted.filter((id: string) => {
-              if (id && id.startsWith('USER_')) {
-                const uName = id.replace('USER_', '');
-                if (initialUsernames.has(uName) && uName !== 'demo') {
-                  return false; // Restore predefined clinical users
-                }
+      if (parsed) {
+        const activeItemKeys = new Set<string>();
+        const majorKeys: (keyof AppData)[] = ['patients', 'financeRecords', 'dailyReports', 'nursingReports', 'operations', 'incidentReports', 'operationReports', 'instruments', 'doctorVisits', 'qualityMeasurements', 'roomBookings', 'booking_ruangan'];
+        majorKeys.forEach((k) => {
+          if (Array.isArray(parsed[k])) {
+            (parsed[k] as any[]).forEach((it: any) => {
+              if (it && !it.isDeleted && !it.deleted) {
+                if (it.id) activeItemKeys.add(String(it.id));
+                if (it.patientId) activeItemKeys.add(String(it.patientId));
+                if (it.noRM) activeItemKeys.add(String(it.noRM));
+                if (it.patientId && it.date) activeItemKeys.add(`${it.patientId}_${it.date}`);
+                if (it.noRM && it.bookingDate) activeItemKeys.add(`${it.noRM}_${it.bookingDate}`);
               }
-              return true;
             });
-            localStorage.setItem('surgihub_deleted_ids', JSON.stringify(filteredLDeleted));
           }
-        } catch (e) {}
+        });
+
+        if (Array.isArray(parsed.deletedIds)) {
+          const initialUsers = INITIAL_DATA.masterData?.users || [];
+          const initialUsernames = new Set(initialUsers.map((u: any) => u.username));
+          parsed.deletedIds = parsed.deletedIds.filter((id: string) => {
+            if (activeItemKeys.has(id)) return false;
+            if (id && id.startsWith('USER_')) {
+              const uName = id.replace('USER_', '');
+              if (initialUsernames.has(uName) && uName !== 'demo') {
+                return false; // Restore predefined clinical users
+              }
+            }
+            return true;
+          });
+        }
+
+        // Also clean up local device deletedIds database file backup registry
+        if (typeof window !== 'undefined') {
+          try {
+            const lDeleted = JSON.parse(localStorage.getItem('surgihub_deleted_ids') || '[]');
+            if (Array.isArray(lDeleted)) {
+              const initialUsers = INITIAL_DATA.masterData?.users || [];
+              const initialUsernames = new Set(initialUsers.map((u: any) => u.username));
+              const filteredLDeleted = lDeleted.filter((id: string) => {
+                if (id && id.startsWith('USER_')) {
+                  const uName = id.replace('USER_', '');
+                  if (initialUsernames.has(uName) && uName !== 'demo') {
+                    return false; // Restore predefined clinical users
+                  }
+                }
+                return true;
+              });
+              localStorage.setItem('surgihub_deleted_ids', JSON.stringify(filteredLDeleted));
+            }
+          } catch (e) {}
+        }
       }
 
       // Deep merge basic structure
@@ -1652,9 +2035,20 @@ export const saveDB = (data: AppData, skipBroadcast: boolean = false, delta?: Sy
       }
 
       if (!skipFirestorePush) {
+        // 1. PRIMARY SERVER: Direct Push to Google Sheets Webhook App Script Endpoint
+        syncToGoogleAppsScript('bulk_sync', cleanData).catch((err) =>
+          console.warn('[Google Sheets Primary Sync] Non-blocking push error:', err)
+        );
+        // 2. SECONDARY SQL SERVER: Direct Push to Supabase DB
+        syncToSupabase(cleanData).catch((err) =>
+          console.warn('[Supabase Sync] Non-blocking push error:', err)
+        );
+        // 3. BACKGROUND SYNC: Push to Cloud Firestore (gracefully bypassed on quota limit)
         pushToFirestore(cleanData).catch((err) =>
           console.warn('[Firestore Sync] Non-blocking push error:', err)
         );
+        // 4. Background Queue & IndexedDB local snapshot sync
+        uploadDataBackground();
       }
     } catch (err) {
       console.warn('[saveDB] Async persistence error:', err);
@@ -1766,9 +2160,10 @@ export const syncData = async (forceDownload: boolean = false): Promise<{success
               if (directRes.ok) {
                 const directText = await directRes.text();
                 const directParsed = resilientParse(directText);
-                if (directParsed) {
+                const targetObj = directParsed?.data || directParsed;
+                if (targetObj && typeof targetObj === 'object') {
                   const localData = getDB();
-                  const merged = mergeData(localData, directParsed);
+                  const merged = mergeData(localData, targetObj as AppData);
                   saveDB(merged);
                   return { success: true };
                 }
@@ -2079,7 +2474,8 @@ export const uploadDataDirect = async (db: AppData, immediate?: boolean): Promis
       ...getDeletedIds()
     ]));
 
-    // Append cache-buster timestamp
+    // 1. Direct Push to Google Sheets Webhook (Primary Server)
+    let sheetsSuccess = false;
     let response: Response | null = null;
     try {
       response = await fetch(`/api/sync?t=${Date.now()}`, {
@@ -2093,31 +2489,44 @@ export const uploadDataDirect = async (db: AppData, immediate?: boolean): Promis
         body: JSON.stringify({ data: db, url: apiUrl, clientTime: Date.now(), immediate }),
         signal: controller.signal
       });
+      if (response && response.ok) {
+        sheetsSuccess = true;
+      }
     } catch (e) {
       console.warn('[Upload] Express /api/sync endpoint unavailable, falling back to direct client sync.');
     }
     clearTimeout(timeoutId);
     
-    if (!response || !response.ok) {
-        // Direct fallback when /api/sync is unavailable (e.g. static hosting on Vercel)
-        if (apiUrl && apiUrl.startsWith('http')) {
-          try {
-            const sheetsPayloads = splitAndCompressPayload(db);
-            for (const chunkPayload of sheetsPayloads) {
-              await fetch(apiUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain' },
-                body: JSON.stringify(chunkPayload),
-                mode: 'cors'
-              }).catch(() => {});
-            }
-          } catch (e) {
-            console.warn('[Direct AppsScript Upload] Notice:', e);
+    if (!sheetsSuccess) {
+      // Direct fallback to Google Apps Script Webhook when /api/sync is unavailable
+      if (apiUrl && apiUrl.startsWith('http')) {
+        try {
+          const sheetsPayloads = splitAndCompressPayload(db);
+          for (const chunkPayload of sheetsPayloads) {
+            await fetch(apiUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify(chunkPayload),
+              mode: 'cors'
+            }).catch(() => {});
           }
+          sheetsSuccess = true;
+        } catch (e) {
+          console.warn('[Direct AppsScript Upload] Notice:', e);
         }
-        await pushToFirestore(db).catch(() => {});
-        return { success: true, data: db };
+      }
     }
+
+    // Direct trigger to Google Apps Script helper
+    syncToGoogleAppsScript('bulk_sync', db).catch(() => {});
+
+    // 2. Direct Push to Supabase SQL Database
+    syncToSupabase(db).catch(() => {});
+
+    // 3. Background Push to Cloud Firestore (gracefully bypassed if quota exhausted)
+    pushToFirestore(db).catch((err) => {
+      console.warn('[Firestore Push Notice]:', err);
+    });
 
     const resData = await response.json().catch(() => ({}));
     if (resData && resData.success) {

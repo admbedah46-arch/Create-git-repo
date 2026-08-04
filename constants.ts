@@ -1,6 +1,30 @@
 
 import { AppData, DoctorCategory, RolePermission, UserRole } from './types';
 
+export const STANDAR_ICD10 = [
+  "A09 - Diarrhoea and gastroenteritis",
+  "E11 - Type 2 diabetes mellitus",
+  "I10 - Essential (primary) hypertension",
+  "K35 - Acute appendicitis",
+  "N18 - Chronic kidney disease",
+  "K40 - Inguinal hernia",
+  "E04 - Other nontoxic goitre",
+  "C50 - Malignant neoplasm of breast",
+  "K80 - Cholelithiasis",
+  "C18 - Malignant neoplasm of colon",
+  "D21 - Other benign neoplasms of connective and other soft tissue",
+  "M51 - Other intervertebral disc disorders",
+  "C73 - Malignant neoplasm of thyroid gland",
+  "D25 - Leiomyoma of uterus",
+  "N40 - Hyperplasia of prostate",
+  "J18 - Pneumonia, unspecified organism",
+  "I64 - Stroke, not specified as haemorrhage or infarction",
+  "K56 - Paralytic ileus and intestinal obstruction without hernia",
+  "N20 - Calculus of kidney and ureter",
+  "L02 - Cutaneous abscess, furuncle and carbuncle",
+  "T14 - Injury of unspecified body region"
+];
+
 export const ALL_MENU_IDS = [
   'dashboard',
   'adm-register',

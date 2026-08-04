@@ -1,5 +1,5 @@
 import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { createClient } from '@supabase/supabase-js';
 import firebaseConfigJson from '../firebase-applet-config.json';
@@ -99,20 +99,8 @@ try {
 }
 export const auth = authInstance;
 
-// Enable persistence safely on primary db
-if (typeof window !== 'undefined' && dbPasien && typeof dbPasien.type === 'string') {
-  try {
-    enableIndexedDbPersistence(dbPasien).catch((err) => {
-      if (err.code === 'failed-precondition') {
-        console.warn('[Firestore dbPasien] Offline persistence warning: Multiple tabs open.');
-      } else if (err.code === 'unimplemented') {
-        console.warn('[Firestore dbPasien] Persistence not supported.');
-      }
-    });
-  } catch (err) {
-    console.warn('[Firestore dbPasien] Persistence setup warning:', err);
-  }
-}
+// Default Firestore initialization (Firebase v12 handles local caching internally)
+console.log('[databaseConfig] Firestore instance ready.');
 
 // 2. Supabase Client Initialization with robust fallback mock
 let supabaseClient: any = null;
@@ -140,6 +128,24 @@ if (!supabaseClient) {
 }
 
 export const supabase = supabaseClient;
+
+export async function syncToSupabase(payload: any) {
+  try {
+    if (!supabaseClient || typeof supabaseClient.from !== 'function') return;
+    const syncItem = {
+      updated_at: new Date().toISOString(),
+      payload_type: 'app_data_snapshot',
+      patient_count: (payload?.patients || []).length,
+      finance_count: (payload?.financeRecords || []).length,
+      daily_reports_count: (payload?.dailyReports || []).length,
+      quality_count: (payload?.qualityMeasurements || []).length,
+      timestamp: payload?.timestamp || new Date().toISOString()
+    };
+    await supabaseClient.from('simantap_sync_snapshots').upsert([syncItem]).catch(() => {});
+  } catch (err) {
+    console.warn('[Supabase Sync] Mirroring notice:', err);
+  }
+}
 
 // 3. Cloudflare D1 / Worker Endpoint
 export const CLOUDFLARE_D1_API = getEnvVar('VITE_CLOUDFLARE_D1_URL', "https://your-worker.workers.dev");

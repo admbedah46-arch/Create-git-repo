@@ -706,3 +706,39 @@ export const compareDatesSafe = (dateA: any, dateB: any, descending: boolean = t
   }
 };
 
+/**
+ * Formats a Date object or string to YYYY-MM-DD in local WITA time (Asia/Makassar, UTC+8)
+ */
+export const formatLocalDate = (input?: any): string => {
+  try {
+    const d = input ? new Date(input) : new Date();
+    if (isNaN(d.getTime())) return '';
+    try {
+      const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar', year: 'numeric', month: '2-digit', day: '2-digit' });
+      return formatter.format(d);
+    } catch (tzErr) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+  } catch (e) {
+    return '';
+  }
+};
+
+/**
+ * Returns today's date in YYYY-MM-DD format based on local time
+ */
+export const getTodayLocalDateString = (): string => formatLocalDate();
+
+/**
+ * Checks if a given timestamp or ISO/date string falls within a specific local date
+ */
+export const isSameLocalDate = (val1: any, val2: any): boolean => {
+  if (!val1 || !val2) return false;
+  const std1 = parseToStandardDateString(val1);
+  const std2 = parseToStandardDateString(val2);
+  return std1 === std2;
+};
+

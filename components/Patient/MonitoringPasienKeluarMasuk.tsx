@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Patient, AppData } from '../../types';
 import { Button } from '../Button';
 import { 
@@ -18,8 +18,18 @@ export const MonitoringPasienKeluarMasuk: React.FC<MonitoringPasienKeluarMasukPr
   const [selectedDate, setSelectedDate] = useState(() => {
     return new Date().toISOString().split('T')[0];
   });
+  const [filterMode, setFilterMode] = useState<'MONTH' | 'DAY'>('MONTH');
   const [activeTab, setActiveTab] = useState<'BARU' | 'BPL' | 'MENINGGAL' | 'RUJUK' | 'PINDAH' | 'APS' | 'BATAL'>('BARU');
   const [searchTerm, setSearchTerm] = useState('');
+
+  const isDateMatch = useCallback((dStr?: string) => {
+    if (!dStr) return false;
+    if (filterMode === 'MONTH') {
+      const monthPrefix = selectedDate.substring(0, 7); // e.g. "2026-07"
+      return dStr.startsWith(monthPrefix);
+    }
+    return dStr === selectedDate;
+  }, [selectedDate, filterMode]);
 
   const patients = useMemo(() => {
     let list = appData.patients || [];
@@ -29,15 +39,15 @@ export const MonitoringPasienKeluarMasuk: React.FC<MonitoringPasienKeluarMasukPr
     return list;
   }, [appData.patients, currentUser]);
 
-  // Pasien Baru (MRS) pada Tanggal Pelayanan yang dipilih
+  // Pasien Baru (MRS) pada Rentang Bulan Ini / Tanggal Pelayanan yang dipilih
   const pasienBaru = useMemo(() => {
-    return patients.filter(p => p.entryDate === selectedDate);
-  }, [patients, selectedDate]);
+    return patients.filter(p => isDateMatch(p.entryDate));
+  }, [patients, isDateMatch]);
 
-  // Pasien Pulang / KRS pada Tanggal Pelayanan yang dipilih
+  // Pasien Pulang / KRS pada Rentang Bulan Ini / Tanggal Pelayanan yang dipilih
   const krsPatients = useMemo(() => {
-    return patients.filter(p => p.dischargeDate === selectedDate || (p.statusDataPasien || '').toUpperCase().includes('BATAL'));
-  }, [patients, selectedDate]);
+    return patients.filter(p => isDateMatch(p.dischargeDate) || (p.statusDataPasien || '').toUpperCase().includes('BATAL'));
+  }, [patients, isDateMatch]);
 
   const pasienBPL = useMemo(() => {
     return krsPatients.filter(p => {
@@ -78,10 +88,10 @@ export const MonitoringPasienKeluarMasuk: React.FC<MonitoringPasienKeluarMasukPr
     // If the patient status contains "batal", they show up here.
     return patients.filter(p => {
       const statusStr = String(p.statusDataPasien || '').toLowerCase();
-      const isDateMatch = p.dischargeDate === selectedDate || p.entryDate === selectedDate;
-      return statusStr.includes('batal') && isDateMatch;
+      const dateMatched = isDateMatch(p.dischargeDate) || isDateMatch(p.entryDate);
+      return statusStr.includes('batal') && dateMatched;
     });
-  }, [patients, selectedDate]);
+  }, [patients, isDateMatch]);
 
   const currentTabList = useMemo(() => {
     let list: Patient[] = [];
@@ -140,15 +150,23 @@ export const MonitoringPasienKeluarMasuk: React.FC<MonitoringPasienKeluarMasukPr
         </div>
 
         <div className="flex items-center gap-3">
-          <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2">
-            <Calendar size={16} className="text-blue-600" /> TANGGAL PELAYANAN
-          </label>
-          <input
-            type="date"
-            className="border-2 border-slate-100 rounded-xl px-4 py-2.5 text-xs font-black outline-none focus:border-blue-500 cursor-pointer bg-slate-50"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-          />
+          <select
+            value={filterMode}
+            onChange={(e) => setFilterMode(e.target.value as 'MONTH' | 'DAY')}
+            className="border-2 border-slate-100 rounded-xl px-3 py-2 text-xs font-black text-slate-700 bg-slate-50 outline-none focus:border-blue-500 cursor-pointer"
+          >
+            <option value="MONTH">Rentang Bulan Ini</option>
+            <option value="DAY">Tanggal Spesifik</option>
+          </select>
+          <div className="flex items-center gap-2">
+            <Calendar size={16} className="text-blue-600" />
+            <input
+              type="date"
+              className="border-2 border-slate-100 rounded-xl px-4 py-2 text-xs font-black outline-none focus:border-blue-500 cursor-pointer bg-slate-50"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+            />
+          </div>
         </div>
       </div>
 

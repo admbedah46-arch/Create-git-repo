@@ -24,7 +24,7 @@ const FALLBACK_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbydRSS
 let serverConfig = {
   appsScriptUrl: process.env.VITE_APPS_SCRIPT_URL || FALLBACK_APPS_SCRIPT_URL,
   enableGoogleSheets: true,
-  googleSpreadsheetId: process.env.GOOGLE_SHEET_ID || '1R2yjyUUPJheGomLpSWnUW3FvkIlLsZxoCHn_bGaqPDw/edit?gid=80730661#gid=80730661',
+  googleSpreadsheetId: process.env.GOOGLE_SHEET_ID || '1R2yjyUUPJheGomLpSWnUW3FvkIlLsZxoCHn_bGaqPDw',
   appName: 'SiMANTAP',
   appSlogan: 'Manajemen Laporan Terpadu & Akurat',
   logoUrl: '',

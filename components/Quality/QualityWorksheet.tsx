@@ -1195,10 +1195,21 @@ export const QualityWorksheet: React.FC<QualityWorksheetProps> = ({
   const [localValues, setLocalValues] = useState<Record<string, { num: number, den: number, auditData?: any, auditInfo?: any }>>({});
   const [expandedIndicator, setExpandedIndicator] = useState<string | null>(null);
 
-  // Month string state for evaluation, default to June 2026 as the active month
-  const [selectedMonth, setSelectedMonth] = useState('2026-06');
-  const [startDate, setStartDate] = useState('2026-06-01');
-  const [endDate, setEndDate] = useState('2026-06-30');
+  // Month string state for evaluation, default to current active month dynamically
+  const getCurrentMonthInfo = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const monthStr = `${year}-${month}`;
+    const start = `${year}-${month}-01`;
+    const lastDayNum = new Date(year, now.getMonth() + 1, 0).getDate();
+    const end = `${year}-${month}-${String(lastDayNum).padStart(2, '0')}`;
+    return { monthStr, start, end };
+  };
+
+  const [selectedMonth, setSelectedMonth] = useState(() => getCurrentMonthInfo().monthStr);
+  const [startDate, setStartDate] = useState(() => getCurrentMonthInfo().start);
+  const [endDate, setEndDate] = useState(() => getCurrentMonthInfo().end);
   
   // State for active loaded monthly analysis dictionary: indicatorId -> MonthlyQualityAnalysis
   const [analysisStore, setAnalysisStore] = useState<Record<string, { problemAnalysis: string, actionPlan: string }>>(() => {

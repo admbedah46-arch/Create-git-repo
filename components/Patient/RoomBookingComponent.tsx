@@ -239,7 +239,11 @@ const RoomBookingInner: React.FC<RoomBookingProps> = ({
     let list = Array.isArray(safeBookings) ? [...safeBookings] : [];
 
     if (filterDate) {
-      list = list.filter(b => b && b.bookingDate === filterDate);
+      if (filterDate.length === 7) {
+        list = list.filter(b => b && b.bookingDate && b.bookingDate.startsWith(filterDate));
+      } else {
+        list = list.filter(b => b && b.bookingDate === filterDate);
+      }
     }
 
     if (filterStatus !== 'ALL') {

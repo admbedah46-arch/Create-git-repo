@@ -11,29 +11,8 @@ import { Button } from '../Button';
 import { SearchableSelect } from '../SearchableSelect';
 import { PatientLetterModal } from './PatientLetterModal';
 
-export const STANDAR_ICD10 = [
-  "A09 - Diarrhoea and gastroenteritis",
-  "E11 - Type 2 diabetes mellitus",
-  "I10 - Essential (primary) hypertension",
-  "K35 - Acute appendicitis",
-  "N18 - Chronic kidney disease",
-  "K40 - Inguinal hernia",
-  "E04 - Other nontoxic goitre",
-  "C50 - Malignant neoplasm of breast",
-  "K80 - Cholelithiasis",
-  "C18 - Malignant neoplasm of colon",
-  "D21 - Other benign neoplasms of connective and other soft tissue",
-  "M51 - Other intervertebral disc disorders",
-  "C73 - Malignant neoplasm of thyroid gland",
-  "D25 - Leiomyoma of uterus",
-  "N40 - Hyperplasia of prostate",
-  "J18 - Pneumonia, unspecified organism",
-  "I64 - Stroke, not specified as haemorrhage or infarction",
-  "K56 - Paralytic ileus and intestinal obstruction without hernia",
-  "N20 - Calculus of kidney and ureter",
-  "L02 - Cutaneous abscess, furuncle and carbuncle",
-  "T14 - Injury of unspecified body region"
-];
+import { STANDAR_ICD10 } from '../../constants';
+export { STANDAR_ICD10 };
 
 interface AdminRegistrasiModuleProps {
   patients: Patient[];
@@ -435,6 +414,13 @@ const SpreadsheetRow: React.FC<SpreadsheetRowProps> = ({
       return pos.includes('primer') || pos.includes('ppja') || pos.includes('rawat');
     });
   }, [masterData.nurses, masterData.nurseMetadata]);
+
+  const statusOptions = useMemo(() => {
+    const list = masterData.refs?.statusDataPasien || ["BPL", "APS", "Dipindah ke Ruangan Lain", "Dirujuk", "Meninggal"];
+    const hasBatal = list.some(s => s.toLowerCase().includes('batal'));
+    const final = hasBatal ? list : [...list, "Batal Rawat Inap"];
+    return ["AKTIF"].concat(final);
+  }, [masterData.refs]);
 
   // Ensure origin is synchronized with patient.origin if draft is empty
   useEffect(() => {
@@ -964,12 +950,7 @@ const SpreadsheetRow: React.FC<SpreadsheetRowProps> = ({
       {/* 29. Status Keluar */}
       <td className="p-2 border-r border-slate-100 w-36">
         <SearchableSelectCell
-          options={useMemo(() => {
-            const list = masterData.refs?.statusDataPasien || ["BPL", "APS", "Dipindah ke Ruangan Lain", "Dirujuk", "Meninggal"];
-            const hasBatal = list.some(s => s.toLowerCase().includes('batal'));
-            const final = hasBatal ? list : [...list, "Batal Rawat Inap"];
-            return ["AKTIF"].concat(final);
-          }, [masterData.refs])}
+          options={statusOptions}
           value={draft.statusDataPasien || 'AKTIF'}
           onChange={val => {
             handleCellChange('statusDataPasien', val);
@@ -1220,8 +1201,18 @@ export const AdminRegistrasiModule: React.FC<AdminRegistrasiModuleProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRuanganFilter, setSelectedRuanganFilter] = useState('Semua Ruangan');
   const [selectedDPJPFilter, setSelectedDPJPFilter] = useState('Semua DPJP');
-  const [selectedDateFilter, setSelectedDateFilter] = useState('');
-  const [selectedEndDateFilter, setSelectedEndDateFilter] = useState('');
+  const getCurrentMonthRange = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const start = `${year}-${month}-01`;
+    const lastDayNum = new Date(year, now.getMonth() + 1, 0).getDate();
+    const end = `${year}-${month}-${String(lastDayNum).padStart(2, '0')}`;
+    return { start, end };
+  };
+
+  const [selectedDateFilter, setSelectedDateFilter] = useState(() => getCurrentMonthRange().start);
+  const [selectedEndDateFilter, setSelectedEndDateFilter] = useState(() => getCurrentMonthRange().end);
   const [selectedKrsDateFilter, setSelectedKrsDateFilter] = useState('');
   const [selectedKrsEndDateFilter, setSelectedKrsEndDateFilter] = useState('');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('Semua Status');

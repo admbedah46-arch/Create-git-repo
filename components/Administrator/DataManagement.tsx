@@ -3,7 +3,8 @@ import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
 import { MasterData, User, UserRole, CustomField, DoctorCategory, QualityIndicator, RolePermission } from '../../types';
 import { ALL_MENU_IDS, DEFAULT_ROLE_PERMISSIONS } from '../../constants';
-import { getApiUrl, saveApiUrl, clearDeletedIds, registerDeletedId } from '../../db';
+import { getApiUrl, saveApiUrl, clearDeletedIds, registerDeletedId, parseAndMapRestoreJson } from '../../db';
+import { deleteItemFromFirestoreCollection } from '../../firestoreSync';
 import { Button } from '../Button';
 import { 
   Trash2, Plus, Edit2, X, Map, Activity, Database, AlertTriangle, 
@@ -278,13 +279,19 @@ export const DataManagement: React.FC<DataManagementProps> = ({
       reader.onload = (e) => {
         try {
           const content = e.target?.result as string;
-          const parsed = JSON.parse(content);
+          const parseResult = parseAndMapRestoreJson(content);
           
-          if (parsed && (parsed.patients || parsed.masterData)) {
-            setPendingRestoreData(parsed);
+          if (parseResult.success && parseResult.data) {
+            setPendingRestoreData({
+              appData: parseResult.data,
+              counts: parseResult.counts,
+              totalCount: parseResult.totalCount,
+              detailsString: parseResult.detailsString
+            });
             setIsRestoreConfirmOpen(true);
+            notify(`File JSON terdeteksi: ${parseResult.detailsString}`);
           } else {
-            alert("Format file JSON tidak valid.");
+            alert(`Gagal memproses file JSON: ${parseResult.error || "Format file tidak valid."}`);
           }
         } catch (err) {
           alert("Gagal membaca file JSON: " + (err as Error).message);
@@ -383,14 +390,18 @@ export const DataManagement: React.FC<DataManagementProps> = ({
   const handleExecuteRestore = async () => {
     if (!pendingRestoreData) return;
     try {
+      const restorePayload = pendingRestoreData.appData || pendingRestoreData;
       if (onUpdateAppData) {
-        await onUpdateAppData(pendingRestoreData, true);
-        notify("Pemulihan data (Restore) berhasil diselesaikan secara utuh!");
+        await onUpdateAppData(restorePayload, true);
+        
+        // Trigger instant global re-hydration
+        window.dispatchEvent(new CustomEvent('simantap_force_sync'));
+        
+        const summaryText = pendingRestoreData.detailsString || "Pemulihan data (Restore) berhasil diselesaikan secara utuh!";
+        notify(`Restore Berhasil! ${summaryText}`);
+        
         setIsRestoreConfirmOpen(false);
         setPendingRestoreData(null);
-        setTimeout(() => {
-          window.location.reload();
-        }, 1000);
       } else {
         alert("Sistem state update callback tidak aktif.");
       }
@@ -1192,6 +1203,7 @@ export const DataManagement: React.FC<DataManagementProps> = ({
           }
           // Register in local device deleted registry for active protection
           registerDeletedId(userKey);
+          deleteItemFromFirestoreCollection('users', deleteTarget.id);
 
           const updatedSettings = {
             ...(newData.settings || {}),
@@ -3036,12 +3048,14 @@ export const DataManagement: React.FC<DataManagementProps> = ({
             
             {/* Stats Preview */}
             <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 mb-8 text-left space-y-2.5">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block font-mono">Ringkasan Berkas Restore:</span>
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block font-mono">
+                Ringkasan Berkas Restore ({pendingRestoreData.totalCount ? `${pendingRestoreData.totalCount} Record` : 'Terdeteksi'}):
+              </span>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs font-semibold text-slate-600">
-                <div>👥 Pasien: <b className="text-slate-850">{(pendingRestoreData.patients || []).length}</b></div>
-                <div>🩺 Dokter: <b className="text-slate-850">{(pendingRestoreData.masterData?.doctors || []).length}</b></div>
-                <div>📝 Laporan Shift: <b className="text-slate-850">{(pendingRestoreData.dailyReports || []).length}</b></div>
-                <div>👤 Akun Pengguna: <b className="text-slate-850">{(pendingRestoreData.masterData?.users || []).length}</b></div>
+                <div>👥 Pasien: <b className="text-slate-850">{pendingRestoreData.counts?.patients ?? (pendingRestoreData.appData?.patients || pendingRestoreData.patients || []).length}</b></div>
+                <div>📝 Laporan: <b className="text-slate-850">{pendingRestoreData.counts?.dailyReports ?? (pendingRestoreData.appData?.dailyReports || pendingRestoreData.dailyReports || []).length}</b></div>
+                <div>💰 Keuangan: <b className="text-slate-850">{pendingRestoreData.counts?.financeRecords ?? (pendingRestoreData.appData?.financeRecords || pendingRestoreData.financeRecords || []).length}</b></div>
+                <div>👤 Akun: <b className="text-slate-850">{pendingRestoreData.counts?.users ?? (pendingRestoreData.appData?.masterData?.users || pendingRestoreData.masterData?.users || []).length}</b></div>
               </div>
             </div>
 

@@ -1,6 +1,6 @@
 import { Patient } from '../types';
 import { getDB, saveDB, registerDeletedId, uploadDataBackground } from '../db';
-import { pushItemToFirestoreCollection } from '../firestoreSync';
+import { pushItemToFirestoreCollection, deleteItemFromFirestoreCollection } from '../firestoreSync';
 import { googleAppsScriptService } from './googleAppsScriptService';
 import { pushRealtimeUpdateDebounced } from './realtimeSyncService';
 
@@ -110,17 +110,36 @@ export const patientService = {
     const db = getDB();
     if (!Array.isArray(db.patients)) return false;
 
-    // Register deleted ID permanently
-    registerDeletedId(String(id));
+    const idStr = String(id);
+    const targetPat = db.patients.find((p) => String(p.id) === idStr);
 
-    db.patients = db.patients.filter((p) => String(p.id) !== String(id));
+    registerDeletedId(idStr);
+    if (targetPat && targetPat.noRM) {
+      registerDeletedId(String(targetPat.noRM));
+    }
+
+    db.patients = db.patients.filter((p) => String(p.id) !== idStr);
     saveDB(db);
 
-    // Broadcast instant multi-device Realtime signal
-    pushRealtimeUpdateDebounced('sensus_bedah/patients', { patientId: id, action: 'DELETE' }, 300);
+    try {
+      await deleteItemFromFirestoreCollection('patients', idStr);
+      if (targetPat && targetPat.noRM) {
+        await deleteItemFromFirestoreCollection('patients', String(targetPat.noRM));
+      }
+    } catch (err) {
+      console.warn('[PatientService] Firestore deletion warning:', err);
+    }
+
+    pushRealtimeUpdateDebounced('sensus_bedah/patients', { patientId: idStr, action: 'DELETE' }, 300);
 
     uploadDataBackground();
     return true;
   }
 };
+
+export const getPatients = () => patientService.getPatients();
+export const getPatientById = (id: string) => patientService.getPatientById(id);
+export const createPatient = (p: Omit<Patient, 'id'>) => patientService.createPatient(p);
+export const updatePatient = (id: string, updates: Partial<Patient>) => patientService.updatePatient(id, updates);
+export const deletePatient = (id: string) => patientService.deletePatient(id);
 

@@ -17,6 +17,8 @@ export const PatientModule: React.FC<PatientModuleProps> = ({ appData, onEditPat
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<Patient | null>(null);
 
   const [selectedUnit, setSelectedUnit] = useState<string>('Semua Unit');
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 40;
 
   const filteredPatients = useMemo(() => {
     let list = appData.patients || [];
@@ -25,11 +27,22 @@ export const PatientModule: React.FC<PatientModuleProps> = ({ appData, onEditPat
       list = list.filter(p => p.unitTujuan === selectedUnit);
     }
     
-    return list.filter(p => 
-      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.noRM.includes(searchTerm)
-    );
+    if (searchTerm.trim() !== '') {
+      const term = searchTerm.toLowerCase();
+      list = list.filter(p => 
+        (p.name && p.name.toLowerCase().includes(term)) ||
+        (p.noRM && p.noRM.includes(term))
+      );
+    }
+    return list;
   }, [appData.patients, searchTerm, selectedUnit]);
+
+  const totalPages = useMemo(() => Math.ceil(filteredPatients.length / ITEMS_PER_PAGE) || 1, [filteredPatients]);
+
+  const paginatedPatients = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredPatients.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [filteredPatients, currentPage]);
 
   const selectedPatient = useMemo(() => 
     appData.patients?.find(p => p.id === selectedPatientId),
@@ -91,7 +104,7 @@ export const PatientModule: React.FC<PatientModuleProps> = ({ appData, onEditPat
             <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
               {filteredPatients.length > 0 ? (
                 <div className="space-y-1">
-                  {filteredPatients.map((patient, idx) => (
+                  {paginatedPatients.map((patient, idx) => (
                     <button
                       key={`${patient.id}-${idx}`}
                       onClick={() => setSelectedPatientId(patient.id)}
@@ -129,6 +142,31 @@ export const PatientModule: React.FC<PatientModuleProps> = ({ appData, onEditPat
                 </div>
               )}
             </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="p-3 border-t bg-slate-50/80 flex items-center justify-between text-xs font-bold text-slate-600">
+                <span className="text-[10px] uppercase tracking-wider text-slate-400 font-black">
+                  Hal {currentPage} dari {totalPages} ({filteredPatients.length} Data)
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    className="px-2.5 py-1 bg-white border rounded-lg text-[10px] font-black uppercase disabled:opacity-40 hover:bg-slate-100 transition"
+                  >
+                    « Prev
+                  </button>
+                  <button
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                    className="px-2.5 py-1 bg-white border rounded-lg text-[10px] font-black uppercase disabled:opacity-40 hover:bg-slate-100 transition"
+                  >
+                    Next »
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

@@ -1,6 +1,6 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getDatabase, ref, onValue, set, off } from 'firebase/database';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, disableNetwork } from 'firebase/firestore';
 import { DATABASE_CONFIG, dbPasien } from './databaseConfig';
 
 // Inisialisasi Firebase App
@@ -25,6 +25,47 @@ const lastReceivedCache: Record<string, string> = {};
 
 // Map to store active debounce timers per path node
 const debounceTimers: Record<string, any> = {};
+
+let isFsQuotaExceeded = false;
+
+const checkQuotaExceeded = (): boolean => {
+  if (isFsQuotaExceeded) return true;
+  if (typeof window !== 'undefined') {
+    try {
+      if (sessionStorage.getItem('simantap_firestore_quota_exceeded') === 'true') {
+        isFsQuotaExceeded = true;
+        return true;
+      }
+    } catch (e) {}
+  }
+  return false;
+};
+
+const markQuotaExceeded = (err?: any) => {
+  isFsQuotaExceeded = true;
+  if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.setItem('simantap_firestore_quota_exceeded', 'true');
+    } catch (e) {}
+  }
+  console.warn('[Realtime Sync] Firestore Quota exceeded notice:', err);
+};
+
+const isQuotaError = (err: any): boolean => {
+  if (!err) return false;
+  const str = (String(err?.code || '') + ' ' + String(err?.message || '') + ' ' + String(err || '')).toLowerCase();
+  return (
+    str.includes('resource-exhausted') ||
+    str.includes('resource_exhausted') ||
+    str.includes('quota') ||
+    str.includes('limit exceeded') ||
+    str.includes('free daily write') ||
+    str.includes('overloading') ||
+    str.includes('359469612868') ||
+    str.includes('429') ||
+    str.includes('exhausted')
+  );
+};
 
 /**
  * Mendengarkan perubahan data secara Realtime antar Perangkat (Primary WebSocket + Hybrid Fallbacks)
@@ -56,7 +97,7 @@ export const subscribeToRealtimeData = (
           console.error(`[Realtime Sync Callback Error] Path ${path}:`, err);
         }
       }, (error) => {
-        console.error(`[Realtime Sync Error] Path ${path}:`, error);
+        console.warn(`[Realtime Sync Notice] Path ${path}:`, error);
       });
 
       cleanups.push(() => {
@@ -71,8 +112,8 @@ export const subscribeToRealtimeData = (
     }
   }
 
-  // 2. Hybrid Broadcast Fallback: Firestore document snapshot listener for multi-device sync
-  if (dbPasien) {
+  // 2. Hybrid Broadcast Fallback: Firestore document snapshot listener (only if quota not exceeded)
+  if (dbPasien && !isFsQuotaExceeded) {
     try {
       const sanitizedDocId = path.replace(/\//g, '_');
       const fsDocRef = doc(dbPasien, 'realtime_nodes', sanitizedDocId);
@@ -89,9 +130,14 @@ export const subscribeToRealtimeData = (
           }
         }
       }, (err) => {
-        // Ignored if document doesn't exist or offline
+        if (isQuotaError(err)) {
+          markQuotaExceeded(err);
+        }
+        try { unsubFs(); } catch (e) {}
       });
-      cleanups.push(() => unsubFs());
+      cleanups.push(() => {
+        try { unsubFs(); } catch (e) {}
+      });
     } catch (e) {}
   }
 
@@ -162,17 +208,21 @@ export const pushRealtimeUpdate = async (path: string, data: any) => {
       const dataRef = ref(db, path);
       await set(dataRef, payload);
     } catch (error) {
-      console.error(`[Push Realtime Error] Path ${path}:`, error);
+      console.warn(`[Push Realtime DB Notice] Path ${path}:`, error);
     }
   }
 
-  // 3. Hybrid Backup: Push to Firestore Document
-  if (dbPasien) {
+  // 3. Hybrid Backup: Push to Firestore Document (skip if quota exceeded)
+  if (dbPasien && !isFsQuotaExceeded && !checkQuotaExceeded()) {
     try {
       const sanitizedDocId = path.replace(/\//g, '_');
       const fsDocRef = doc(dbPasien, 'realtime_nodes', sanitizedDocId);
       await setDoc(fsDocRef, { payload, updatedAt: new Date().toISOString() }, { merge: true });
-    } catch (e) {}
+    } catch (e: any) {
+      if (isQuotaError(e)) {
+        markQuotaExceeded(e);
+      }
+    }
   }
 };
 

@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Patient, AppData, QualityMeasurement } from '../../types';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { Patient, AppData, QualityMeasurement, parseToStandardDateString } from '../../types';
 import { Button } from '../Button';
 import { 
   Calendar, CheckSquare, ClipboardCheck, Info, Save, 
@@ -58,44 +58,6 @@ const getMainUnit = (roomName: string | undefined | null): string => {
   return `Ruang ${r}`;
 };
 
-const parseToStandardDateString = (dateStr: string | undefined | null): string => {
-  if (!dateStr) return '';
-  const clean = dateStr.trim();
-  
-  // Try to parse YYYY-MM-DD or YYYY/MM/DD
-  let match = clean.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-  if (match) {
-    const y = match[1];
-    const m = match[2].padStart(2, '0');
-    const d = match[3].padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-  
-  // Try to parse DD-MM-YYYY or DD/MM/YYYY
-  match = clean.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
-  if (match) {
-    const d = match[1].padStart(2, '0');
-    const m = match[2].padStart(2, '0');
-    const y = match[3];
-    return `${y}-${m}-${d}`;
-  }
-
-  // Fallback to JS Date parsing if possible
-  try {
-    const parsed = new Date(clean);
-    if (!isNaN(parsed.getTime())) {
-      const y = parsed.getFullYear();
-      const m = String(parsed.getMonth() + 1).padStart(2, '0');
-      const d = String(parsed.getDate()).padStart(2, '0');
-      return `${y}-${m}-${d}`;
-    }
-  } catch (e) {
-    // Ignore error
-  }
-  
-  return clean;
-};
-
 export const AsesmenAwalMedisWorksheet: React.FC<AsesmenAwalMedisWorksheetProps> = ({ 
   appData, 
   onSaveMeasurement, 
@@ -108,10 +70,14 @@ export const AsesmenAwalMedisWorksheet: React.FC<AsesmenAwalMedisWorksheetProps>
   });
   const selectedDate = propsSelectedDate || localSelectedDate;
   const setSelectedDate = propsSetSelectedDate || setLocalSelectedDate;
+
+  // Filter mode: 'DAY' (Tanggal Spesifik Pasien Masuk - default) vs 'MONTH' (Rentang Akumulasi Bulan Ini)
+  const [filterMode, setFilterMode] = useState<'MONTH' | 'DAY'>('DAY');
   
   // Compile list of available rooms/wards
   const roomsList = useMemo(() => {
     const list = new Set<string>();
+    list.add('Semua Ruangan');
     
     // Add rooms from masterData
     if (appData?.masterData?.rooms && Array.isArray(appData.masterData.rooms)) {
@@ -142,7 +108,11 @@ export const AsesmenAwalMedisWorksheet: React.FC<AsesmenAwalMedisWorksheetProps>
       if (mainUnit) list.add(mainUnit);
     }
 
-    return Array.from(list).filter(Boolean).sort();
+    return Array.from(list).filter(Boolean).sort((a, b) => {
+      if (a === 'Semua Ruangan') return -1;
+      if (b === 'Semua Ruangan') return 1;
+      return a.localeCompare(b);
+    });
   }, [appData, currentUser]);
 
   const [selectedRoom, setSelectedRoom] = useState<string>(() => {
@@ -154,6 +124,14 @@ export const AsesmenAwalMedisWorksheet: React.FC<AsesmenAwalMedisWorksheetProps>
     // Default fallback to "Ruang Bedah" or the first available room
     return 'Ruang Bedah';
   });
+
+  const isRoomMatch = useCallback((p: Patient) => {
+    if (selectedRoom === 'Semua Ruangan') return true;
+    const r1 = getMainUnit(p.ruangan);
+    const r2 = getMainUnit(p.unitTujuan);
+    const r3 = getMainUnit((p as any).originUnit);
+    return r1 === selectedRoom || r2 === selectedRoom || r3 === selectedRoom;
+  }, [selectedRoom]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [searchQueue, setSearchQueue] = useState('');
@@ -248,7 +226,22 @@ export const AsesmenAwalMedisWorksheet: React.FC<AsesmenAwalMedisWorksheetProps>
     });
   };
 
-  // Compile Queue of Patients (have NOT had initial medical assessment audited for the current date, multi-criteria filtered)
+  // Helper function to check if patient entry date matches selected filter mode (MONTH vs DAY)
+  const isDateMatchForFilter = useCallback((p: Patient | string) => {
+    if (!p) return false;
+    let rawDate = typeof p === 'string' ? p : (p.entryDate || (p as any).tanggal_mrs || (p as any).createdAt || (p as any).date || '');
+    if (!rawDate) return false;
+    const stdEntry = parseToStandardDateString(rawDate);
+    const targetDateStr = parseToStandardDateString(selectedDate);
+    if (!stdEntry || !targetDateStr) return false;
+    if (filterMode === 'MONTH') {
+      const monthPrefix = targetDateStr.substring(0, 7); // e.g. "2026-07"
+      return stdEntry.startsWith(monthPrefix);
+    }
+    return stdEntry === targetDateStr;
+  }, [selectedDate, filterMode]);
+
+  // Compile Queue of Patients (have NOT had initial medical assessment audited for the current date/month, multi-criteria filtered)
   const patientsQueue = useMemo(() => {
     let list = appData.patients || [];
     const deletedSet = new Set<string>(appData.deletedIds || []);
@@ -256,14 +249,20 @@ export const AsesmenAwalMedisWorksheet: React.FC<AsesmenAwalMedisWorksheetProps>
     // 0. Exclude deleted patients
     list = list.filter(p => p && p.id && !deletedSet.has(p.id));
 
-    // 1. Filter Ruang Perawatan: Hanya tampilkan pasien baru yang nama ruang perawatannya SESUAI dengan ruang perawatan yang sedang aktif/dipilih
-    list = list.filter(p => getMainUnit(p.ruangan) === selectedRoom || getMainUnit(p.unitTujuan) === selectedRoom);
+    // 1. Filter Ruang Perawatan
+    list = list.filter(p => isRoomMatch(p));
 
-    // 2. Filter Tanggal Masuk Rumah Sakit (MRS): Hanya tampilkan pasien yang memiliki Tanggal MRS persis sama dengan tanggal yang dipilih (sinkronisasi format tanggal ketat)
-    const targetDateStr = parseToStandardDateString(selectedDate);
-    list = list.filter(p => p && parseToStandardDateString(p.entryDate) === targetDateStr);
+    // 2. Filter Tanggal Masuk Rumah Sakit (MRS): Hanya tampilkan pasien yang masuk SESUAI TANGGAL ENTRY yang dipilih (seperti Laporan Visite & Keuangan)
+    list = list.filter(p => {
+      if (!p) return false;
+      const rawDate = p.entryDate || (p as any).tanggal_mrs || (p as any).createdAt || (p as any).date || '';
+      if (!rawDate) return false;
+      const stdEntry = parseToStandardDateString(rawDate);
+      const targetDateStr = parseToStandardDateString(selectedDate);
+      return stdEntry === targetDateStr;
+    });
 
-    // 3. Filter Eksklusi (Pasien Sudah Diposting/Diaudit): Pasien yang sudah disimpan data asesmennya untuk tanggal ini TIDAK BOLEH muncul kembali di antrean
+    // 3. Filter Eksklusi (Pasien Sudah Diposting/Diaudit): Pasien yang sudah disimpan data asesmennya TIDAK BOLEH muncul kembali di antrean
     const auditedIds = new Set<string>(
       Object.keys(localAuditData || {}).filter(key => localAuditData[key] !== undefined && localAuditData[key] !== null)
     );
@@ -275,9 +274,9 @@ export const AsesmenAwalMedisWorksheet: React.FC<AsesmenAwalMedisWorksheetProps>
       return list.filter(p => (p.name || '').toLowerCase().includes(q) || (p.noRM || '').toLowerCase().includes(q));
     }
     return list;
-  }, [appData.patients, appData.deletedIds, localAuditData, selectedRoom, selectedDate, searchQueue]);
+  }, [appData.patients, appData.deletedIds, localAuditData, isRoomMatch, isDateMatchForFilter, searchQueue]);
 
-  // Compile list of audited patients for the selected date (Daftar Riwayat)
+  // Compile list of audited patients for the selected date/month (Daftar Riwayat)
   const auditedPatientsForSelectedDate = useMemo(() => {
     let list = appData.patients || [];
     const deletedSet = new Set<string>(appData.deletedIds || []);
@@ -286,18 +285,17 @@ export const AsesmenAwalMedisWorksheet: React.FC<AsesmenAwalMedisWorksheetProps>
     list = list.filter(p => p && p.id && !deletedSet.has(p.id));
 
     // Filter by selectedRoom
-    list = list.filter(p => getMainUnit(p.ruangan) === selectedRoom || getMainUnit(p.unitTujuan) === selectedRoom);
+    list = list.filter(p => isRoomMatch(p));
 
-    // Filter to selected date and those who have active audit record
-    const targetDateStr = parseToStandardDateString(selectedDate);
-    list = list.filter(p => p && parseToStandardDateString(p.entryDate) === targetDateStr && localAuditData[p.id] !== undefined && localAuditData[p.id] !== null);
+    // Filter to selected date/month range and those who have active audit record
+    list = list.filter(p => p && isDateMatchForFilter(p) && localAuditData[p.id] !== undefined && localAuditData[p.id] !== null);
 
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase();
       list = list.filter(p => (p.name || '').toLowerCase().includes(q) || (p.noRM || '').toLowerCase().includes(q));
     }
     return list;
-  }, [appData.patients, appData.deletedIds, selectedDate, localAuditData, selectedRoom, searchTerm]);
+  }, [appData.patients, appData.deletedIds, isDateMatchForFilter, localAuditData, isRoomMatch, searchTerm]);
 
   // Stats calculation
   const getComplianceStats = () => {
@@ -307,10 +305,9 @@ export const AsesmenAwalMedisWorksheet: React.FC<AsesmenAwalMedisWorksheetProps>
     // Exclude deleted patients
     datePatients = datePatients.filter(p => p && p.id && !deletedSet.has(p.id));
 
-    datePatients = datePatients.filter(p => getMainUnit(p.ruangan) === selectedRoom || getMainUnit(p.unitTujuan) === selectedRoom);
+    datePatients = datePatients.filter(p => isRoomMatch(p));
     
-    const targetDateStr = parseToStandardDateString(selectedDate);
-    datePatients = datePatients.filter(p => p && parseToStandardDateString(p.entryDate) === targetDateStr);
+    datePatients = datePatients.filter(p => p && isDateMatchForFilter(p));
 
     const totalNew = datePatients.length;
     const auditedOnDate = datePatients.filter(p => localAuditData[p.id] !== undefined && localAuditData[p.id] !== null);
@@ -351,7 +348,8 @@ export const AsesmenAwalMedisWorksheet: React.FC<AsesmenAwalMedisWorksheetProps>
 
   // Handle Save Audit (Optimistic UI & Background Async Sync)
   const handleSaveAudit = (patient: Patient, values: Record<string, 'Ya' | 'Tidak' | 'Tidak Perlu'>) => {
-    const targetDate = parseToStandardDateString(patient.entryDate) || parseToStandardDateString(selectedDate);
+    const rawPatientDate = patient.entryDate || (patient as any).tanggal_mrs || (patient as any).createdAt || (patient as any).date;
+    const targetDate = parseToStandardDateString(rawPatientDate) || parseToStandardDateString(selectedDate);
     const targetDateStd = parseToStandardDateString(targetDate);
 
     // Retrieve global list
@@ -652,16 +650,24 @@ export const AsesmenAwalMedisWorksheet: React.FC<AsesmenAwalMedisWorksheetProps>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 bg-slate-50 p-1 rounded-xl border border-slate-100">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-2 pl-3">
-              <Calendar size={14} className="text-blue-500" /> TANGGAL MRS:
-            </label>
-            <input
-              type="date"
-              className="border-0 bg-transparent rounded-lg px-3 py-1.5 text-xs font-black outline-none text-blue-600 cursor-pointer"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-            />
+          <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-100">
+            <select
+              value={filterMode}
+              onChange={(e) => setFilterMode(e.target.value as 'MONTH' | 'DAY')}
+              className="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-black text-slate-700 outline-none cursor-pointer"
+            >
+              <option value="DAY">Tanggal Spesifik (Harian)</option>
+              <option value="MONTH">Rentang Bulan Ini</option>
+            </select>
+            <div className="flex items-center gap-1">
+              <Calendar size={14} className="text-blue-500 ml-1" />
+              <input
+                type="date"
+                className="border-0 bg-transparent rounded-lg px-2 py-1 text-xs font-black outline-none text-blue-600 cursor-pointer"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+              />
+            </div>
           </div>
         </div>
       </div>

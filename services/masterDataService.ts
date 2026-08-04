@@ -1,6 +1,6 @@
 import { MasterData, User } from '../types';
 import { getDB, saveDB, registerDeletedId, uploadDataBackground } from '../db';
-import { pushItemToFirestoreCollection } from '../firestoreSync';
+import { pushItemToFirestoreCollection, deleteItemFromFirestoreCollection } from '../firestoreSync';
 import { googleAppsScriptService } from './googleAppsScriptService';
 
 /**
@@ -99,6 +99,12 @@ export const masterDataService = {
 
     db.masterData.users = db.masterData.users.filter((u) => u.username !== username);
     saveDB(db);
+
+    try {
+      await deleteItemFromFirestoreCollection('users', username);
+    } catch (err) {
+      console.warn('[MasterDataService] Cloud user deletion warning:', err);
+    }
 
     uploadDataBackground();
     return true;

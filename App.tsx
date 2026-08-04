@@ -33,9 +33,9 @@ import { Button } from './components/Button';
 import { SearchableSelect } from './components/SearchableSelect';
 import { getDB, saveDB, uploadDataBackground, mergeData, getApiUrl, saveApiUrl, syncData, uploadData, registerDeletedId, getDeletedIds, getIsCurrentlyUploading, resilientParse, normalizeDatesInDb, triggerOfflineQueueUpload, getLocalSnapshotFromDB, requestPersistentStorage, generatePermanentUUID, getLatestTimestamp, mergeRecordProperties, TAB_ID, setPendingUploadInDB, hasAppDataChanged, isAppDataContentEqual, checkAndResetCacheOnVersionChange } from './db';
 import { testFirestoreConnection } from './firebase';
-import { initFirestoreRealtimeSync, subscribeDataChange, subscribeConnectionStatus, pushToFirestore, loadFromFirestore, fetchInitialStateFromFirestore, broadcastCrossTabHydration, fetchLatestFromFirestore } from './firestoreSync';
+import { initFirestoreRealtimeSync, subscribeDataChange, subscribeConnectionStatus, pushToFirestore, loadFromFirestore, fetchInitialStateFromFirestore, broadcastCrossTabHydration, fetchLatestFromFirestore, deleteItemFromFirestoreCollection } from './firestoreSync';
 import { INITIAL_DATA } from './constants';
-import { AppData, User, FinanceRecord, IncidentReport, Patient, DailyReportEntry, QualityMeasurement, DependencyLevel, Instrument, OperationReport, DoctorVisitRecord, RoomBooking, getRoomBedStyles, getPaymentMethodStyles, getShiftFromTime } from './types';
+import { AppData, User, FinanceRecord, IncidentReport, Patient, DailyReportEntry, QualityMeasurement, DependencyLevel, Instrument, OperationReport, DoctorVisitRecord, RoomBooking, getRoomBedStyles, getPaymentMethodStyles, getShiftFromTime, formatLocalDate } from './types';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Cell, AreaChart, Area
@@ -113,17 +113,28 @@ const ModuleLoadingFallback = () => (
   </div>
 );
 
-const DEFAULT_SUPER_USER: User = {
+const DEFAULT_SUPER_USER: any = {
+  id: '1',
   username: 'admin',
   password: 'admin',
   name: 'Super User',
   role: 'SUPER_ADMIN',
   position: 'Super Administrator',
-  unit: 'Ruang Bedah'
+  unit: 'Ruang Bedah',
+  email: 'admin@simantap.local'
 };
 
 const App: React.FC = () => {
-  const [user, rawSetUser] = useState<User | null>(null);
+  const [user, rawSetUser] = useState<User | null>(() => {
+    try {
+      const saved = localStorage.getItem('surgihub_user') || sessionStorage.getItem('surgihub_user');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.username) return parsed;
+      }
+    } catch (e) {}
+    return DEFAULT_SUPER_USER;
+  });
 
   const setUser = (newUser: User | null) => {
     rawSetUser(newUser);
@@ -172,7 +183,7 @@ const App: React.FC = () => {
   const saveTimeoutRef = useRef<any>(null);
   const retrySyncTimerRef = useRef<any>(null);
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: string; name: string; type: 'patient' | 'incident' | 'cache' } | null>(null);
-  const [scheduleFilterDate, setScheduleFilterDate] = useState<string>(new Date().toLocaleDateString('en-CA'));
+  const [scheduleFilterDate, setScheduleFilterDate] = useState<string>('');
   const [scheduleFilterRoom, setScheduleFilterRoom] = useState<string>('');
   const [scheduleFilterDpjp, setScheduleFilterDpjp] = useState<string>('');
   const [scheduleGlobalSearch, setScheduleGlobalSearch] = useState<string>('');
@@ -182,6 +193,7 @@ const App: React.FC = () => {
   const [selectedDetailPatientId, setSelectedDetailPatientId] = useState<string | null>(null);
   const [patientLocks, setPatientLocks] = useState<{ [patientId: string]: { username: string; lockedAt: number } }>({});
   const [isFirestoreOnline, setIsFirestoreOnline] = useState<boolean>(true);
+  const [isServerHydrating, setIsServerHydrating] = useState<boolean>(true);
   const [isQuotaExceeded, setIsQuotaExceeded] = useState<boolean>(() => {
     try {
       if (typeof window !== 'undefined') {
@@ -206,30 +218,29 @@ const App: React.FC = () => {
 
     // 2. Subscribe to real-time data changes broadcast from Firestore
     const unsubData = subscribeDataChange((newMergedData) => {
-      setAppData((prev) => {
-        if (isAppDataContentEqual(prev, newMergedData)) {
-          return prev; // Skips re-rendering if data content is identical
-        }
+      if (newMergedData) {
         setLastSyncTime(new Date());
-        return newMergedData;
-      });
+        setAppData({ ...newMergedData });
+      }
     });
 
-    // 3. Force read & reconcile all chunks on initial load from Firestore (auto-reconciliation)
+    // 3. Primary Server Mandatory Load: Direct HTTP Fetch from Google Sheets Webhook + Supabase + Firestore on App Load
     setSyncStatus('SYNCING');
-    fetchInitialStateFromFirestore().then((resData) => {
-      if (resData) {
-        setAppData((prev) => {
-          if (isAppDataContentEqual(prev, resData)) {
-            return prev;
-          }
-          setLastSyncTime(new Date());
-          return resData;
-        });
-      }
+    setIsServerHydrating(true);
+
+    Promise.allSettled([
+      syncData(true),
+      fetchInitialStateFromFirestore()
+    ]).then(() => {
+      const freshData = getDB();
+      setAppData({ ...freshData });
+      setLastSyncTime(new Date());
       setSyncStatus('IDLE');
-    }).catch(() => {
+      setIsServerHydrating(false);
+    }).catch((e) => {
+      console.warn('[App Init] Primary Server Sync notice:', e);
       setSyncStatus('IDLE');
+      setIsServerHydrating(false);
     });
 
     // 4. Initialize real-time listener
@@ -248,11 +259,8 @@ const App: React.FC = () => {
       console.log('[Sync] Force re-hydration triggered!');
       loadFromFirestore().then((freshData) => {
         if (freshData) {
-          setAppData((prev) => {
-            if (isAppDataContentEqual(prev, freshData)) return prev;
-            setLastSyncTime(new Date());
-            return freshData;
-          });
+          setLastSyncTime(new Date());
+          setAppData({ ...freshData });
         }
       }).catch((e) => console.warn('[Sync] Force re-hydration error:', e));
     };
@@ -768,28 +776,7 @@ const App: React.FC = () => {
           
           if (payload.type === 'handshake') {
             const serverVersion = payload.version;
-            const CLIENT_VERSION = "2.3.0-zero-lag-vercel-sync";
-            console.log(`[SSE Handshake] Server Build: ${serverVersion} | Local Build: ${CLIENT_VERSION}`);
-            
-            // If the server changed versions (user completed code updates in AI Studio), trigger smooth live hot reload!
-            if (serverVersion && serverVersion !== CLIENT_VERSION) {
-              console.log("[Live Update] Outdated browser build detected! Clearing storage & hot reloading...");
-              setNotification({ 
-                message: "Aplikasi SIMANTAP diperbarui ke versi terbaru. Memuat ulang sistem secara real-time...", 
-                type: 'success' 
-              });
-              
-              if ('caches' in window) {
-                try {
-                  const names = await caches.keys();
-                  await Promise.all(names.map(name => caches.delete(name)));
-                } catch (e) {}
-              }
-              
-              setTimeout(() => {
-                window.location.reload();
-              }, 1500);
-            }
+            console.log(`[SSE Handshake] Server Build: ${serverVersion} | Stream active`);
           } else if (payload.type === 'delta-update') {
             const table = payload.table;
             const items = payload.items || [];
@@ -1102,7 +1089,7 @@ const App: React.FC = () => {
 
     data.patients.forEach(p => {
       // Kolom keterangan di registrasi pasien (catatanKhusus) wajib terisi langsung ke adminNote pada laporan keperawatan untuk tanggal MRS (entryDate)
-      const targetDate = p.entryDate || new Date().toISOString().split('T')[0];
+      const targetDate = p.entryDate || formatLocalDate();
       
       let noteValue = p.catatanKhusus || '';
       const badges: string[] = [];
@@ -1310,9 +1297,29 @@ const App: React.FC = () => {
     return false;
   };
 
-  const handleLogin = (loggedInUser: User) => {
+  const handleLogin = async (loggedInUser: User) => {
     setUser(loggedInUser);
     localStorage.setItem('surgihub_user', JSON.stringify(loggedInUser));
+
+    // Force mandatory server fetch on login & purge stale local cache
+    setIsServerHydrating(true);
+    setSyncStatus('SYNCING');
+    try {
+      await Promise.allSettled([
+        syncData(true),
+        fetchInitialStateFromFirestore()
+      ]);
+      const freshData = getDB();
+      setAppData({ ...freshData });
+      setLastSyncTime(new Date());
+      setSyncStatus('SUCCESS');
+      setTimeout(() => setSyncStatus('IDLE'), 2000);
+    } catch (e) {
+      console.warn('[Login Sync] Primary Server fetch notice:', e);
+      setSyncStatus('IDLE');
+    } finally {
+      setIsServerHydrating(false);
+    }
   };
 
   const handleLogout = () => {
@@ -1383,6 +1390,8 @@ const App: React.FC = () => {
     const updatedBookings = currentBookings.filter(b => b.id !== id);
 
     registerDeletedId(id);
+    deleteItemFromFirestoreCollection('roomBookings', id);
+    deleteItemFromFirestoreCollection('booking_ruangan', id);
 
     const newData: AppData = {
       ...appData,
@@ -1410,7 +1419,7 @@ const App: React.FC = () => {
       gender: 'L',
       birthDate: '',
       address: '',
-      entryDate: booking.bookingDate || new Date().toISOString().split('T')[0],
+      entryDate: booking.bookingDate || formatLocalDate(),
       entryTime: new Date().toTimeString().split(' ')[0].substring(0, 5),
       origin: booking.patientStatus || 'Di Rumah',
       originUnit: booking.patientStatus || 'Di Rumah',
@@ -1482,7 +1491,7 @@ const App: React.FC = () => {
         transferDestinationRoom: ''
       };
     }
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = formatLocalDate();
     const nowTimeStr = new Date().toTimeString().split(' ')[0].substring(0, 5);
     return {
       ...pData,
@@ -1655,7 +1664,7 @@ const App: React.FC = () => {
       gender: 'L',
       birthDate: '1985-01-01',
       address: '',
-      entryDate: new Date().toISOString().split('T')[0],
+      entryDate: formatLocalDate(),
       origin: 'IGD',
       unitTujuan: 'Rawat Inap',
       kelasRawat: 'Kelas 3',
@@ -1747,6 +1756,7 @@ const App: React.FC = () => {
 
   const handleDeleteDoctorVisit = (id: string) => {
     registerDeletedId(id);
+    deleteItemFromFirestoreCollection('doctorVisits', id);
     const newData = {
       ...appData,
       doctorVisits: (appData.doctorVisits || []).filter(v => v.id !== id)
@@ -1756,7 +1766,7 @@ const App: React.FC = () => {
   };
 
   const handleUpdateDailyReport = async (patientId: string, type: keyof DailyReportEntry | 'BATCH', content: any, date?: string) => {
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    const targetDate = date || formatLocalDate();
     let reports = [...(appData.dailyReports || [])];
 
     // Check if the update is setting / editing surgery fields
@@ -1895,7 +1905,7 @@ const App: React.FC = () => {
   };
 
   const handleUpdateDependency = (patientId: string, shift: 'morning' | 'afternoon' | 'night', level: DependencyLevel, date?: string) => {
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    const targetDate = date || formatLocalDate();
     const reports = [...(appData.dailyReports || [])];
     const existingIdx = reports.findIndex(r => r.patientId === patientId && r.date === targetDate);
     
@@ -1938,6 +1948,8 @@ const App: React.FC = () => {
 
   const handleDeleteFinance = (id: string) => {
     registerDeletedId(id);
+    deleteItemFromFirestoreCollection('financeRecords', id);
+    deleteItemFromFirestoreCollection('financial_reports', id);
     const newData = { ...appData };
     newData.financeRecords = (newData.financeRecords || []).filter(r => r.id !== id);
     handleUpdateAppData(newData, true);
@@ -2100,6 +2112,7 @@ const App: React.FC = () => {
 
   const handleDeleteOperationReport = (id: string) => {
     registerDeletedId(id);
+    deleteItemFromFirestoreCollection('operationReports', id);
     const newData = { ...appData };
     newData.operationReports = (newData.operationReports || []).filter(r => r.id !== id);
     handleUpdateAppData(newData, true);
@@ -2108,16 +2121,26 @@ const App: React.FC = () => {
 
   const handleDeletePatient = (id: string) => {
     registerDeletedId(id);
+    deleteItemFromFirestoreCollection('patients', id);
     const targetPat = (appData.patients || []).find(p => p.id === id);
-    if (targetPat && targetPat.noRM) registerDeletedId(targetPat.noRM);
+    if (targetPat && targetPat.noRM) {
+      registerDeletedId(targetPat.noRM);
+      deleteItemFromFirestoreCollection('patients', targetPat.noRM);
+    }
     (appData.dailyReports || []).forEach(r => {
       if (r.patientId === id) registerDeletedId(`${r.patientId}_${r.date}`);
     });
     (appData.financeRecords || []).forEach(f => {
-      if (f.patientId === id && f.id) registerDeletedId(f.id);
+      if (f.patientId === id && f.id) {
+        registerDeletedId(f.id);
+        deleteItemFromFirestoreCollection('financeRecords', f.id);
+      }
     });
     (appData.doctorVisits || []).forEach(v => {
-      if (v.patientId === id && v.id) registerDeletedId(v.id);
+      if (v.patientId === id && v.id) {
+        registerDeletedId(v.id);
+        deleteItemFromFirestoreCollection('doctorVisits', v.id);
+      }
     });
     const newData = { ...appData };
     newData.patients = (newData.patients || []).filter(p => p.id !== id);
@@ -2127,6 +2150,7 @@ const App: React.FC = () => {
 
   const handleDeleteIncident = (id: string) => {
     registerDeletedId(id);
+    deleteItemFromFirestoreCollection('incidentReports', id);
     const newData = { ...appData };
     newData.incidentReports = (newData.incidentReports || []).filter(r => r.id !== id);
     handleUpdateAppData(newData, true);
@@ -2134,7 +2158,7 @@ const App: React.FC = () => {
   };
 
   const renderContent = () => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = formatLocalDate();
     const financeRecords = appData.financeRecords || [];
     const incidentReports = appData.incidentReports || [];
     const openIncidents = incidentReports.filter(i => i.status !== 'RESOLVED');
@@ -2205,7 +2229,7 @@ const App: React.FC = () => {
     const last7Days = Array.from({ length: 7 }, (_, i) => {
       const d = new Date();
       d.setDate(d.getDate() - (6 - i));
-      return d.toISOString().split('T')[0];
+      return formatLocalDate(d);
     });
 
     const performanceData = last7Days.map(date => ({
@@ -3868,6 +3892,8 @@ const App: React.FC = () => {
             currentUser={user}
             onPatientClick={(id) => setSelectedDetailPatientId(id)}
             syncStatus={syncStatus}
+            onNavigate={setActiveMenu}
+            onCheckInBooking={handleCheckInBookingToRegistration}
           />
         );
 
@@ -4027,6 +4053,23 @@ const App: React.FC = () => {
     );
   }
 
+  if (isServerHydrating) {
+    return (
+      <div className="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center p-6 text-center z-[99999]">
+        <div className="relative mb-6">
+          <div className="w-16 h-16 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
+        </div>
+        <h2 className="text-white text-lg font-black uppercase tracking-widest mb-2">Menyinkronkan Server Utama</h2>
+        <p className="text-emerald-400 text-xs font-semibold max-w-sm leading-relaxed mb-4">
+          Mengunduh & memperbarui data historis dari Google Sheets & Cloud Server...
+        </p>
+        <div className="w-48 bg-slate-800 h-1.5 rounded-full overflow-hidden">
+          <div className="bg-emerald-500 h-full animate-pulse w-full"></div>
+        </div>
+      </div>
+    );
+  }
+
   if (!user) {
     return <Login onLogin={handleLogin} settings={safeAppData.masterData.settings} users={safeAppData.masterData.users} />;
   }
@@ -4043,7 +4086,7 @@ const App: React.FC = () => {
           operator: dr.surgeryOperator || 'dr. Operator Bedah',
           procedure: dr.surgeryProcedure || 'Tindakan Operasi',
           room: patient?.ruangan || 'Kamar Operasi',
-          date: dr.surgeryDate || dr.date || new Date().toISOString().split('T')[0],
+          date: dr.surgeryDate || dr.date || formatLocalDate(),
           startTime: dr.surgeryTime || '08:00',
         };
       }),
@@ -4054,7 +4097,7 @@ const App: React.FC = () => {
       operator: opr.operator || 'dr. Operator',
       procedure: opr.procedureName || 'Operasi Bedah',
       room: opr.room || 'Kamar Operasi',
-      date: opr.date || new Date().toISOString().split('T')[0],
+      date: opr.date || formatLocalDate(),
       startTime: opr.startTime || '08:00',
     })),
   ];

@@ -60,6 +60,8 @@ interface ServiceMatrixProps {
   patientLocks?: { [patientId: string]: { username: string; lockedAt: number } };
   masterData: MasterData;
   onAddPatient: () => void;
+  onNavigate?: (menu: string) => void;
+  onCheckInBooking?: (booking: any) => void;
   onUpdateReport: (
     patientId: string,
     type: keyof DailyReportEntry | "BATCH",
@@ -1507,6 +1509,8 @@ export const ServiceMatrix: React.FC<ServiceMatrixProps> = React.memo(({
   patientLocks,
   masterData,
   onAddPatient,
+  onNavigate,
+  onCheckInBooking,
   onUpdateReport,
   onUpdateDependency,
   onUpdatePatient,
@@ -1533,6 +1537,27 @@ export const ServiceMatrix: React.FC<ServiceMatrixProps> = React.memo(({
   const [selectedStatus, setSelectedStatus] = useState("Masih Dirawat");
   const [selectedRoomFilter, setSelectedRoomFilter] = useState("Semua Ruangan");
   const [selectedBedFilter, setSelectedBedFilter] = useState("Semua No Bed");
+
+  // State for Booking Check-In Pop Up Modal
+  const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+  const [bookingSearchQuery, setBookingSearchQuery] = useState("");
+  const [bookingFilterStatus, setBookingFilterStatus] = useState<string>("PENDING");
+
+  const safeBookingsList = useMemo(() => {
+    const rawList = [
+      ...(Array.isArray(appData?.booking_ruangan) ? appData.booking_ruangan : []),
+      ...(Array.isArray(appData?.roomBookings) ? appData.roomBookings : [])
+    ];
+    const seenMap = new Map<string, any>();
+    rawList.forEach(b => {
+      if (!b || typeof b !== 'object') return;
+      const key = b.id || (b.noRM && b.bookingDate ? `${b.noRM}_${b.bookingDate}` : null);
+      if (key && !seenMap.has(key)) {
+        seenMap.set(key, b);
+      }
+    });
+    return Array.from(seenMap.values());
+  }, [appData?.booking_ruangan, appData?.roomBookings]);
 
   // AI Holistic Diagnosis Compilation states
   const [compiledDiagnosisPatientId, setCompiledDiagnosisPatientId] = useState<string | null>(null);
@@ -3688,6 +3713,12 @@ export const ServiceMatrix: React.FC<ServiceMatrixProps> = React.memo(({
             <UserPlus size={16} /> Registrasi Pasien Pernah Dirawat
           </Button>
           <Button
+            onClick={() => setIsBookingModalOpen(true)}
+            className="bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-black uppercase tracking-widest px-6 py-3 rounded-xl shadow-lg shadow-purple-100 flex items-center gap-1.5 cursor-pointer"
+          >
+            <UserCheck size={16} /> Check-In Booking Pasien
+          </Button>
+          <Button
             onClick={onAddPatient}
             className="bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-black uppercase tracking-widest px-8 py-3 rounded-xl shadow-lg shadow-indigo-100"
           >
@@ -5826,6 +5857,210 @@ export const ServiceMatrix: React.FC<ServiceMatrixProps> = React.memo(({
           </div>
         );
       })()}
+
+      {/* Modal Pop-Up Bookingan Pasien (Check-In) */}
+      {isBookingModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[250] flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-[2.5rem] p-6 sm:p-10 w-full max-w-4xl shadow-2xl border border-slate-100 max-h-[90vh] flex flex-col relative overflow-hidden">
+            {/* Header */}
+            <div className="flex justify-between items-start pb-6 border-b border-slate-100">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-purple-50 text-purple-600 rounded-2xl">
+                  <UserCheck size={28} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xl sm:text-2xl font-black text-slate-800 uppercase tracking-tight">
+                      Pop Up Bookingan Pasien
+                    </h3>
+                    <span className="px-3 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[10px] font-black uppercase">
+                      {safeBookingsList.filter(b => b.status === 'PENDING' || !b.status).length} Pending
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-1">
+                    Daftar Antrian Booking Kamar & Layanan Check-In Langsung Ke Admisi Pasien
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsBookingModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-all cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Filter & Search Bar */}
+            <div className="py-4 flex flex-col sm:flex-row gap-3 items-center justify-between border-b border-slate-100">
+              <div className="relative flex-1 w-full">
+                <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Cari Nama Pasien, No. RM, atau Ruangan..."
+                  value={bookingSearchQuery}
+                  onChange={(e) => setBookingSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:border-purple-500 focus:bg-white transition-all"
+                />
+              </div>
+              <div className="flex gap-2 w-full sm:w-auto">
+                <select
+                  value={bookingFilterStatus}
+                  onChange={(e) => setBookingFilterStatus(e.target.value)}
+                  className="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 outline-none focus:border-purple-500 cursor-pointer"
+                >
+                  <option value="ALL">Semua Status</option>
+                  <option value="PENDING">PENDING (Belum Check-In)</option>
+                  <option value="CHECKED_IN">CHECKED_IN (Sudah Masuk)</option>
+                  <option value="CANCELLED">CANCELLED (Dibatalkan)</option>
+                </select>
+                {onNavigate && (
+                  <button
+                    onClick={() => {
+                      setIsBookingModalOpen(false);
+                      onNavigate('adm-booking');
+                    }}
+                    className="px-4 py-2.5 bg-purple-50 text-purple-700 hover:bg-purple-100 rounded-2xl text-xs font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1.5 cursor-pointer"
+                  >
+                    + Buat Booking
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Bookings List */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar py-6 space-y-4">
+              {(() => {
+                let filtered = safeBookingsList;
+                if (bookingFilterStatus !== 'ALL') {
+                  filtered = filtered.filter(b => {
+                    const status = b.status || 'PENDING';
+                    return status === bookingFilterStatus;
+                  });
+                }
+                if (bookingSearchQuery.trim()) {
+                  const q = bookingSearchQuery.toLowerCase().trim();
+                  filtered = filtered.filter(b =>
+                    (b.patientName || '').toLowerCase().includes(q) ||
+                    (b.noRM || '').toLowerCase().includes(q) ||
+                    (b.plannedRoom || '').toLowerCase().includes(q) ||
+                    (b.patientStatus || '').toLowerCase().includes(q)
+                  );
+                }
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="py-16 text-center text-slate-400 font-bold italic border-2 border-dashed border-slate-100 rounded-3xl">
+                      Tidak ada data bookingan pasien yang sesuai dengan pencarian/filter.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {filtered.map((b) => {
+                      const currentStatus = b.status || 'PENDING';
+                      const isPending = currentStatus === 'PENDING';
+                      const isCheckedIn = currentStatus === 'CHECKED_IN';
+
+                      return (
+                        <div
+                          key={b.id || `${b.noRM}_${b.bookingDate}`}
+                          className={`p-5 rounded-3xl border transition-all flex flex-col justify-between ${
+                            isPending
+                              ? 'bg-purple-50/30 border-purple-200/80 hover:border-purple-400 hover:shadow-md'
+                              : isCheckedIn
+                              ? 'bg-emerald-50/20 border-emerald-100 opacity-80'
+                              : 'bg-slate-50 border-slate-200 opacity-60'
+                          }`}
+                        >
+                          <div>
+                            <div className="flex justify-between items-start mb-2">
+                              <span className="text-[10px] font-black text-purple-700 uppercase tracking-widest bg-purple-100 px-2.5 py-0.5 rounded-lg">
+                                {b.plannedRoom || 'Rawat Inap'}
+                              </span>
+                              <span
+                                className={`text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full ${
+                                  isPending
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : isCheckedIn
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-rose-100 text-rose-800'
+                                }`}
+                              >
+                                {currentStatus}
+                              </span>
+                            </div>
+
+                            <h4 className="text-base font-black text-slate-800 uppercase leading-snug">
+                              {b.patientName}
+                            </h4>
+                            <div className="flex items-center gap-2 text-xs font-bold text-slate-500 mt-1">
+                              <span className="text-purple-600 font-mono">RM: {b.noRM}</span>
+                              <span>•</span>
+                              <span>Tgl: {b.bookingDate} ({b.bookingTime || '08:00'})</span>
+                            </div>
+
+                            {b.patientStatus && (
+                              <div className="mt-2 text-[10px] font-black text-slate-500 uppercase tracking-wider bg-white/80 p-2 rounded-xl border border-slate-100 inline-block">
+                                Asal: {b.patientStatus}
+                              </div>
+                            )}
+
+                            {b.notes && (
+                              <p className="mt-2 text-xs text-slate-600 italic bg-white/60 p-2.5 rounded-xl border border-slate-100">
+                                "{b.notes}"
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                            <span className="text-[9px] text-slate-400 font-bold uppercase">
+                              Oleh: {b.createdBy || 'Petugas'}
+                            </span>
+
+                            {isPending && (
+                              <button
+                                onClick={() => {
+                                  setIsBookingModalOpen(false);
+                                  if (onCheckInBooking) {
+                                    onCheckInBooking(b);
+                                  } else {
+                                    if (onNavigate) onNavigate('adm-booking');
+                                  }
+                                }}
+                                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-md shadow-emerald-200 flex items-center gap-1.5 cursor-pointer active:scale-95"
+                              >
+                                <UserCheck size={14} /> Check-In Pasien Ini
+                              </button>
+                            )}
+
+                            {isCheckedIn && (
+                              <span className="text-[10px] font-black text-emerald-600 uppercase flex items-center gap-1">
+                                <Check size={14} /> Sudah Ter-Check-In
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="pt-4 border-t border-slate-100 flex justify-end gap-3">
+              <Button
+                variant="ghost"
+                onClick={() => setIsBookingModalOpen(false)}
+                className="px-6 py-3 rounded-2xl font-black uppercase tracking-widest bg-slate-100 text-slate-600"
+              >
+                Tutup
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 });

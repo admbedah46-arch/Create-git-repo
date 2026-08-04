@@ -1,6 +1,6 @@
 import { RoomBooking } from '../types';
 import { getDB, saveDB, registerDeletedId, uploadDataBackground } from '../db';
-import { pushItemToFirestoreCollection } from '../firestoreSync';
+import { pushItemToFirestoreCollection, deleteItemFromFirestoreCollection } from '../firestoreSync';
 import { googleAppsScriptService } from './googleAppsScriptService';
 import { pushRealtimeUpdateDebounced } from './realtimeSyncService';
 
@@ -112,22 +112,50 @@ export const bookingService = {
   // 4. Delete Booking
   async deleteBooking(id: string): Promise<boolean> {
     const db = getDB();
-    registerDeletedId(String(id));
+    const idStr = String(id);
+    registerDeletedId(idStr);
 
     if (Array.isArray(db.booking_ruangan)) {
-      db.booking_ruangan = db.booking_ruangan.filter((b) => String(b.id) !== String(id));
+      db.booking_ruangan = db.booking_ruangan.filter((b) => String(b.id) !== idStr);
     }
     if (Array.isArray(db.roomBookings)) {
-      db.roomBookings = db.roomBookings.filter((b) => String(b.id) !== String(id));
+      db.roomBookings = db.roomBookings.filter((b) => String(b.id) !== idStr);
     }
 
     saveDB(db);
 
-    // Broadcast instant multi-device Realtime signal
-    pushRealtimeUpdateDebounced('sensus_bedah/room_bookings', { bookingId: id, action: 'DELETE' }, 300);
+    try {
+      await deleteItemFromFirestoreCollection('booking_ruangan', idStr);
+      await deleteItemFromFirestoreCollection('roomBookings', idStr);
+    } catch (err) {
+      console.warn('[BookingService] Cloud booking deletion warning:', err);
+    }
+
+    pushRealtimeUpdateDebounced('sensus_bedah/room_bookings', { bookingId: idStr, action: 'DELETE' }, 300);
 
     uploadDataBackground();
     return true;
+  },
+
+  // 5. Check-In Booking
+  async checkInBooking(booking: RoomBooking, roomDetails?: { roomName?: string; bedNo?: string; user?: string }): Promise<RoomBooking | null> {
+    const nowIso = new Date().toISOString();
+    const updates: Partial<RoomBooking> = {
+      status: 'CHECKED_IN',
+      checkedInAt: nowIso,
+      checkedInBy: roomDetails?.user || 'Admisi',
+      updatedAt: nowIso
+    };
+    if (roomDetails?.roomName) {
+      updates.plannedRoom = roomDetails.roomName;
+    }
+    return this.updateBooking(booking.id, updates);
   }
 };
+
+export const getBookings = () => bookingService.getBookings();
+export const createBooking = (b: Omit<RoomBooking, 'id'>) => bookingService.createBooking(b);
+export const updateBooking = (id: string, u: Partial<RoomBooking>) => bookingService.updateBooking(id, u);
+export const deleteBooking = (id: string) => bookingService.deleteBooking(id);
+export const checkInBooking = (booking: RoomBooking, roomDetails?: { roomName?: string; bedNo?: string; user?: string }) => bookingService.checkInBooking(booking, roomDetails);
 

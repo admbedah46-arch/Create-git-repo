@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { FinanceRecord, DoctorChargeEntry, MasterData, Patient, User as AppUser, DoctorVisitRecord, compareDatesSafe, parseToStandardDateString } from '../../types';
+import { STANDAR_ICD10 } from '../../constants';
 import { Button } from '../Button';
-import { STANDAR_ICD10 } from '../Finance/AdminRegistrasiModule';
 import { SearchableSelect } from '../SearchableSelect';
 import { 
   Plus, Search, Download, BarChart3, Stethoscope, Briefcase, 
@@ -92,10 +92,20 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
   const [showForm, setShowForm] = useState(false);
   const [showImportArea, setShowImportArea] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const getCurrentMonthRange = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const start = `${year}-${month}-01`;
+    const lastDayNum = new Date(year, now.getMonth() + 1, 0).getDate();
+    const end = `${year}-${month}-${String(lastDayNum).padStart(2, '0')}`;
+    return { start, end };
+  };
+
   const [selectedKSM, setSelectedKSM] = useState('Semua KSM');
   const [selectedDoctor, setSelectedDoctor] = useState('Semua Dokter');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [startDate, setStartDate] = useState(() => getCurrentMonthRange().start);
+  const [endDate, setEndDate] = useState(() => getCurrentMonthRange().end);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportMode, setExportMode] = useState<'range' | 'monthYear'>('range');
   const [exportMonth, setExportMonth] = useState<number>(new Date().getMonth() + 1);

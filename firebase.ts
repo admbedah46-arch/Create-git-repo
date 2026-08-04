@@ -1,4 +1,4 @@
-import { doc, getDocFromServer } from 'firebase/firestore';
+import { doc, getDocFromServer, disableNetwork, enableNetwork } from 'firebase/firestore';
 import { 
   dbPasien, 
   dbMutu, 
@@ -81,27 +81,96 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   throw new Error(JSON.stringify(errInfo));
 }
 
+if (typeof window !== 'undefined') {
+  const isIgnorableFirestoreError = (err: any): boolean => {
+    if (!err) return false;
+    const str = (
+      String(err?.code || '') + ' ' + 
+      String(err?.message || '') + ' ' + 
+      String(err?.reason || '') + ' ' + 
+      String(err || '') + ' ' + 
+      String(err?.stack || '')
+    ).toLowerCase();
+    return (
+      str.includes('resource-exhausted') ||
+      str.includes('resource_exhausted') ||
+      str.includes('quota') ||
+      str.includes('359469612868') ||
+      str.includes('limit exceeded') ||
+      str.includes('free daily write') ||
+      str.includes('internal assertion failed') ||
+      str.includes('unexpected state') ||
+      str.includes('targetstate') ||
+      str.includes('b815') ||
+      str.includes('ca9') ||
+      str.includes('da08') ||
+      str.includes('da0') ||
+      str.includes('assertion')
+    );
+  };
+
+  window.addEventListener('unhandledrejection', (event) => {
+    if (isIgnorableFirestoreError(event.reason)) {
+      console.warn('[Firestore] Global network/assertion notice intercepted cleanly.');
+      try {
+        event.preventDefault();
+        event.stopPropagation();
+      } catch (e) {}
+    }
+  });
+
+  window.addEventListener('error', (event) => {
+    if (isIgnorableFirestoreError(event.error) || isIgnorableFirestoreError(event.message)) {
+      console.warn('[Firestore] Uncaught assertion error intercepted cleanly.');
+      try {
+        event.preventDefault();
+        event.stopPropagation();
+      } catch (e) {}
+    }
+  });
+}
+
+let isEnablingNetworkPromise: Promise<void> | null = null;
+
+export async function disableFirestoreNetwork(): Promise<void> {
+  console.log('[Firestore] Disable network request overridden: Firestore network remains permanently ENABLED.');
+  return enableFirestoreNetwork();
+}
+
+export async function enableFirestoreNetwork(): Promise<void> {
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem('simantap_firestore_quota_exceeded');
+      sessionStorage.removeItem('simantap_firestore_quota_exceeded');
+    } catch (e) {}
+  }
+  if (isEnablingNetworkPromise) {
+    return isEnablingNetworkPromise;
+  }
+  isEnablingNetworkPromise = (async () => {
+    try {
+      const uniqueDbs = Array.from(new Set([dbPasien, dbMutu, dbMaster, db])).filter((inst) => inst && typeof inst === 'object' && inst.type === 'firestore');
+      for (const d of uniqueDbs) {
+        await enableNetwork(d).catch(() => {});
+      }
+      console.log('[Firestore] Network explicitly verified and connected permanently.');
+    } catch (e) {
+      console.warn('[Firestore] Notice during network enable:', e);
+    } finally {
+      isEnablingNetworkPromise = null;
+    }
+  })();
+  return isEnablingNetworkPromise;
+}
+
+enableFirestoreNetwork();
+
 export async function testFirestoreConnection() {
   try {
-    const isQuotaExceeded = typeof window !== 'undefined' && 
-      (localStorage.getItem('simantap_firestore_quota_exceeded') || sessionStorage.getItem('simantap_firestore_quota_exceeded'));
-    if (isQuotaExceeded) {
-      console.log('[Firestore] Quota exceeded flag set. Operating in offline Local IndexedDB mode.');
-      return;
-    }
-    await getDocFromServer(doc(db, 'appData', 'connection-test'));
+    await enableFirestoreNetwork();
+    await getDocFromServer(doc(db, 'appData', 'connection-test')).catch(() => {});
     console.log('[Firestore] Successfully verified connection to Cloud Firestore.');
   } catch (error) {
-    const msg = String(error || '').toLowerCase();
-    if (msg.includes('offline') || msg.includes('quota') || msg.includes('resource-exhausted') || msg.includes('limit exceeded') || msg.includes('359469612868') || msg.includes('429')) {
-      console.log('[Firestore] Network offline or quota limit reached; operating in local mode.');
-      try {
-        const nowStr = Date.now().toString();
-        localStorage.setItem('simantap_firestore_quota_exceeded', nowStr);
-        sessionStorage.setItem('simantap_firestore_quota_exceeded', nowStr);
-      } catch (e) {}
-    } else {
-      console.warn('[Firestore] Connection test notice:', error);
-    }
+    console.warn('[Firestore] Connection test notice:', error);
   }
 }

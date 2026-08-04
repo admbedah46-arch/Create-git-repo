@@ -12,6 +12,8 @@ export default defineConfig({
     exclude: ['lucide-react'],
   },
   build: {
+    outDir: 'dist',
+    emptyOutDir: true,
     chunkSizeWarningLimit: 1600,
   },
 });
